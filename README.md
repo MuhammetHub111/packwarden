@@ -1,11 +1,13 @@
 # PackWarden 🛡️📦
 
-**Bulk application manager for every Linux distribution.** Every
-installed application from every package source in one window — search
-it, sort it by size, multi-select and remove in bulk, clean up
-leftovers, and keep backups. Works the same on Arch, Debian, Fedora,
-openSUSE and beyond — and if you are coming from Windows, this is the
-Bulk Crap Uninstaller you have been missing.
+**Bulk application manager for every Linux distribution.** PackWarden
+shows every installed application from every package source in a single
+window. You can search the list, sort it by size, select multiple
+applications and remove them in bulk. It also cleans up leftover files
+and keeps a backup before anything is removed. It works the same way on
+Arch, Debian, Fedora, openSUSE and many other distributions. If you are
+coming from Windows, this is the Bulk Crap Uninstaller you have been
+missing.
 
 | Main window |
 |---|
