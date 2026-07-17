@@ -7,6 +7,7 @@ from .flatpak import FlatpakBackend
 from .nix import NixBackend
 from .pacman import PacmanBackend
 from .portage import PortageBackend
+from .selfinstall import SelfInstallBackend
 from .snap import SnapBackend
 from .xbps import XbpsBackend
 from .zypper import ZypperBackend
@@ -25,6 +26,7 @@ ALL_BACKENDS: list[type[Backend]] = [
     FlatpakBackend,   # dağıtımdan bağımsız
     SnapBackend,      # dağıtımdan bağımsız
     AppImageBackend,  # dağıtımdan bağımsız
+    SelfInstallBackend,  # PackWarden'ın kendisi (install.sh kurulumu)
 ]
 
 

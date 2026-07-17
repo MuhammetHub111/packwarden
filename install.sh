@@ -9,8 +9,17 @@ DIR="$HOME/.local/share/packwarden"
 BIN="$HOME/.local/bin"
 APPS="$HOME/.local/share/applications"
 
+desktop_dir() {
+    if command -v xdg-user-dir >/dev/null 2>&1; then
+        xdg-user-dir DESKTOP
+    else
+        echo "$HOME/Desktop"
+    fi
+}
+
 if [ "$1" = "remove" ] || [ "$1" = "--remove" ]; then
     rm -rf "$DIR" "$BIN/packwarden" "$APPS/packwarden.desktop"
+    rm -f "$(desktop_dir)/packwarden.desktop"
     command -v kbuildsycoca6 >/dev/null 2>&1 && kbuildsycoca6 2>/dev/null || true
     command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$APPS" 2>/dev/null || true
     echo "PackWarden removed."
@@ -62,6 +71,20 @@ DESKTOP
 
 command -v kbuildsycoca6 >/dev/null 2>&1 && kbuildsycoca6 2>/dev/null || true
 command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$APPS" 2>/dev/null || true
+
+# Masaüstü kısayolu sorusu: curl | sh ile bile klavyeden okuyabilmek
+# için /dev/tty kullanılır; etkileşimli değilse sessizce atlanır
+REPLY=""
+if { printf "Add a desktop icon? [y/N] " && read -r REPLY; } < /dev/tty > /dev/tty 2>/dev/null; then :; fi
+case "$REPLY" in
+    [yYeE]*)
+        DESK="$(desktop_dir)"
+        mkdir -p "$DESK"
+        cp "$APPS/packwarden.desktop" "$DESK/packwarden.desktop"
+        chmod +x "$DESK/packwarden.desktop" 2>/dev/null || true
+        echo "Desktop icon added."
+        ;;
+esac
 
 echo ""
 echo "Done! PackWarden is in your application menu."
