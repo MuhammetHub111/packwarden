@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e01b24"/>
+      <stop offset="1" stop-color="#a51d2d"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="112" height="112" rx="26" fill="url(#bg)"/>
+  <!-- stacked boxes = bulk packages -->
+  <g fill="#ffffff" opacity="0.35">
+    <rect x="30" y="70" width="24" height="24" rx="4"/>
+    <rect x="58" y="70" width="24" height="24" rx="4"/>
+    <rect x="44" y="42" width="24" height="24" rx="4"/>
+  </g>
+  <!-- broom sweep -->
+  <g stroke="#ffffff" stroke-width="7" stroke-linecap="round" fill="none">
+    <path d="M92 34 L70 62"/>
+  </g>
+  <path d="M62 58 L78 70 L60 88 L48 72 Z" fill="#ffffff"/>
+  <g stroke="#ffffff" stroke-width="4" stroke-linecap="round" opacity="0.8">
+    <path d="M42 96 L50 90"/>
+    <path d="M54 100 L60 94"/>
+    <path d="M32 88 L40 82"/>
+  </g>
+</svg>

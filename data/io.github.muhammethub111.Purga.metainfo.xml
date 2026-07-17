@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.muhammethub111.Purga</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+
+  <name>Purga</name>
+  <summary>Uninstall packages in bulk on any distribution</summary>
+  <summary xml:lang="tr">Her dağıtımda uygulamaları toplu kaldırın</summary>
+
+  <description>
+    <p>
+      Purga lists every application installed on your system —
+      from pacman, APT, DNF and Flatpak — in a single window, and lets you
+      select and remove them in bulk. Inspired by Bulk Crap Uninstaller
+      on Windows.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>One list for all package managers: pacman, APT, DNF, Flatpak</li>
+      <li>Search, filter by source, sort by installed size</li>
+      <li>Batch uninstall with a single confirmation</li>
+      <li>Secure privilege handling through polkit (pkexec)</li>
+    </ul>
+  </description>
+
+  <developer id="io.github.muhammethub111">
+    <name>Muhammet</name>
+  </developer>
+
+  <launchable type="desktop-id">io.github.muhammethub111.Purga.desktop</launchable>
+
+  <!-- TODO: GitHub deposu açılınca gerçek adresle güncelle -->
+  <url type="homepage">https://github.com/MuhammetHub111/bulk-uninstaller</url>
+  <url type="bugtracker">https://github.com/MuhammetHub111/bulk-uninstaller/issues</url>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="0.1.0" date="2026-07-16">
+      <description>
+        <p>First release: pacman, APT, DNF and Flatpak support with bulk removal.</p>
+      </description>
+    </release>
+  </releases>
+
+  <requires>
+    <display_length compare="ge">700</display_length>
+  </requires>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+    <control>touch</control>
+  </supports>
+</component>
