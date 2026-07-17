@@ -6,7 +6,7 @@ package source in one window — search it, sort it by size, multi-select
 and remove in bulk, clean up leftovers, and keep backups. In English and
 Turkish.
 
-**🌐 Language:** [English](README.md) · [Türkçe](README.tr.md)
+**🌐 Language:** [English](https://github.com/MuhammetHub111/packwarden#readme) · [Türkçe](https://github.com/MuhammetHub111/packwarden/blob/main/README.tr.md)
 
 ![PackWarden main window](data/screenshots/main.png)
 
