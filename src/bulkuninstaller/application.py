@@ -47,12 +47,15 @@ class PackWardenApp(Adw.Application):
             application_name="PackWarden",
             application_icon=APP_ID,
             version=VERSION,
-            developer_name="Muhammet",
+            developer_name="MuhammetHub111",
+            website="https://github.com/MuhammetHub111/packwarden",
+            issue_url="https://github.com/MuhammetHub111/packwarden/issues",
             license_type=7,  # Gtk.License.GPL_3_0
             comments=_(
-                "Batch uninstaller for every Linux distribution. "
-                "Lists packages from pacman, APT, DNF and Flatpak, "
-                "and removes them in bulk."
+                "PackWarden is a bulk application manager for Linux. "
+                "It shows all the applications installed on your system "
+                "in one window and lets you remove the ones you no "
+                "longer need, cleanly and safely, on any distribution."
             ),
         )
         about.present(self.props.active_window)

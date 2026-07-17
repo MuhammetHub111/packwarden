@@ -37,9 +37,15 @@ class MainWindow(Adw.ApplicationWindow):
         self._apps_only = bool(prefs.get("apps_only"))
         self._context_item = None  # sağ tık yapılan satırın paketi
         # Basılı tutunca açılan seçim modu: açıkken normal tıklamalar
-        # seçime ekler/çıkarır (telefondaki gibi)
+        # seçime ekler/çıkarır (telefondaki gibi). Liste bileşeninin
+        # yerleşik "tık = tek seçim" davranışı seçimi ezdiği için mod
+        # boyunca istenen seçim _mode_positions'ta tutulur ve her
+        # ezilmede yeniden uygulanır.
         self._selection_mode = False
+        self._mode_positions: set[int] = set()
+        self._applying_selection = False
         self._setup_context_actions()
+        self._setup_css()
         self._search_text = ""
         # (backend_id | None, origin | None): (None, None) = tümü
         self._source_filter = (None, None)
@@ -58,6 +64,22 @@ class MainWindow(Adw.ApplicationWindow):
         self.refresh()
 
     # ---------------- UI construction ----------------
+
+    def _setup_css(self):
+        css = b"""
+        .selection-pill {
+            background-color: @accent_bg_color;
+            border-radius: 99px;
+            min-width: 6px;
+            min-height: 28px;
+        }
+        """
+        provider = Gtk.CssProvider()
+        provider.load_from_data(css)
+        Gtk.StyleContext.add_provider_for_display(
+            self.get_display(), provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+        )
 
     def _setup_icon_theme(self):
         """Uygulama simgelerini bulmak için Flatpak dışa aktarma
@@ -139,9 +161,7 @@ class MainWindow(Adw.ApplicationWindow):
         # Çoklu seçim: tık = seç, Ctrl+tık = ekle, Shift+tık = aralık,
         # sürükleme = kutuyla toplu seçim (rubber band)
         self._selection = Gtk.MultiSelection(model=self._sort_model)
-        self._selection.connect(
-            "selection-changed", lambda *_a: self._update_count_label()
-        )
+        self._selection.connect("selection-changed", self._on_selection_changed)
         self._list_view = Gtk.ListView(
             model=self._selection,
             enable_rubberband=True,
@@ -232,6 +252,14 @@ class MainWindow(Adw.ApplicationWindow):
     # ---------------- List rows ----------------
 
     def _on_row_setup(self, _factory, list_item):
+        # Seçim hapı: satır seçiliyken solda beliren oval gösterge
+        pill = Gtk.Box(css_classes=["selection-pill"], valign=Gtk.Align.CENTER)
+        pill.set_opacity(0)
+        list_item.connect(
+            "notify::selected",
+            lambda li, _p: pill.set_opacity(1 if li.get_selected() else 0),
+        )
+
         icon = Gtk.Image(pixel_size=32, valign=Gtk.Align.CENTER)
 
         name = Gtk.Label(xalign=0, css_classes=["heading"],
@@ -257,6 +285,7 @@ class MainWindow(Adw.ApplicationWindow):
             orientation=Gtk.Orientation.HORIZONTAL, spacing=12,
             margin_top=6, margin_bottom=6, margin_start=12, margin_end=12,
         )
+        row.append(pill)
         row.append(icon)
         row.append(text_box)
         row.append(badge_box)
@@ -321,14 +350,37 @@ class MainWindow(Adw.ApplicationWindow):
             action.connect("activate", handler)
             self.add_action(action)
 
+    def _apply_mode_selection(self):
+        """Mod seçimini modele uygula (yerleşik davranışın ezdiğini geri yaz)."""
+        chosen = Gtk.Bitset.new_empty()
+        for position in self._mode_positions:
+            chosen.add(position)
+        everything = Gtk.Bitset.new_range(0, self._selection.get_n_items())
+        self._applying_selection = True
+        self._selection.set_selection(chosen, everything)
+        self._applying_selection = False
+        self._update_count_label()
+        return GLib.SOURCE_REMOVE
+
+    def _on_selection_changed(self, *_args):
+        if self._selection_mode and not self._applying_selection:
+            bitset = self._selection.get_selection()
+            current = {
+                bitset.get_nth(n) for n in range(bitset.get_size())
+            }
+            if current != self._mode_positions:
+                # Yerleşik tıklama seçimi ezdi; bizimkini geri yükle
+                GLib.idle_add(self._apply_mode_selection)
+        self._update_count_label()
+
     def _on_row_long_press(self, gesture, _x, _y, list_item):
         item = list_item.get_item()
         if item is None or self._busy:
             return
         gesture.set_state(Gtk.EventSequenceState.CLAIMED)
         self._selection_mode = True
-        self._selection.select_item(list_item.get_position(), False)
-        self._update_count_label()
+        self._mode_positions.add(list_item.get_position())
+        self._apply_mode_selection()
 
     def _on_row_toggle_click(self, gesture, _n_press, _x, _y, list_item):
         if not self._selection_mode:
@@ -338,17 +390,18 @@ class MainWindow(Adw.ApplicationWindow):
             return
         gesture.set_state(Gtk.EventSequenceState.CLAIMED)
         position = list_item.get_position()
-        if self._selection.is_selected(position):
-            self._selection.unselect_item(position)
-            if not self._selected_items():
+        if position in self._mode_positions:
+            self._mode_positions.discard(position)
+            if not self._mode_positions:
                 self._selection_mode = False  # seçim bitti, mod kapanır
         else:
-            self._selection.select_item(position, False)
-        self._update_count_label()
+            self._mode_positions.add(position)
+        self._apply_mode_selection()
 
     def _exit_selection_mode(self):
         if self._selection_mode:
             self._selection_mode = False
+            self._mode_positions.clear()
             self._selection.unselect_all()
             self._update_count_label()
 
@@ -558,11 +611,13 @@ class MainWindow(Adw.ApplicationWindow):
         return (an > bn) - (an < bn)
 
     def _on_search_changed(self, entry):
+        self._exit_selection_mode()  # liste değişince konumlar kayar
         self._search_text = entry.get_text().strip().lower()
         self._filter.changed(Gtk.FilterChange.DIFFERENT)
         self._update_count_label()
 
     def _on_source_changed(self, dropdown, _pspec):
+        self._exit_selection_mode()  # liste değişince konumlar kayar
         index = dropdown.get_selected()
         if 0 <= index < len(self._source_choices):
             self._source_filter = self._source_choices[index]
@@ -572,6 +627,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._update_count_label()
 
     def _on_sort_changed(self, dropdown, _pspec):
+        self._exit_selection_mode()  # liste değişince konumlar kayar
         self._sort_mode = dropdown.get_selected()
         self._sorter.changed(Gtk.SorterChange.DIFFERENT)
 

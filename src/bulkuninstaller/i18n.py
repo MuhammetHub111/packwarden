@@ -102,10 +102,14 @@ TR = {
     "Latest version on disk": "Diskteki en son sürüm",
     "Update and Restart": "Güncelle ve Yeniden Başlat",
     "Restart App": "Uygulamayı Yeniden Başlat",
-    "Batch uninstaller for every Linux distribution. Lists packages from "
-    "pacman, APT, DNF and Flatpak, and removes them in bulk.":
-        "Tüm Linux dağıtımları için toplu uygulama kaldırıcı. pacman, APT, "
-        "DNF ve Flatpak paketlerini tek listede gösterir ve topluca kaldırır.",
+    "PackWarden is a bulk application manager for Linux. It shows all "
+    "the applications installed on your system in one window and lets "
+    "you remove the ones you no longer need, cleanly and safely, on "
+    "any distribution.":
+        "PackWarden, Linux için toplu uygulama yöneticisidir. Sisteminde "
+        "kurulu tüm uygulamaları tek pencerede gösterir ve artık ihtiyaç "
+        "duymadıklarını her dağıtımda temiz ve güvenli şekilde kaldırmanı "
+        "sağlar.",
 }
 
 
