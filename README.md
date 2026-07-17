@@ -14,15 +14,16 @@ the ones you no longer need, cleanly and safely, on any distribution.
 
 ## Installation
 
-One command installs PackWarden and adds it to your application menu:
+This command installs the application:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/MuhammetHub111/packwarden/main/install.sh | sh
 ```
 
-That is all. Open your application menu and search for PackWarden.
+After the installation, open your application menu and search for
+PackWarden.
 
-To remove it later:
+This command removes the application:
 
 ```sh
 sh ~/.local/share/packwarden/install.sh remove
