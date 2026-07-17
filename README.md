@@ -10,9 +10,9 @@ the ones you no longer need, cleanly and safely, on any distribution.
 |---|
 | ![Main window](data/screenshots/main.png) |
 
-| Removal with leftover cleanup | Settings |
-|---|---|
-| ![Removal confirmation](data/screenshots/removal.png) | ![Settings](data/screenshots/settings.png) |
+| Removal with leftover cleanup | System protection warning | Settings |
+|---|---|---|
+| ![Removal confirmation](data/screenshots/removal.png) | ![System protection warning](data/screenshots/protection.png) | ![Settings](data/screenshots/settings.png) |
 
 ## Features
 
