@@ -29,17 +29,21 @@ Everyone gets a cleaner system.
 
 ## Installation
 
-PackWarden is not on Flathub yet. That is planned. Until then you can
-run it from source with three commands:
+One command installs PackWarden and adds it to your application menu:
 
 ```sh
-git clone https://github.com/MuhammetHub111/packwarden.git
-cd packwarden
-sh run.sh
+curl -fsSL https://raw.githubusercontent.com/MuhammetHub111/packwarden/main/install.sh | sh
 ```
 
-You need Python 3.10 or newer, GTK4, libadwaita and PyGObject. Modern
-GNOME and KDE systems already ship all of them.
+That is all. Open your application menu and search for PackWarden.
+
+To remove it later:
+
+```sh
+sh ~/.local/share/packwarden/install.sh remove
+```
+
+A Flathub release is planned.
 
 ## License
 
