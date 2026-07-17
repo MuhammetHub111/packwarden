@@ -4,9 +4,11 @@ PackWarden is a bulk application manager for Linux. It shows all the
 applications installed on your system in one window and lets you remove
 the ones you no longer need, cleanly and safely, on any distribution.
 
-| Screenshot of the application |
+## Screenshots
+
+| Main window |
 |---|
-| ![Screenshot of the application](data/screenshots/main.png) |
+| ![Main window](data/screenshots/main.png) |
 
 | Removal with leftover cleanup | Settings |
 |---|---|
