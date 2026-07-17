@@ -1,5 +1,3 @@
-**🌐 Language:** **English** · [Türkçe](https://github.com/MuhammetHub111/packwarden-tr)
-
 # PackWarden 🛡️📦
 
 **Bulk application manager for every Linux distribution.** Inspired by
