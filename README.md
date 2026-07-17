@@ -1,9 +1,10 @@
 # PackWarden 🛡️📦
 
-**Bulk application manager for every Linux distribution.** Inspired by
-Bulk Crap Uninstaller on Windows: every installed application from every
-package source in one window — search it, sort it by size, multi-select
-and remove in bulk, clean up leftovers, and keep backups.
+**Bulk application manager for every Linux distribution.** New to Linux
+and missing Bulk Crap Uninstaller from Windows? PackWarden is built for
+you: every installed application from every package source in one
+window — search it, sort it by size, multi-select and remove in bulk,
+clean up leftovers, and keep backups.
 
 ![PackWarden main window](data/screenshots/main.png)
 
