@@ -27,6 +27,20 @@ Everyone gets a cleaner system.
 |---|---|
 | ![Removal confirmation](data/screenshots/removal.png) | ![Settings](data/screenshots/settings.png) |
 
+## Installation
+
+PackWarden is not on Flathub yet. That is planned. Until then you can
+run it from source with three commands:
+
+```sh
+git clone https://github.com/MuhammetHub111/packwarden.git
+cd packwarden
+sh run.sh
+```
+
+You need Python 3.10 or newer, GTK4, libadwaita and PyGObject. Modern
+GNOME and KDE systems already ship all of them.
+
 ## License
 
 GPL-3.0-or-later
