@@ -10,6 +10,10 @@ Turkish.
 
 ![PackWarden main window](data/screenshots/main.png)
 
+| Removal with leftover cleanup | Settings |
+|---|---|
+| ![Removal confirmation](data/screenshots/removal.png) | ![Settings](data/screenshots/settings.png) |
+
 ## Features
 
 - **Every package source, one list** — backends are auto-detected at

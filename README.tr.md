@@ -9,6 +9,10 @@ topluca kaldır, kalıntıları temizle, yedeğini al. Türkçe ve İngilizce.
 
 ![PackWarden ana pencere](data/screenshots/main.png)
 
+| Kalıntı temizlikli kaldırma | Ayarlar |
+|---|---|
+| ![Kaldırma onayı](data/screenshots/removal.png) | ![Ayarlar](data/screenshots/settings.png) |
+
 ## Özellikler
 
 - **Tüm kaynaklar tek listede** — açılışta otomatik algılanır, boş
