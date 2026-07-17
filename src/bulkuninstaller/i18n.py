@@ -21,6 +21,7 @@ TR = {
         "Tüm kaynaklardan kurulu paketler okunuyor",
     "{shown} of {total} packages": "{total} paketten {shown} tanesi",
     "{count} selected": "{count} seçildi",
+    "Selection mode (Esc to finish)": "Seçim modu (bitirmek için Esc)",
     "Uninstall {count} selected…": "Seçilen {count} uygulamayı kaldır…",
     "Uninstall {count} packages?": "{count} paket kaldırılsın mı?",
     "Cancel": "Vazgeç",

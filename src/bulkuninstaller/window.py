@@ -36,6 +36,9 @@ class MainWindow(Adw.ApplicationWindow):
         self._launcher_map: dict[str, str] = {}
         self._apps_only = bool(prefs.get("apps_only"))
         self._context_item = None  # sağ tık yapılan satırın paketi
+        # Basılı tutunca açılan seçim modu: açıkken normal tıklamalar
+        # seçime ekler/çıkarır (telefondaki gibi)
+        self._selection_mode = False
         self._setup_context_actions()
         self._search_text = ""
         # (backend_id | None, origin | None): (None, None) = tümü
@@ -186,6 +189,16 @@ class MainWindow(Adw.ApplicationWindow):
         self._toast_overlay = Adw.ToastOverlay(child=toolbar_view)
         self.set_content(self._toast_overlay)
 
+        key_controller = Gtk.EventControllerKey()
+        key_controller.connect("key-pressed", self._on_key_pressed)
+        self.add_controller(key_controller)
+
+    def _on_key_pressed(self, _controller, keyval, _keycode, _state):
+        if keyval == Gdk.KEY_Escape and self._selection_mode:
+            self._exit_selection_mode()
+            return True
+        return False
+
     def _on_pan_begin(self, _gesture, _x, _y):
         self._pan_dy = 0.0
         self._pan_last_time = None
@@ -253,6 +266,20 @@ class MainWindow(Adw.ApplicationWindow):
         gesture.connect("pressed", self._on_row_right_click, list_item)
         row.add_controller(gesture)
 
+        # Basılı tutma: seçim modunu başlatır (fare ve dokunmatik)
+        long_press = Gtk.GestureLongPress(touch_only=False)
+        long_press.connect("pressed", self._on_row_long_press, list_item)
+        row.add_controller(long_press)
+
+        # Seçim modu açıkken sol tık seçime ekler/çıkarır; kapalıyken
+        # bu denetleyici olaya karışmaz ve normal davranış sürer
+        toggle_click = Gtk.GestureClick(
+            button=Gdk.BUTTON_PRIMARY,
+            propagation_phase=Gtk.PropagationPhase.CAPTURE,
+        )
+        toggle_click.connect("pressed", self._on_row_toggle_click, list_item)
+        row.add_controller(toggle_click)
+
         list_item.set_child(row)
         list_item.icon = icon
         list_item.name_label = name
@@ -293,6 +320,37 @@ class MainWindow(Adw.ApplicationWindow):
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", handler)
             self.add_action(action)
+
+    def _on_row_long_press(self, gesture, _x, _y, list_item):
+        item = list_item.get_item()
+        if item is None or self._busy:
+            return
+        gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+        self._selection_mode = True
+        self._selection.select_item(list_item.get_position(), False)
+        self._update_count_label()
+
+    def _on_row_toggle_click(self, gesture, _n_press, _x, _y, list_item):
+        if not self._selection_mode:
+            return  # normal düzen: olaya karışma
+        item = list_item.get_item()
+        if item is None:
+            return
+        gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+        position = list_item.get_position()
+        if self._selection.is_selected(position):
+            self._selection.unselect_item(position)
+            if not self._selected_items():
+                self._selection_mode = False  # seçim bitti, mod kapanır
+        else:
+            self._selection.select_item(position, False)
+        self._update_count_label()
+
+    def _exit_selection_mode(self):
+        if self._selection_mode:
+            self._selection_mode = False
+            self._selection.unselect_all()
+            self._update_count_label()
 
     def _selected_items(self):
         """Vurgulanarak seçilmiş satırların paketleri."""
@@ -603,4 +661,6 @@ class MainWindow(Adw.ApplicationWindow):
             text += "  •  " + _("{count} selected").format(count=len(selected))
             if total_size:
                 text += f" ({format_size(total_size)})"
+        if self._selection_mode:
+            text = _("Selection mode (Esc to finish)") + "  •  " + text
         self._count_label.set_label(text)

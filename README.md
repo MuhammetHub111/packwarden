@@ -19,8 +19,9 @@ the ones you no longer need, cleanly and safely, on any distribution.
 - Lists installed applications from eleven package sources: pacman,
   APT, DNF, Zypper, APK, XBPS, Portage, Nix, Flatpak, Snap and
   AppImage. Sources are detected automatically.
-- Removes many applications at once. Select them with Ctrl, Shift or
-  by dragging, then confirm once.
+- Removes many applications at once. Select them with Ctrl, Shift, by
+  dragging, or hold down on a row to start tap selection. Then confirm
+  once.
 - Finds the leftover settings, caches and data of removed applications
   and deletes only the ones you tick.
 - Saves a backup to a folder you choose before anything is deleted.
