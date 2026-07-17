@@ -13,8 +13,10 @@
       PackWarden lists every application installed on your system, from
       pacman, APT, DNF and Flatpak, in a single window, and lets you
       select and remove them in bulk. It works the same on every
-      distribution. If you are coming from Windows, it is the Bulk Crap
-      Uninstaller you have been missing.
+      distribution. Experienced users get one fast tool instead of
+      separate package manager and cleanup commands. If you are coming
+      from Windows, it is the Bulk Crap Uninstaller you have been
+      missing.
     </p>
     <p>Features:</p>
     <ul>
