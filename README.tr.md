@@ -5,7 +5,7 @@ Bulk Crap Uninstaller'dan esinlenildi: her paket kaynağındaki kurulu
 uygulamalar tek pencerede — ara, boyuta göre sırala, çoklu seçimle
 topluca kaldır, kalıntıları temizle, yedeğini al. Türkçe ve İngilizce.
 
-*English: [README.md](README.md)*
+**🌐 Dil:** [English](README.md) · [Türkçe](README.tr.md)
 
 ![PackWarden ana pencere](data/screenshots/main.png)
 
