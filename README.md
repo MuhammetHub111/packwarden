@@ -7,7 +7,9 @@ leftovers, and keep backups. Works the same on Arch, Debian, Fedora,
 openSUSE and beyond — and if you are coming from Windows, this is the
 Bulk Crap Uninstaller you have been missing.
 
-![PackWarden main window](data/screenshots/main.png)
+| Main window |
+|---|
+| ![PackWarden main window](data/screenshots/main.png) |
 
 | Removal with leftover cleanup | Settings |
 |---|---|
