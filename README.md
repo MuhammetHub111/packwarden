@@ -1,4 +1,4 @@
-**🌐 Language:** **English** · [Türkçe](https://github.com/MuhammetHub111/packwarden/blob/main/README.tr.md)
+**🌐 Language:** **English** · [Türkçe](https://github.com/MuhammetHub111/packwarden/tree/main/tr)
 
 # PackWarden 🛡️📦
 

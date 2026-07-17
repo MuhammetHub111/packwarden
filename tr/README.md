@@ -7,11 +7,11 @@ Bulk Crap Uninstaller'dan esinlenildi: her paket kaynağındaki kurulu
 uygulamalar tek pencerede — ara, boyuta göre sırala, çoklu seçimle
 topluca kaldır, kalıntıları temizle, yedeğini al.
 
-![PackWarden ana pencere](data/screenshots/main.png)
+![PackWarden ana pencere](../data/screenshots/main.png)
 
 | Kalıntı temizlikli kaldırma | Ayarlar |
 |---|---|
-| ![Kaldırma onayı](data/screenshots/removal.png) | ![Ayarlar](data/screenshots/settings.png) |
+| ![Kaldırma onayı](../data/screenshots/removal.png) | ![Ayarlar](../data/screenshots/settings.png) |
 
 ## Özellikler
 
