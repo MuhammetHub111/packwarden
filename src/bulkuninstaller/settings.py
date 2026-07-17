@@ -1,8 +1,10 @@
-from gi.repository import Adw, Gtk
+import threading
+
+from gi.repository import Adw, GLib, Gtk
 
 from . import VERSION, prefs
 from .i18n import _
-from .updater import latest_version, restart_app, update_available
+from .updater import fetch_remote_version, is_newer
 
 
 class SettingsDialog(Adw.PreferencesDialog):
@@ -60,15 +62,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         language_row.connect("notify::selected", self._on_language_changed)
         language_group.add(language_row)
 
-        has_update = update_available()
-        group = Adw.PreferencesGroup(
-            title=_("Updates"),
-            description=(
-                _("A newer version is ready. Restart to use it.")
-                if has_update
-                else _("You are running the latest version.")
-            ),
-        )
+        group = Adw.PreferencesGroup(title=_("Updates"))
         page.add(group)
 
         running_row = Adw.ActionRow(
@@ -76,22 +70,18 @@ class SettingsDialog(Adw.PreferencesDialog):
         )
         group.add(running_row)
 
-        latest_row = Adw.ActionRow(
-            title=_("Latest version on disk"), subtitle=latest_version()
-        )
-        group.add(latest_row)
-
-        button = Gtk.Button(
-            label=_("Update and Restart") if has_update else _("Restart App"),
+        self._check_button = Gtk.Button(
+            label=_("Check for Updates"),
             valign=Gtk.Align.CENTER,
+            css_classes=["suggested-action"],
         )
-        if has_update:
-            button.add_css_class("suggested-action")
-        button.connect("clicked", self._on_restart)
+        self._check_button.connect("clicked", self._on_check_updates)
+        self._check_spinner = Gtk.Spinner(valign=Gtk.Align.CENTER)
 
-        button_row = Adw.ActionRow(title="")
-        button_row.add_suffix(button)
-        group.add(button_row)
+        check_row = Adw.ActionRow(title="")
+        check_row.add_suffix(self._check_spinner)
+        check_row.add_suffix(self._check_button)
+        group.add(check_row)
 
     def _on_language_changed(self, row, _pspec):
         index = row.get_selected()
@@ -108,6 +98,37 @@ class SettingsDialog(Adw.PreferencesDialog):
         else:
             prefs.set("apps_only", row.get_active())
 
-    def _on_restart(self, _button):
-        restart_app()
-        self._app.quit()
+    def _on_check_updates(self, _button):
+        self._check_button.set_sensitive(False)
+        self._check_spinner.set_spinning(True)
+
+        def worker():
+            remote = fetch_remote_version()
+            GLib.idle_add(self._on_check_done, remote)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_check_done(self, remote):
+        self._check_button.set_sensitive(True)
+        self._check_spinner.set_spinning(False)
+
+        if remote is None:
+            dialog = Adw.AlertDialog(
+                heading=_("Could not check for updates"),
+                body=_("Please check your internet connection and try again."),
+            )
+            dialog.add_response("ok", _("OK"))
+            dialog.present(self)
+        elif is_newer(remote):
+            from .updatewindow import UpdateWindow
+            UpdateWindow(
+                self._app.props.active_window, self._app, remote
+            ).present()
+        else:
+            dialog = Adw.AlertDialog(
+                heading=_("You are up to date"),
+                body=_("You are running the latest version."),
+            )
+            dialog.add_response("ok", _("OK"))
+            dialog.present(self)
+        return GLib.SOURCE_REMOVE

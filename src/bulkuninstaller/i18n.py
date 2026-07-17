@@ -95,13 +95,31 @@ TR = {
     "State logs": "Durum kayıtları",
     "Flatpak data": "Flatpak verileri",
     "Updates": "Güncellemeler",
-    "A newer version is ready. Restart to use it.":
-        "Daha yeni bir sürüm hazır. Kullanmak için yeniden başlat.",
     "You are running the latest version.": "En güncel sürümü kullanıyorsun.",
     "Running version": "Çalışan sürüm",
-    "Latest version on disk": "Diskteki en son sürüm",
-    "Update and Restart": "Güncelle ve Yeniden Başlat",
-    "Restart App": "Uygulamayı Yeniden Başlat",
+    "Check for Updates": "Güncellemeleri Denetle",
+    "Could not check for updates": "Güncellemeler denetlenemedi",
+    "Please check your internet connection and try again.":
+        "İnternet bağlantını kontrol edip tekrar dene.",
+    "You are up to date": "Güncelsin",
+    "PackWarden Update": "PackWarden Güncellemesi",
+    "PackWarden {version} is ready": "PackWarden {version} hazır",
+    "Current version: {version}": "Şu anki sürüm: {version}",
+    "Details": "Ayrıntılar",
+    "Release notes": "Güncelleme notları",
+    "Update": "Güncelle",
+    "Restart Now": "Şimdi Yeniden Başlat",
+    "Close": "Kapat",
+    "Downloading update…": "Güncelleme indiriliyor…",
+    "Download finished.": "İndirme tamamlandı.",
+    "Extracting…": "Arşiv açılıyor…",
+    "Installing…": "Kuruluyor…",
+    "Update installed.": "Güncelleme kuruldu.",
+    "Update installed. Restart the app to use it.":
+        "Güncelleme kuruldu. Kullanmak için uygulamayı yeniden başlat.",
+    "Update cancelled.": "Güncelleme iptal edildi.",
+    "Update failed: {error}": "Güncelleme başarısız: {error}",
+    "Error: archive is empty.": "Hata: arşiv boş çıktı.",
     "PackWarden is a bulk application manager for Linux. It shows all "
     "the applications installed on your system in one window and lets "
     "you remove the ones you no longer need, cleanly and safely, on "

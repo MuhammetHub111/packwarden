@@ -126,6 +126,16 @@ class MainWindow(Adw.ApplicationWindow):
         self._refresh_button.connect("clicked", lambda *_: self.refresh())
         header.pack_start(self._refresh_button)
 
+        # Yenile düğmesinin yanında küçük uygulama logosu
+        logo_path = os.path.abspath(os.path.join(
+            os.path.dirname(__file__), "..", "..",
+            "data", "icons", "io.github.muhammethub111.PackWarden.svg",
+        ))
+        if os.path.exists(logo_path):
+            logo = Gtk.Image(pixel_size=24, valign=Gtk.Align.CENTER)
+            logo.set_from_file(logo_path)
+            header.pack_start(logo)
+
         menu = Gio.Menu()
         menu.append(_("Settings"), "app.settings")
         menu.append(_("About PackWarden"), "app.about")
@@ -216,6 +226,9 @@ class MainWindow(Adw.ApplicationWindow):
     def _on_key_pressed(self, _controller, keyval, _keycode, _state):
         if keyval == Gdk.KEY_Escape and self._selection_mode:
             self._exit_selection_mode()
+            return True
+        if keyval == Gdk.KEY_F5:
+            self.refresh()
             return True
         return False
 

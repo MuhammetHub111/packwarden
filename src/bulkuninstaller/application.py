@@ -3,7 +3,9 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, Gio  # noqa: E402
+import os  # noqa: E402
+
+from gi.repository import Adw, Gdk, Gio, Gtk  # noqa: E402
 
 from . import APP_ID, VERSION  # noqa: E402
 from .i18n import _  # noqa: E402
@@ -33,6 +35,17 @@ class PackWardenApp(Adw.Application):
         self.set_accels_for_action("win.search", ["<Ctrl>f"])
 
     def do_activate(self):
+        # Uygulama simgesi kurulu temada yoksa (geliştirme/betik kurulumu)
+        # kendi simge klasörümüzü aramaya ekle; Hakkında penceresi ve
+        # görev çubuğu logoyu böyle bulur
+        icons_dir = os.path.abspath(os.path.join(
+            os.path.dirname(__file__), "..", "..", "data", "icons"
+        ))
+        if os.path.isdir(icons_dir):
+            theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
+            if icons_dir not in (theme.get_search_path() or []):
+                theme.add_search_path(icons_dir)
+
         window = self.props.active_window
         if not window:
             window = MainWindow(application=self)
