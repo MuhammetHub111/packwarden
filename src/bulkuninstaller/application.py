@@ -10,7 +10,7 @@ from .i18n import _  # noqa: E402
 from .window import MainWindow  # noqa: E402
 
 
-class PurgaApp(Adw.Application):
+class PackWardenApp(Adw.Application):
     def __init__(self):
         super().__init__(
             application_id=APP_ID,
@@ -44,7 +44,7 @@ class PurgaApp(Adw.Application):
 
     def _on_about(self, *_args):
         about = Adw.AboutDialog(
-            application_name="Purga",
+            application_name="PackWarden",
             application_icon=APP_ID,
             version=VERSION,
             developer_name="Muhammet",
@@ -59,5 +59,5 @@ class PurgaApp(Adw.Application):
 
 
 def main(argv):
-    app = PurgaApp()
+    app = PackWardenApp()
     return app.run(argv)

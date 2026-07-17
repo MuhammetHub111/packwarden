@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>io.github.muhammethub111.Purga</id>
+  <id>io.github.muhammethub111.PackWarden</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
 
-  <name>Purga</name>
+  <name>PackWarden</name>
   <summary>Uninstall packages in bulk on any distribution</summary>
   <summary xml:lang="tr">Her dağıtımda uygulamaları toplu kaldırın</summary>
 
   <description>
     <p>
-      Purga lists every application installed on your system —
+      PackWarden lists every application installed on your system —
       from pacman, APT, DNF and Flatpak — in a single window, and lets you
       select and remove them in bulk. Inspired by Bulk Crap Uninstaller
       on Windows.
@@ -28,7 +28,7 @@
     <name>Muhammet</name>
   </developer>
 
-  <launchable type="desktop-id">io.github.muhammethub111.Purga.desktop</launchable>
+  <launchable type="desktop-id">io.github.muhammethub111.PackWarden.desktop</launchable>
 
   <!-- TODO: GitHub deposu açılınca gerçek adresle güncelle -->
   <url type="homepage">https://github.com/MuhammetHub111/bulk-uninstaller</url>

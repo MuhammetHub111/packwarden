@@ -15,7 +15,7 @@ import time
 from .backends.base import Package
 from .leftovers import Leftover
 
-BACKUP_BASE = "~/Purga-Yedek"
+BACKUP_BASE = "~/PackWarden-Yedek"
 
 
 def _is_cache(path: str) -> bool:
@@ -34,7 +34,7 @@ def create_backup(
     os.makedirs(dest, exist_ok=True)
 
     with open(os.path.join(dest, "paketler.txt"), "w", encoding="utf-8") as f:
-        f.write("# Purga yedeği — kaldırılan paketler\n")
+        f.write("# PackWarden yedeği — kaldırılan paketler\n")
         f.write("# Geri kurmak için örnek:\n")
         f.write("#   pacman  : sudo pacman -S <kimlik>\n")
         f.write("#   apt     : sudo apt install <kimlik>\n")

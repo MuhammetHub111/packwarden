@@ -1,10 +1,10 @@
 # Flatpak manifestosu — yerelde test:
-#   flatpak-builder --user --install --force-clean build-dir build-aux/io.github.muhammethub111.Purga.yaml
-app-id: io.github.muhammethub111.Purga
+#   flatpak-builder --user --install --force-clean build-dir build-aux/io.github.muhammethub111.PackWarden.yaml
+app-id: io.github.muhammethub111.PackWarden
 runtime: org.gnome.Platform
 runtime-version: '49'
 sdk: org.gnome.Sdk
-command: purga
+command: packwarden
 
 finish-args:
   - --socket=wayland
@@ -26,7 +26,7 @@ modules:
     build-commands:
       - mkdir -p /app/lib/python
       - cp -r src/bulkuninstaller /app/lib/python/
-      - install -Dm755 build-aux/launcher.sh /app/bin/purga
+      - install -Dm755 build-aux/launcher.sh /app/bin/packwarden
       - install -Dm644 data/${FLATPAK_ID}.desktop /app/share/applications/${FLATPAK_ID}.desktop
       - install -Dm644 data/${FLATPAK_ID}.metainfo.xml /app/share/metainfo/${FLATPAK_ID}.metainfo.xml
       - install -Dm644 data/icons/${FLATPAK_ID}.svg /app/share/icons/hicolor/scalable/apps/${FLATPAK_ID}.svg

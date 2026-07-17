@@ -1,4 +1,4 @@
-# Purga
+# PackWarden
 
 Linux için toplu uygulama kaldırıcı — Windows'taki **Bulk Crap Uninstaller**'dan
 esinlenildi. Tüm paket kaynaklarını tek pencerede listeler, arama/filtreleme/boyuta
@@ -40,13 +40,13 @@ Gereksinimler: Python ≥ 3.10, GTK4, libadwaita, PyGObject.
 
 ```sh
 flatpak-builder --user --install --force-clean build-dir \
-    build-aux/io.github.muhammethub111.Purga.yaml
-flatpak run io.github.muhammethub111.Purga
+    build-aux/io.github.muhammethub111.PackWarden.yaml
+flatpak run io.github.muhammethub111.PackWarden
 ```
 
 ## Flathub yayın yol haritası
 
-1. **GitHub deposu aç** (ör. `MuhammetHub111/purga`), kodu it,
+1. **GitHub deposu aç** (ör. `MuhammetHub111/packwarden`), kodu it,
    `data/*.metainfo.xml` içindeki TODO adresleri gerçek depoyla güncelle.
 2. Sürüm etiketle (`v0.1.0`) ve manifestteki `sources` bölümünü `type: dir`
    yerine `type: git` + `tag` olarak değiştir (Flathub yerel dizin kabul etmez).

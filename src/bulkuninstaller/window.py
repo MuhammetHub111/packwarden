@@ -27,7 +27,7 @@ class PackageItem(GObject.Object):
 class MainWindow(Adw.ApplicationWindow):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.set_title("Purga")
+        self.set_title("PackWarden")
         self.set_default_size(920, 640)
 
         self._backends = []
@@ -103,7 +103,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         menu = Gio.Menu()
         menu.append(_("Settings"), "app.settings")
-        menu.append(_("About Purga"), "app.about")
+        menu.append(_("About PackWarden"), "app.about")
         menu.append(_("Quit"), "app.quit")
         menu_button = Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu)
         header.pack_end(menu_button)
