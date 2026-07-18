@@ -18,8 +18,8 @@ desktop_dir() {
 }
 
 if [ "$1" = "remove" ] || [ "$1" = "--remove" ]; then
-    rm -rf "$DIR" "$BIN/packwarden" "$APPS/packwarden.desktop"
-    rm -f "$(desktop_dir)/packwarden.desktop"
+    rm -rf "$DIR" "$BIN/packwarden" "$APPS/io.github.muhammethub111.PackWarden.desktop"
+    rm -f "$(desktop_dir)/packwarden.desktop" "$(desktop_dir)/io.github.muhammethub111.PackWarden.desktop"
     command -v kbuildsycoca6 >/dev/null 2>&1 && kbuildsycoca6 2>/dev/null || true
     command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$APPS" 2>/dev/null || true
     echo "PackWarden removed."
@@ -56,7 +56,7 @@ exec env PYTHONPATH="$DIR/src" python3 -m bulkuninstaller "\$@"
 LAUNCHER
 chmod +x "$BIN/packwarden"
 
-cat > "$APPS/packwarden.desktop" << DESKTOP
+cat > "$APPS/io.github.muhammethub111.PackWarden.desktop" << DESKTOP
 [Desktop Entry]
 Type=Application
 Name=PackWarden
@@ -80,8 +80,8 @@ case "$REPLY" in
     [yYeE]*)
         DESK="$(desktop_dir)"
         mkdir -p "$DESK"
-        cp "$APPS/packwarden.desktop" "$DESK/packwarden.desktop"
-        chmod +x "$DESK/packwarden.desktop" 2>/dev/null || true
+        cp "$APPS/io.github.muhammethub111.PackWarden.desktop" "$DESK/io.github.muhammethub111.PackWarden.desktop"
+        chmod +x "$DESK/io.github.muhammethub111.PackWarden.desktop" 2>/dev/null || true
         echo "Desktop icon added."
         ;;
 esac
