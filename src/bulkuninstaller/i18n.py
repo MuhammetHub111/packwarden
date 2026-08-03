@@ -57,6 +57,10 @@ TR = {
     "Automatic (system)": "Otomatik (sistem)",
     "Takes effect after restarting the app":
         "Uygulama yeniden başlatılınca uygulanır",
+    "Restart to apply?": "Uygulamak için yeniden mi başlatılsın?",
+    "The interface language changes after the app restarts.":
+        "Arayüz dili uygulama yeniden başlatılınca değişir.",
+    "Later": "Sonra",
     "Show applications only": "Sadece uygulamaları göster",
     "Hides libraries and system packages":
         "Kütüphaneleri ve sistem paketlerini gizler",
@@ -77,8 +81,12 @@ TR = {
     "Delete leftover files…": "Kalıntı dosyalarını sil…",
     "Properties": "Özellikler",
     "{name} has no launchable window": "{name} çalıştırılabilir pencereye sahip değil",
+    "Selected apps have no launchable window":
+        "Seçilen uygulamaların çalıştırılabilir penceresi yok",
     "Launching {name}…": "{name} başlatılıyor…",
+    "Launching {count} apps…": "{count} uygulama başlatılıyor…",
     "Could not launch {name}": "{name} başlatılamadı",
+    "Could not launch selected apps": "Seçilen uygulamalar başlatılamadı",
     "Copied: {text}": "Kopyalandı: {text}",
     "Delete leftovers of {name}?": "{name} kalıntıları silinsin mi?",
     "Total: {size}": "Toplam: {size}",
@@ -120,6 +128,30 @@ TR = {
     "Update cancelled.": "Güncelleme iptal edildi.",
     "Update failed: {error}": "Güncelleme başarısız: {error}",
     "Error: archive is empty.": "Hata: arşiv boş çıktı.",
+    "Unused apps": "Kullanılmayan uygulamalar",
+    "Not used for": "Şu süredir kullanılmayanlar",
+    "3 months": "3 ay",
+    "6 months": "6 ay",
+    "1 year": "1 yıl",
+    "Custom": "Özel",
+    "Custom (days)": "Özel (gün)",
+    "Scanning applications…": "Uygulamalar taranıyor…",
+    "No unused applications found": "Kullanılmayan uygulama bulunamadı",
+    "Every scanned app was used within the threshold":
+        "Taranan tüm uygulamalar seçilen süre içinde kullanılmış",
+    "Unknown": "Bilinmiyor",
+    "{days} days ago": "{days} gün önce",
+    "{months} months ago": "{months} ay önce",
+    "{years} years ago": "{years} yıl önce",
+    "Uninstall selected…": "Seçilenleri kaldır…",
+    "Disk map": "Disk haritası",
+    "{name} — {size} ({percent}%)": "{name} — {size} (%{percent})",
+    "Other": "Diğer",
+    "Automatic Updates": "Otomatik Güncellemeler",
+    "Automatically checks for a new version on startup and opens the "
+    "update dialog when one is found":
+        "Açılışta arkaplanda yeni sürüm olup olmadığını denetler, "
+        "bulunursa güncelleme penceresini kendiliğinden açar",
     "PackWarden is a bulk application manager for Linux. It shows all "
     "the applications installed on your system in one window and lets "
     "you remove the ones you no longer need, cleanly and safely, on "
@@ -154,3 +186,8 @@ def _(text: str) -> str:
     if _LANG == "tr":
         return TR.get(text, text)
     return text
+
+
+def current_language() -> str:
+    """Arayüzün kullandığı ISO dil kodu (ör. 'tr', 'en', 'de')."""
+    return _LANG

@@ -4,10 +4,11 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
 import os  # noqa: E402
+import threading  # noqa: E402
 
-from gi.repository import Adw, Gdk, Gio, Gtk  # noqa: E402
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
-from . import APP_ID, VERSION  # noqa: E402
+from . import APP_ID, VERSION, prefs  # noqa: E402
 from .i18n import _  # noqa: E402
 from .window import MainWindow  # noqa: E402
 
@@ -50,6 +51,22 @@ class PackWardenApp(Adw.Application):
         if not window:
             window = MainWindow(application=self)
         window.present()
+
+        if prefs.get("auto_update"):
+            self._check_for_update_silently()
+
+    def _check_for_update_silently(self):
+        def worker():
+            from .updater import fetch_remote_version
+            remote = fetch_remote_version()
+            GLib.idle_add(self._on_auto_update_checked, remote)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_auto_update_checked(self, remote):
+        from .updatewindow import open_if_newer
+        open_if_newer(self, remote)
+        return GLib.SOURCE_REMOVE
 
     def _on_settings(self, *_args):
         from .settings import SettingsDialog

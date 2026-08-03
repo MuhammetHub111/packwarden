@@ -3,13 +3,14 @@ import threading
 
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango
 
-from . import host
+from . import host, prefs
 from .appicons import build_maps
 from .backends import available_backends, format_size
-from . import prefs
+from .diskmap import DiskMapArea, build_legend, format_percent
 from .i18n import _
 from .leftovers import find_package_leftovers, remove_leftovers
 from .removal import RemovalWindow
+from .unusedwindow import UnusedAppsWindow
 
 SORT_NAME, SORT_SIZE = 0, 1
 
@@ -137,6 +138,7 @@ class MainWindow(Adw.ApplicationWindow):
             header.pack_start(logo)
 
         menu = Gio.Menu()
+        menu.append(_("Unused apps"), "win.unused-apps")
         menu.append(_("Settings"), "app.settings")
         menu.append(_("About PackWarden"), "app.about")
         menu.append(_("Quit"), "app.quit")
@@ -154,6 +156,18 @@ class MainWindow(Adw.ApplicationWindow):
 
         self._count_label = Gtk.Label(css_classes=["dim-label"], hexpand=True, xalign=1)
 
+        toggle_content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        toggle_content.append(Gtk.Image(icon_name="drive-harddisk-symbolic"))
+        toggle_content.append(Gtk.Label(label=_("Disk map")))
+        self._diskmap_toggle = Gtk.ToggleButton(
+            child=toggle_content, tooltip_text=_("Disk map"),
+        )
+        self._diskmap_toggle.connect("toggled", self._on_diskmap_toggled)
+        # Kutuların üzerine gelince/tıklayınca ad+boyut+oranı burada
+        # göster — GTK'nin yerleşik tooltip'i kutular arası hızlı
+        # geçişte kararsız davranıyor, kalıcı bir etiket daha güvenilir
+        self._diskmap_hover_label = Gtk.Label(css_classes=["dim-label"])
+
         filter_bar = Gtk.Box(
             orientation=Gtk.Orientation.HORIZONTAL,
             spacing=8,
@@ -161,7 +175,9 @@ class MainWindow(Adw.ApplicationWindow):
         )
         filter_bar.append(self._source_dropdown)
         filter_bar.append(self._sort_dropdown)
+        filter_bar.append(self._diskmap_toggle)
         filter_bar.append(self._count_label)
+        filter_bar.append(self._diskmap_hover_label)
 
         # Package list
         factory = Gtk.SignalListItemFactory()
@@ -203,17 +219,28 @@ class MainWindow(Adw.ApplicationWindow):
 
         self._stack = Gtk.Stack()
         self._stack.add_named(self._loading_page, "loading")
+        self._stack.add_named(scrolled, "list")
 
-        list_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        list_box.append(filter_bar)
-        list_box.append(Gtk.Separator())
-        list_box.append(scrolled)
-        self._stack.add_named(list_box, "list")
+        self._diskmap_area = DiskMapArea()
+        self._diskmap_area.on_select = self._on_diskmap_select
+        self._diskmap_area.on_context_menu = self._on_diskmap_context_menu
+        self._diskmap_area.on_hover = self._on_diskmap_hover
+        self._diskmap_legend = build_legend([])
+        self._diskmap_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self._diskmap_page.append(self._diskmap_area)
+        self._diskmap_page.append(Gtk.Separator())
+        self._diskmap_page.append(self._diskmap_legend)
+        self._stack.add_named(self._diskmap_page, "diskmap")
 
         self._busy_spinner = Gtk.Spinner()
         header.pack_end(self._busy_spinner)
 
-        toolbar_view = Adw.ToolbarView(content=self._stack)
+        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        content_box.append(filter_bar)
+        content_box.append(Gtk.Separator())
+        content_box.append(self._stack)
+
+        toolbar_view = Adw.ToolbarView(content=content_box)
         toolbar_view.add_top_bar(header)
 
         self._toast_overlay = Adw.ToastOverlay(child=toolbar_view)
@@ -322,6 +349,13 @@ class MainWindow(Adw.ApplicationWindow):
         toggle_click.connect("pressed", self._on_row_toggle_click, list_item)
         row.add_controller(toggle_click)
 
+        # Disk haritasındaki gibi, tıklamadan sadece üzerine gelince
+        # paket sayısının yanında ad/boyut/oran göster
+        hover = Gtk.EventControllerMotion()
+        hover.connect("enter", self._on_row_hover_enter, list_item)
+        hover.connect("leave", self._on_row_hover_leave)
+        row.add_controller(hover)
+
         list_item.set_child(row)
         list_item.icon = icon
         list_item.name_label = name
@@ -329,6 +363,17 @@ class MainWindow(Adw.ApplicationWindow):
         list_item.source_label = source
         list_item.publisher_label = publisher
         list_item.size_label = size
+
+    def _on_row_hover_enter(self, _ctrl, _x, _y, list_item):
+        if self._stack.get_visible_child_name() == "diskmap":
+            return
+        item = list_item.get_item()
+        if item is not None:
+            self._diskmap_hover_label.set_label(self._single_selection_info([item]))
+
+    def _on_row_hover_leave(self, *_args):
+        if self._stack.get_visible_child_name() != "diskmap":
+            self._diskmap_hover_label.set_label("")
 
     def _on_row_bind(self, _factory, list_item):
         item = list_item.get_item()
@@ -357,6 +402,7 @@ class MainWindow(Adw.ApplicationWindow):
             "ctx-copy": self._ctx_copy,
             "ctx-leftovers": self._ctx_leftovers,
             "ctx-properties": self._ctx_properties,
+            "unused-apps": self._open_unused_apps,
         }
         for name, handler in actions.items():
             action = Gio.SimpleAction.new(name, None)
@@ -428,18 +474,7 @@ class MainWindow(Adw.ApplicationWindow):
                 items.append(item)
         return items
 
-    def _on_row_right_click(self, gesture, _n_press, x, y, list_item):
-        item = list_item.get_item()
-        if item is None or self._busy:
-            return
-        self._context_item = item
-
-        # Sağ tıklanan satır mevcut seçimin dışındaysa seçimi ona daralt
-        position = list_item.get_position()
-        if not self._selection.is_selected(position):
-            self._selection.select_item(position, True)
-        selected_count = len(self._selected_items())
-
+    def _build_context_menu(self, selected_count: int) -> Gio.Menu:
         menu = Gio.Menu()
         if selected_count > 1:
             menu.append(
@@ -452,17 +487,35 @@ class MainWindow(Adw.ApplicationWindow):
         menu.append(_("Copy package ID"), "win.ctx-copy")
         menu.append(_("Delete leftover files…"), "win.ctx-leftovers")
         menu.append(_("Properties"), "win.ctx-properties")
+        return menu
 
-        popover = Gtk.PopoverMenu.new_from_model(menu)
-        popover.set_parent(gesture.get_widget())
+    def _popup_context_menu(self, parent_widget, x, y, selected_count: int):
+        popover = Gtk.PopoverMenu.new_from_model(
+            self._build_context_menu(selected_count)
+        )
+        popover.set_parent(parent_widget)
         popover.set_has_arrow(False)
         rect = Gdk.Rectangle()
         rect.x, rect.y, rect.width, rect.height = int(x), int(y), 1, 1
         popover.set_pointing_to(rect)
-        # Kapanınca satırdan ayrılmalı; yoksa geri dönüştürülen satırlar
+        # Kapanınca ebeveynden ayrılmalı; yoksa geri dönüştürülen satırlar
         # görünmez popover'lar biriktirir
         popover.connect("closed", lambda p: GLib.idle_add(p.unparent))
         popover.popup()
+
+    def _on_row_right_click(self, gesture, _n_press, x, y, list_item):
+        item = list_item.get_item()
+        if item is None or self._busy:
+            return
+        self._context_item = item
+
+        # Sağ tıklanan satır mevcut seçimin dışındaysa seçimi ona daralt
+        position = list_item.get_position()
+        if not self._selection.is_selected(position):
+            self._selection.select_item(position, True)
+        selected_count = len(self._selected_items())
+
+        self._popup_context_menu(gesture.get_widget(), x, y, selected_count)
 
     def _ctx_uninstall(self, *_args):
         items = self._selected_items()
@@ -471,38 +524,64 @@ class MainWindow(Adw.ApplicationWindow):
         if items:
             RemovalWindow(self, items).present()
 
-    def _ctx_launch(self, *_args):
-        item = self._context_item
-        if not item:
-            return
-        pkg = item.pkg
+    def _launch_argv(self, pkg):
+        """Bir paketi başlatmak için host komutu; başlatılamıyorsa None."""
         if pkg.source == "flatpak":
-            argv = ["flatpak", "run", pkg.id]
-        elif pkg.source == "snap":
-            argv = ["snap", "run", pkg.id]
-        elif pkg.source == "appimage":
-            argv = [pkg.id]  # kimlik = dosya yolu
-        else:
-            desktop_id = self._launcher_map.get(
-                pkg.id.lower()
-            ) or self._launcher_map.get(pkg.name.lower())
-            if not desktop_id:
-                self._toast_overlay.add_toast(Adw.Toast(
-                    title=_("{name} has no launchable window").format(
-                        name=pkg.name
-                    )
-                ))
-                return
-            argv = ["gtk-launch", desktop_id]
-        try:
-            host.spawn(argv)
-            self._toast_overlay.add_toast(
-                Adw.Toast(title=_("Launching {name}…").format(name=pkg.name))
+            return ["flatpak", "run", pkg.id]
+        if pkg.source == "snap":
+            return ["snap", "run", pkg.id]
+        if pkg.source == "appimage":
+            return [pkg.id]  # kimlik = dosya yolu
+        desktop_id = self._launcher_map.get(
+            pkg.id.lower()
+        ) or self._launcher_map.get(pkg.name.lower())
+        if not desktop_id:
+            return None
+        return ["gtk-launch", desktop_id]
+
+    def _ctx_launch(self, *_args):
+        items = self._selected_items()
+        if not items and self._context_item:
+            items = [self._context_item]
+        if not items:
+            return
+
+        launched = []
+        no_window = []
+        failed = []
+        for item in items:
+            pkg = item.pkg
+            argv = self._launch_argv(pkg)
+            if argv is None:
+                no_window.append(pkg.name)
+                continue
+            try:
+                host.spawn(argv)
+                launched.append(pkg.name)
+            except Exception:
+                failed.append(pkg.name)
+
+        if launched:
+            title = (
+                _("Launching {name}…").format(name=launched[0])
+                if len(launched) == 1
+                else _("Launching {count} apps…").format(count=len(launched))
             )
-        except Exception:
-            self._toast_overlay.add_toast(
-                Adw.Toast(title=_("Could not launch {name}").format(name=pkg.name))
+            self._toast_overlay.add_toast(Adw.Toast(title=title))
+        elif no_window and not failed:
+            title = (
+                _("{name} has no launchable window").format(name=no_window[0])
+                if len(no_window) == 1
+                else _("Selected apps have no launchable window")
             )
+            self._toast_overlay.add_toast(Adw.Toast(title=title))
+        elif failed:
+            title = (
+                _("Could not launch {name}").format(name=failed[0])
+                if len(failed) == 1
+                else _("Could not launch selected apps")
+            )
+            self._toast_overlay.add_toast(Adw.Toast(title=title))
 
     def _ctx_copy(self, *_args):
         item = self._context_item
@@ -562,6 +641,51 @@ class MainWindow(Adw.ApplicationWindow):
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def _open_unused_apps(self, *_args):
+        UnusedAppsWindow(self).present()
+
+    # ---------------- Disk haritası ----------------
+
+    def _filtered_items(self):
+        return [
+            self._filter_model.get_item(i)
+            for i in range(self._filter_model.get_n_items())
+        ]
+
+    def _refresh_diskmap(self):
+        items = self._filtered_items()
+        self._diskmap_area.set_items(items)
+
+        self._diskmap_page.remove(self._diskmap_legend)
+        self._diskmap_legend = build_legend(items)
+        self._diskmap_page.append(self._diskmap_legend)
+
+    def _on_diskmap_toggled(self, button):
+        if self._stack.get_visible_child_name() == "loading":
+            button.set_active(False)
+            return
+        if button.get_active():
+            self._refresh_diskmap()
+            self._stack.set_visible_child_name("diskmap")
+            # Sıralama diskmap'te bir işe yaramıyor — kutu boyutu/yeri
+            # zaten disk payını temsil ediyor, algoritma her zaman
+            # büyükten küçüğe düzenliyor
+            self._sort_dropdown.set_sensitive(False)
+        else:
+            self._stack.set_visible_child_name("list")
+            self._sort_dropdown.set_sensitive(True)
+            self._on_diskmap_hover(None)
+
+    def _on_diskmap_select(self, item):
+        self._context_item = item
+
+    def _on_diskmap_hover(self, text):
+        self._diskmap_hover_label.set_label(text or "")
+
+    def _on_diskmap_context_menu(self, item, x, y):
+        self._context_item = item
+        self._popup_context_menu(self._diskmap_area, x, y, 1)
+
     def _ctx_properties(self, *_args):
         item = self._context_item
         if not item:
@@ -592,11 +716,63 @@ class MainWindow(Adw.ApplicationWindow):
             or pkg.name.lower() in self._launcher_map
         )
 
+    def _maybe_refresh_diskmap(self):
+        """Harita görünümü açıksa filtre değişince içeriğini güncel tutar."""
+        if self._diskmap_toggle.get_active():
+            self._refresh_diskmap()
+
     def set_apps_only(self, value: bool) -> None:
         self._apps_only = value
         prefs.set("apps_only", value)
         self._filter.changed(Gtk.FilterChange.DIFFERENT)
+        self._rebuild_source_dropdown()
         self._update_count_label()
+        self._maybe_refresh_diskmap()
+
+    def _rebuild_source_dropdown(self, reset: bool = False):
+        """Kaynak açılır listesini ve yanındaki paket sayılarını yeniden
+        kurar. "Sadece uygulamalar" ayarı kapsam dışı bıraktığı paketler
+        de sayıma katılmasın diye görünür kümeye göre hesaplanır."""
+        visible = [
+            item.pkg for item in self._items
+            if not self._apps_only or self._is_app(item.pkg)
+        ]
+
+        # Boş kaynaklar (sistemde olup görünür hiç paketi olmayanlar) gösterilmez.
+        choices = [(None, None)]
+        names = [f'{_("All sources")} ({len(visible)})']
+        for backend in self._backends:
+            in_backend = [p for p in visible if p.source == backend.id]
+            if not in_backend:
+                continue
+            choices.append((backend.id, None))
+            label = _("{name} — all").format(name=backend.display_name)
+            names.append(f"{label} ({len(in_backend)})")
+            origin_counts: dict[str, int] = {}
+            for pkg in in_backend:
+                if pkg.origin:
+                    origin_counts[pkg.origin] = origin_counts.get(pkg.origin, 0) + 1
+            if len(origin_counts) > 1 or (
+                origin_counts and sum(origin_counts.values()) < len(in_backend)
+            ):
+                for origin in sorted(origin_counts):
+                    choices.append((backend.id, origin))
+                    names.append(
+                        f"{backend.display_name} · {origin} ({origin_counts[origin]})"
+                    )
+
+        target = (None, None) if reset else self._source_filter
+        index = choices.index(target) if target in choices else 0
+        self._source_filter = choices[index]
+        self._source_choices = choices
+
+        # Model/seçim değişikliği notify::selected'ı tetikleyip
+        # _on_source_changed'i ikinci kez çalıştırmasın diye engellenir;
+        # yukarıda filtre zaten doğru şekilde belirlendi.
+        self._source_dropdown.handler_block_by_func(self._on_source_changed)
+        self._source_dropdown.set_model(Gtk.StringList.new(names))
+        self._source_dropdown.set_selected(index)
+        self._source_dropdown.handler_unblock_by_func(self._on_source_changed)
 
     def _filter_func(self, item):
         pkg = item.pkg
@@ -628,6 +804,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._search_text = entry.get_text().strip().lower()
         self._filter.changed(Gtk.FilterChange.DIFFERENT)
         self._update_count_label()
+        self._maybe_refresh_diskmap()
 
     def _on_source_changed(self, dropdown, _pspec):
         self._exit_selection_mode()  # liste değişince konumlar kayar
@@ -638,6 +815,7 @@ class MainWindow(Adw.ApplicationWindow):
             self._source_filter = (None, None)
         self._filter.changed(Gtk.FilterChange.DIFFERENT)
         self._update_count_label()
+        self._maybe_refresh_diskmap()
 
     def _on_sort_changed(self, dropdown, _pspec):
         self._exit_selection_mode()  # liste değişince konumlar kayar
@@ -680,34 +858,13 @@ class MainWindow(Adw.ApplicationWindow):
         # splice is far faster than thousands of append() calls
         self._store.splice(0, 0, self._items)
 
-        # Filtre listesi: her arka uç + altındaki depolar, paket sayılarıyla.
-        # Boş kaynaklar (sistemde olup hiç paketi olmayanlar) gösterilmez.
-        choices = [(None, None)]
-        names = [f'{_("All sources")} ({len(packages)})']
-        for backend in backends:
-            in_backend = [p for p in packages if p.source == backend.id]
-            if not in_backend:
-                continue
-            choices.append((backend.id, None))
-            label = _("{name} — all").format(name=backend.display_name)
-            names.append(f"{label} ({len(in_backend)})")
-            origin_counts: dict[str, int] = {}
-            for pkg in in_backend:
-                if pkg.origin:
-                    origin_counts[pkg.origin] = origin_counts.get(pkg.origin, 0) + 1
-            if len(origin_counts) > 1 or (
-                origin_counts and sum(origin_counts.values()) < len(in_backend)
-            ):
-                for origin in sorted(origin_counts):
-                    choices.append((backend.id, origin))
-                    names.append(
-                        f"{backend.display_name} · {origin} ({origin_counts[origin]})"
-                    )
-        self._source_choices = choices
-        self._source_dropdown.set_model(Gtk.StringList.new(names))
-        self._source_filter = (None, None)
+        self._rebuild_source_dropdown(reset=True)
 
-        self._stack.set_visible_child_name("list")
+        if self._diskmap_toggle.get_active():
+            self._refresh_diskmap()
+            self._stack.set_visible_child_name("diskmap")
+        else:
+            self._stack.set_visible_child_name("list")
         self._set_busy(False)
         self._update_count_label()
         return GLib.SOURCE_REMOVE
@@ -733,3 +890,22 @@ class MainWindow(Adw.ApplicationWindow):
         if self._selection_mode:
             text = _("Selection mode (Esc to finish)") + "  •  " + text
         self._count_label.set_label(text)
+
+        # Liste görünümünde de tek seçili uygulama için ad/boyut/oran —
+        # disk haritasındaki aynı etiket alanı, o görünüm açıkken onun
+        # kendi gezinme geri çağrısı tarafından yönetiliyor
+        if self._stack.get_visible_child_name() != "diskmap":
+            self._diskmap_hover_label.set_label(self._single_selection_info(selected))
+
+    def _single_selection_info(self, selected) -> str:
+        if len(selected) != 1:
+            return ""
+        pkg = selected[0].pkg
+        total = sum(
+            self._filter_model.get_item(i).pkg.size
+            for i in range(self._filter_model.get_n_items())
+        ) or 1
+        percent = pkg.size / total * 100
+        return _("{name} — {size} ({percent}%)").format(
+            name=pkg.name, size=format_size(pkg.size), percent=format_percent(percent),
+        )

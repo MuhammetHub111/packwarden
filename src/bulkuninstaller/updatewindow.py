@@ -12,7 +12,22 @@ from gi.repository import Adw, GLib, Gtk
 from . import VERSION
 from .backends.base import format_size
 from .i18n import _
-from .updater import RELEASES_URL, download_and_install, restart_app
+from .updater import RELEASES_URL, download_and_install, is_newer, restart_app
+
+
+def open_if_newer(app, remote_version) -> bool:
+    """remote_version çalışandan yeniyse UpdateWindow'u açar.
+
+    _on_check_done (manuel "Denetle" düğmesi) ve application.py'deki
+    otomatik açılış denetimi aynı mantığı paylaşır.
+    """
+    if not remote_version or not is_newer(remote_version):
+        return False
+    parent = app.props.active_window
+    if parent is None:
+        return False
+    UpdateWindow(parent, app, remote_version).present()
+    return True
 
 
 class UpdateWindow(Adw.Window):

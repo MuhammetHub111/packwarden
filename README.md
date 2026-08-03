@@ -6,9 +6,9 @@ the ones you no longer need, cleanly and safely, on any distribution.
 
 ## Screenshots
 
-| Main window |
-|---|
-| ![Main window](data/screenshots/main.png) |
+| Main window | Disk map |
+|---|---|
+| ![Main window](data/screenshots/main.png) | ![Disk map](data/screenshots/diskmap.png) |
 
 | Removal with leftover cleanup | Settings |
 |---|---|
@@ -30,6 +30,13 @@ the ones you no longer need, cleanly and safely, on any distribution.
 - Shows real application icons, publishers, repositories and sizes.
 - Has a right-click menu to uninstall, launch or inspect any
   application.
+- Disk map: a treemap view of every installed application, sized by
+  disk usage and colored by source, to spot what's eating space at a
+  glance.
+- Unused apps: lists applications you haven't touched in 3 months,
+  6 months, a year, or a custom period, so you can clean up safely.
+- Automatic update checks on startup, with an in-app dialog when a new
+  version is available (can be turned off in Settings).
 - Speaks English and Turkish.
 
 ## What makes it different

@@ -19,6 +19,9 @@ DEFAULTS = {
     "language": "auto",
     # Kritik sistem paketlerini silmeden önce ek uyarı göster
     "protect_system": True,
+    # Açılışta arkaplanda güncelleme denetimi yapıp bulunca güncelleme
+    # penceresini otomatik aç (yalnızca test/dev sürümünde kullanılabilir)
+    "auto_update": False,
 }
 
 _cache: dict | None = None

@@ -4,7 +4,7 @@ from gi.repository import Adw, GLib, Gtk
 
 from . import VERSION, prefs
 from .i18n import _
-from .updater import fetch_remote_version, is_newer
+from .updater import fetch_remote_version
 
 
 class SettingsDialog(Adw.PreferencesDialog):
@@ -70,6 +70,20 @@ class SettingsDialog(Adw.PreferencesDialog):
         )
         group.add(running_row)
 
+        auto_update_row = Adw.SwitchRow(
+            title=_("Automatic Updates"),
+            subtitle=_(
+                "Automatically checks for a new version on startup and "
+                "opens the update dialog when one is found"
+            ),
+            active=bool(prefs.get("auto_update")),
+        )
+        auto_update_row.connect(
+            "notify::active",
+            lambda row, _p: prefs.set("auto_update", row.get_active()),
+        )
+        group.add(auto_update_row)
+
         self._check_button = Gtk.Button(
             label=_("Check for Updates"),
             valign=Gtk.Align.CENTER,
@@ -85,11 +99,27 @@ class SettingsDialog(Adw.PreferencesDialog):
 
     def _on_language_changed(self, row, _pspec):
         index = row.get_selected()
-        if 0 <= index < len(self._language_values):
-            prefs.set("language", self._language_values[index])
-            self.add_toast(Adw.Toast(
-                title=_("Takes effect after restarting the app")
-            ))
+        if not (0 <= index < len(self._language_values)):
+            return
+        prefs.set("language", self._language_values[index])
+
+        dialog = Adw.AlertDialog(
+            heading=_("Restart to apply?"),
+            body=_("The interface language changes after the app restarts."),
+        )
+        dialog.add_response("later", _("Later"))
+        dialog.add_response("restart", _("Restart Now"))
+        dialog.set_response_appearance("restart", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("restart")
+        dialog.set_close_response("later")
+        dialog.connect("response", self._on_language_restart_response)
+        dialog.present(self)
+
+    def _on_language_restart_response(self, _dialog, response):
+        if response == "restart":
+            from .updater import restart_app
+            restart_app()
+            self._app.quit()
 
     def _on_apps_only_changed(self, row, _pspec):
         window = self._app.props.active_window
@@ -112,6 +142,8 @@ class SettingsDialog(Adw.PreferencesDialog):
         self._check_button.set_sensitive(True)
         self._check_spinner.set_spinning(False)
 
+        from .updatewindow import open_if_newer
+
         if remote is None:
             dialog = Adw.AlertDialog(
                 heading=_("Could not check for updates"),
@@ -119,11 +151,8 @@ class SettingsDialog(Adw.PreferencesDialog):
             )
             dialog.add_response("ok", _("OK"))
             dialog.present(self)
-        elif is_newer(remote):
-            from .updatewindow import UpdateWindow
-            UpdateWindow(
-                self._app.props.active_window, self._app, remote
-            ).present()
+        elif open_if_newer(self._app, remote):
+            pass
         else:
             dialog = Adw.AlertDialog(
                 heading=_("You are up to date"),
