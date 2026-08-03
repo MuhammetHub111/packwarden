@@ -6,9 +6,13 @@ the ones you no longer need, cleanly and safely, on any distribution.
 
 ## Screenshots
 
-| Main window | Disk map |
-|---|---|
-| ![Main window](data/screenshots/main.png) | ![Disk map](data/screenshots/diskmap.png) |
+| Main window |
+|---|
+| ![Main window](data/screenshots/main.png) |
+
+| Disk map |
+|---|
+| ![Disk map](data/screenshots/diskmap.png) |
 
 | Removal with leftover cleanup | Settings |
 |---|---|
