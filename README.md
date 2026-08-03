@@ -53,10 +53,11 @@ backups and system protection together.
 
 ## Installation
 
-This command installs the application:
+This command installs the application (works with either curl or wget,
+whichever is available):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/MuhammetHub111/packwarden/main/install.sh | sh
+sh -c 'command -v curl >/dev/null 2>&1 && curl -fsSL https://raw.githubusercontent.com/MuhammetHub111/packwarden/main/install.sh | sh || wget -qO- https://raw.githubusercontent.com/MuhammetHub111/packwarden/main/install.sh | sh'
 ```
 
 After the installation, open your application menu and search for
