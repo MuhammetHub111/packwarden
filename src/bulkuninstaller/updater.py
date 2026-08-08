@@ -2,10 +2,28 @@
 
 Geliştirme sürümünde "en son sürüm" diskteki kaynak koddan okunur:
 kod her değiştiğinde sürüm numarası artırılır, çalışan sürümle
-karşılaştırılır. Uygulama Flathub'da yayınlandığında bu modül
-Flatpak/GitHub sürüm denetimine bağlanacak.
+karşılaştırılır (latest_version/update_available — bunlar tamamen
+yerel, ağ kullanmaz).
+
+Gerçek güncelleme denetimi ise `main` dalının o anki hâline DEĞİL,
+GitHub'ın "releases/latest" API'sine bakar — çünkü `main`'e giden her
+commit otomatik olarak "güncelleme" sayılırsa, o dala sızan (yanlışlıkla
+ya da hesap ele geçirilerek) herhangi bir şey otomatik güncelleyiciyle
+her kullanıcının makinesine yayılır. Bir "release" ise yalnızca bilerek,
+elle yayınlandığında oluşur.
+
+İndirilen arşiv ayrıca aynı sürümün "checksum.txt" ekiyle karşılaştırılır
+(bkz. _fetch_checksum) — bozuk/eksik bir indirmeyi ve arşivin GitHub'daki
+sürümle birebir aynı olmadığı durumları yakalar. Bunun gerçek bir
+kriptografik imza (GPG) OLMADIĞINI belirtmek gerekir: sağlama toplamı da
+aynı GitHub hesabından geliyor, hesabın kendisi ele geçirilirse bu kontrol
+tek başına yeterli olmaz — ama "her commit otomatik yayılır" riskini
+kapatıyor ve indirme sırasında oluşan bozulmayı/eksik veriyi kesin olarak
+yakalıyor.
 """
 
+import hashlib
+import json
 import os
 import re
 import shutil
@@ -19,25 +37,35 @@ from . import VERSION
 
 SRC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-REPO_URL = "https://github.com/MuhammetHub111/packwarden"
+REPO = "MuhammetHub111/packwarden"
+REPO_URL = f"https://github.com/{REPO}"
 RELEASES_URL = REPO_URL + "/releases"
-RAW_INIT_URL = (
-    "https://raw.githubusercontent.com/MuhammetHub111/packwarden/"
-    "main/src/bulkuninstaller/__init__.py"
-)
-TARBALL_URL = REPO_URL + "/archive/refs/heads/main.tar.gz"
+LATEST_RELEASE_API = f"https://api.github.com/repos/{REPO}/releases/latest"
 INSTALL_DIR = os.path.expanduser("~/.local/share/packwarden")
 
 
-def fetch_remote_version(timeout: int = 15) -> str | None:
-    """GitHub'daki güncel sürüm numarası; ulaşılamazsa None."""
+def _fetch_latest_release(timeout: int = 15) -> dict | None:
     try:
-        with urllib.request.urlopen(RAW_INIT_URL, timeout=timeout) as resp:
-            text = resp.read().decode("utf-8", "replace")
+        req = urllib.request.Request(
+            LATEST_RELEASE_API,
+            headers={"Accept": "application/vnd.github+json"},
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.load(resp)
     except Exception:
         return None
-    match = re.search(r'VERSION\s*=\s*"([^"]+)"', text)
-    return match.group(1) if match else None
+
+
+def fetch_remote_version(timeout: int = 15) -> str | None:
+    """GitHub'daki en son YAYINLANMIŞ (etiketli) sürüm numarası;
+    ulaşılamazsa None. `main` dalının ucu değil, bilerek yayınlanmış
+    bir "release" bekler."""
+    release = _fetch_latest_release(timeout)
+    if not release:
+        return None
+    tag = release.get("tag_name") or ""
+    version = tag[1:] if tag.startswith("v") else tag
+    return version or None
 
 
 def _version_tuple(version: str) -> tuple:
@@ -51,6 +79,20 @@ def is_newer(remote: str, local: str = VERSION) -> bool:
         return remote != local
 
 
+def _fetch_checksum(tag: str, timeout: int = 15) -> str | None:
+    """Sürümün checksum.txt ekinden beklenen SHA256'yı okur (64 hex
+    karakter, ilk eşleşme). Bulunamazsa None — çağıran bunu "doğrulama
+    yapılamıyor, kurma" olarak ele almalı, sessizce atlamamalı."""
+    url = f"{REPO_URL}/releases/download/{tag}/checksum.txt"
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            text = resp.read().decode("utf-8", "replace")
+    except Exception:
+        return None
+    match = re.search(r"\b[0-9a-fA-F]{64}\b", text)
+    return match.group(0).lower() if match else None
+
+
 def download_and_install(progress, log, cancelled) -> bool:
     """Güncellemeyi indirip kurar.
 
@@ -58,13 +100,30 @@ def download_and_install(progress, log, cancelled) -> bool:
     sonrası çağrılır; log(str) günlük satırı ekler; cancelled() True
     dönerse işlem iptal edilir. Başarıysa True döner.
     """
+    release = _fetch_latest_release()
+    if not release:
+        log("Could not reach GitHub to check the latest release.")
+        return False
+    tag = release.get("tag_name")
+    tarball_url = release.get("tarball_url")
+    if not tag or not tarball_url:
+        log("Error: release metadata is incomplete.")
+        return False
+
+    log("Fetching checksum…")
+    expected_sha256 = _fetch_checksum(tag)
+    if not expected_sha256:
+        log("Error: no checksum published for this release — refusing to install.")
+        return False
+
     log("Downloading update…")
-    response = urllib.request.urlopen(TARBALL_URL, timeout=30)
+    response = urllib.request.urlopen(tarball_url, timeout=30)
     total_header = response.headers.get("Content-Length")
     total = int(total_header) if total_header else None
 
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".tar.gz")
     done = 0
+    digest = hashlib.sha256()
     try:
         while True:
             if cancelled():
@@ -74,6 +133,7 @@ def download_and_install(progress, log, cancelled) -> bool:
             if not chunk:
                 break
             tmp.write(chunk)
+            digest.update(chunk)
             done += len(chunk)
             progress(done / total if total else None, done, total)
     finally:
@@ -84,7 +144,17 @@ def download_and_install(progress, log, cancelled) -> bool:
     if cancelled():
         return False
 
-    log("Download finished.")
+    log("Verifying checksum…")
+    actual_sha256 = digest.hexdigest()
+    if actual_sha256 != expected_sha256:
+        log(
+            f"Error: checksum mismatch (expected {expected_sha256[:12]}…, "
+            f"got {actual_sha256[:12]}…). Update aborted, nothing was installed."
+        )
+        os.unlink(tmp.name)
+        return False
+    log("Checksum OK.")
+
     log("Extracting…")
     workdir = tempfile.mkdtemp(prefix="packwarden-update-")
     try:

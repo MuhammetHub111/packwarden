@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from .. import host
 
@@ -14,6 +15,14 @@ class Package:
     source: str        # backend id, e.g. "pacman"
     publisher: str = ""  # who makes/ships the app (project site, vendor)
     origin: str = ""     # repo/remote the package came from (extra, flathub, AUR)
+    last_used: float | None = None  # epoch timestamp, when the backend knows it
+    install_date: float | None = None  # epoch timestamp, when the backend knows it
+    install_path: str = ""  # yalnızca TEK bir kök dizine kurulan kaynaklarda dolu
+    install_reason: str = ""  # "explicit" | "dependency" | "" (bilinmiyor)
+    required_by: int | None = None  # bu pakete bağımlı paket sayısı, biliniyorsa
+    license: str = ""
+    category: str = ""  # .desktop dosyasının Categories alanından, Türkçeleştirilmiş
+    icon_path: str = ""  # absolute path to a real icon/cover, if the backend has one
 
 
 @dataclass
@@ -94,3 +103,17 @@ def format_size(size: int) -> str:
             return f"{value:.1f} {unit}"
         value /= 1000
     return ""
+
+
+def format_install_date(timestamp: float | None) -> str:
+    """Kaynağın verdiği zaman damgasını gün.ay.yıl olarak göster.
+
+    Bazı arka uçlarda (apt, flatpak, portage, appimage) bu, paket
+    yöneticisinin izlemediği gerçek kurulum tarihi değil, o paketin
+    dosyalarının en son değiştiği zamana en yakın karşılıktır."""
+    if not timestamp:
+        return ""
+    try:
+        return datetime.fromtimestamp(timestamp).strftime("%d.%m.%Y")
+    except (OSError, OverflowError, ValueError):
+        return ""

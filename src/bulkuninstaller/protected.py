@@ -47,10 +47,19 @@ PROTECTED_PREFIXES = (
     "amd-ucode", "intel-ucode",  # işlemci mikrokodu
 )
 
+# Sabit listede adı geçmeyen ama onlarca başka paketin ihtiyaç duyduğu
+# bir paylaşımlı kütüphane de (ör. cairo, gtk3, icu) aynı derecede
+# tehlikeli olabilir — gerçek sistemde denendi: 15+ eşiği sıradan
+# kullanıcı uygulamalarını (bunlarda required_by neredeyse hep 0-4)
+# etkilemeden alsa-lib/cairo/gnutls/gtk3 gibi temel kütüphaneleri yakalıyor.
+REQUIRED_BY_THRESHOLD = 15
+
 
 def is_protected(pkg: Package) -> bool:
     """Bu paket silinirse sistem zarar görür mü?"""
     if pkg.source not in SYSTEM_SOURCES:
         return False
     name = pkg.name.lower()
-    return name in PROTECTED_EXACT or name.startswith(PROTECTED_PREFIXES)
+    if name in PROTECTED_EXACT or name.startswith(PROTECTED_PREFIXES):
+        return True
+    return bool(pkg.required_by and pkg.required_by >= REQUIRED_BY_THRESHOLD)

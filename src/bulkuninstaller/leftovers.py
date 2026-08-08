@@ -1,16 +1,20 @@
 """Kaldırılan paketlerin geride bıraktığı dosyaları bulma ve temizleme.
 
 Güvenlik kuralları:
-- Eşleşme tam klasör/dosya adı üzerinden yapılır (parça eşleşme yok);
-  yanlış pozitif riskini en aza indirir.
+- Eşleşme TAM klasör/dosya adı üzerinden yapılır (parça/alt dize eşleşmesi
+  yok); yanlış pozitif riskini en aza indirir. Tek esneklik, boşluk/tire/
+  alt çizgi gibi ayraçların yok sayılması — "Stardew Valley" paketi
+  "StardewValley" adlı bir yapılandırma klasörünü tanıyabilsin diye
+  (doğrulandı: bu normalleştirme olmadan bu klasör hiç bulunamıyordu).
 - Silinecek her yol ev dizininin altında olmak zorundadır ve tarama
   yapılan kök dizinlerin kendisi asla silinmez.
 """
 
 import os
-import shutil
+import re
 from dataclasses import dataclass
 
+from . import host
 from .backends.base import Package
 
 SCAN_BASES = (
@@ -35,6 +39,12 @@ LEFTOVER_CATEGORIES = (
 class Leftover:
     path: str
     size: int
+
+
+def _normalize(text: str) -> str:
+    """Boşluk/tire/alt çizgi/nokta farklarını yok sayar — hâlâ TAM
+    eşleşme, alt dize değil, o yüzden yanlış pozitif riski artmıyor."""
+    return re.sub(r"[\s_\-.]+", "", text.lower())
 
 
 def _tree_size(path: str) -> int:
@@ -66,10 +76,10 @@ def find_package_leftovers(
     for pkg in packages:
         if pkg.source == "flatpak":
             flatpak_ids.add(pkg.id)
-            names.add(pkg.name.lower())
+            names.add(_normalize(pkg.name))
         else:
-            names.add(pkg.id.lower())
-            names.add(pkg.name.lower())
+            names.add(_normalize(pkg.id))
+            names.add(_normalize(pkg.name))
 
     home = os.path.realpath(os.path.expanduser("~"))
     seen: set[str] = set()
@@ -92,7 +102,7 @@ def find_package_leftovers(
         items = []
         for entry in entries:
             path = os.path.join(base_dir, entry)
-            if entry.lower() in names and safe(path):
+            if _normalize(entry) in names and safe(path):
                 items.append(Leftover(path=path, size=_tree_size(path)))
         if items:
             items.sort(key=lambda item: -item.size)
@@ -134,10 +144,13 @@ def remove_leftovers(leftovers: list[Leftover]) -> list[str]:
             errors.append(f"{item.path}: güvenlik nedeniyle atlandı")
             continue
         try:
-            if os.path.isdir(item.path) and not os.path.islink(item.path):
-                shutil.rmtree(item.path)
-            else:
-                os.remove(item.path)
-        except OSError as exc:
+            # Kalıcı silme yerine çöp kutusuna taşınır (gio trash, XDG Trash
+            # spesifikasyonuna uyar) — yanlış tiklenen bir kalıntı geri
+            # alınabilsin diye. Paket kaldırmadaki "yedekle" seçeneğiyle
+            # aynı mantık: geri dönüşü olmayan işlemden kaçınmak.
+            proc = host.run(["gio", "trash", item.path], timeout=30)
+            if proc.returncode != 0:
+                errors.append(f"{item.path}: {(proc.stderr or proc.stdout).strip()}")
+        except Exception as exc:
             errors.append(f"{item.path}: {exc}")
     return errors

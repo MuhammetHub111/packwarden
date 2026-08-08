@@ -22,7 +22,8 @@ class ZypperBackend(Backend):
         proc = host.run(
             [
                 "rpm", "-qa", "--qf",
-                "%{NAME}\\t%{VERSION}-%{RELEASE}\\t%{SIZE}\\t%{SUMMARY}\\t%{VENDOR}\\n",
+                "%{NAME}\\t%{VERSION}-%{RELEASE}\\t%{SIZE}\\t%{SUMMARY}\\t"
+                "%{VENDOR}\\t%{INSTALLTIME}\\t%{LICENSE}\\n",
             ],
             timeout=300,
         )
@@ -41,6 +42,13 @@ class ZypperBackend(Backend):
             vendor = parts[4] if len(parts) > 4 else ""
             if vendor == "(none)":
                 vendor = ""
+            try:
+                install_date = float(parts[5]) if len(parts) > 5 else None
+            except ValueError:
+                install_date = None
+            license_ = parts[6] if len(parts) > 6 else ""
+            if license_ == "(none)":
+                license_ = ""
             packages.append(Package(
                 id=parts[0],
                 name=parts[0],
@@ -49,6 +57,8 @@ class ZypperBackend(Backend):
                 description=parts[3] if len(parts) > 3 else "",
                 source=self.id,
                 publisher=vendor,
+                install_date=install_date,
+                license=license_,
             ))
         return packages
 

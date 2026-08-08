@@ -37,9 +37,14 @@ class AppImageBackend(Backend):
                 if name.endswith(ext):
                     name = name[: -len(ext)]
             try:
-                size = os.path.getsize(path)
+                stat = os.stat(path)
+                size = stat.st_size
+                # AppImage'ler bir kurulum aracına kayıtlı değil; dosyanın
+                # indirilme/kopyalanma zamanına en yakın karşılık ctime
+                install_date = stat.st_ctime
             except OSError:
                 size = 0
+                install_date = None
             packages.append(Package(
                 id=path,  # kaldırma dosya yoluyla yapılır
                 name=name,
@@ -48,6 +53,8 @@ class AppImageBackend(Backend):
                 description=path,
                 source=self.id,
                 origin=os.path.basename(os.path.dirname(path)),
+                install_date=install_date,
+                install_path=path,
             ))
         return packages
 

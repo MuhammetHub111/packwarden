@@ -21,7 +21,46 @@ APP_DIRS = (
     "~/.local/share/applications",
 )
 
+# Flatpak/Snap kendi .desktop dosyalarını yukarıdaki sıradan klasörlere
+# değil, kendi dışa aktarma klasörlerine koyar (window.py'deki kısayol
+# aramasıyla aynı yollar) — Kategori taraması bunları da içermeli, yoksa
+# tüm Flatpak/Snap uygulamaları kategorisiz kalır.
+_EXTRA_APP_DIRS = (
+    "/var/lib/flatpak/exports/share/applications",
+    "~/.local/share/flatpak/exports/share/applications",
+    "/var/lib/snapd/desktop/applications",
+)
+
 _ICON_EXTENSIONS = (".png", ".svg", ".svgz", ".xpm")
+
+# freedesktop.org menu spesifikasyonundaki "Main Categories" — bir
+# .desktop dosyasının Categories alanı bunlardan birini (genelde ilk
+# sırada) içerir, gerisi alt kategoridir (ör. Game;ActionGame;). Değerler
+# İngilizce kanonik etiket — Türkçeye çeviri window.py'de i18n._() ile
+# yapılır (buradaki diğer eşlemeler gibi bu modül dil ayarını bilmiyor).
+_MAIN_CATEGORIES = {
+    "AudioVideo": "Audio & Video",
+    "Audio": "Audio",
+    "Video": "Video",
+    "Development": "Development",
+    "Education": "Education",
+    "Game": "Game",
+    "Graphics": "Graphics",
+    "Network": "Internet",
+    "Office": "Office",
+    "Science": "Science",
+    "Settings": "Settings",
+    "System": "System",
+    "Utility": "Utility",
+}
+
+
+def _normalize_category(raw: str) -> str:
+    for token in raw.split(";"):
+        label = _MAIN_CATEGORIES.get(token.strip())
+        if label:
+            return label
+    return ""
 
 
 def _clean_icon(icon: str) -> str:
@@ -35,8 +74,8 @@ def _clean_icon(icon: str) -> str:
 
 
 def _parse_desktop(path: str):
-    """(icon, exec_base, name) döner; okunamazsa None."""
-    icon = exec_base = name = None
+    """(icon, exec_base, name, category) döner; okunamazsa None."""
+    icon = exec_base = name = category = None
     try:
         with open(path, encoding="utf-8", errors="replace") as f:
             in_entry = False
@@ -57,22 +96,28 @@ def _parse_desktop(path: str):
                         exec_base = os.path.basename(tokens[0]).lower()
                 elif line.startswith("Name=") and name is None:
                     name = line[5:].strip().lower()
+                elif line.startswith("Categories=") and category is None:
+                    category = _normalize_category(line[len("Categories="):])
     except OSError:
         return None
-    return icon, exec_base, name
+    return icon, exec_base, name, category
 
 
-def build_maps() -> tuple[dict[str, str], dict[str, str]]:
-    """İki eşleme döner (anahtarlar küçük harfli paket adı/kimliği):
+def build_maps() -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
+    """Üç eşleme döner (anahtarlar küçük harfli paket adı/kimliği):
 
     - simgeler: → simge adı (veya mutlak yol)
     - başlatıcılar: → .desktop kimliği (gtk-launch ile çalıştırmak için)
+    - kategoriler: → Türkçeleştirilmiş ana kategori (Oyun, Ofis, ...)
     """
     icons: dict[str, str] = {}
     launchers: dict[str, str] = {}
+    categories: dict[str, str] = {}
 
-    # 1) Sezgisel dizin: dosya adı, Exec ve Name anahtarları
-    for base in APP_DIRS:
+    # 1) Sezgisel dizin: dosya adı, Exec ve Name anahtarları — Flatpak/Snap'ın
+    # kendi dışa aktarma klasörleri de dahil, yoksa o uygulamalar
+    # kategorisiz kalır.
+    for base in APP_DIRS + _EXTRA_APP_DIRS:
         base_dir = os.path.expanduser(base)
         try:
             entries = os.listdir(base_dir)
@@ -82,14 +127,18 @@ def build_maps() -> tuple[dict[str, str], dict[str, str]]:
             if not entry.endswith(".desktop"):
                 continue
             parsed = _parse_desktop(os.path.join(base_dir, entry))
-            if not parsed or not parsed[0]:
+            if not parsed:
                 continue
-            icon, exec_base, name = parsed
+            icon, exec_base, name, category = parsed
             desktop_id = entry[: -len(".desktop")]
             for key in (desktop_id.lower(), exec_base, name):
-                if key:
+                if not key:
+                    continue
+                if icon:
                     icons.setdefault(key, icon)
                     launchers.setdefault(key, desktop_id)
+                if category:
+                    categories.setdefault(key, category)
 
     # 2) pacman kesin eşlemesi: paket → sahibi olduğu .desktop dosyası
     try:
@@ -110,11 +159,15 @@ def build_maps() -> tuple[dict[str, str], dict[str, str]]:
                 if not pkg or not path or pkg in seen:
                     continue
                 parsed = _parse_desktop(path)
-                if parsed and parsed[0]:
+                if parsed:
+                    icon, _exec_base, _name, category = parsed
                     seen.add(pkg)
-                    icons[pkg] = parsed[0]
-                    launchers[pkg] = os.path.basename(path)[: -len(".desktop")]
+                    if icon:
+                        icons[pkg] = icon
+                        launchers[pkg] = os.path.basename(path)[: -len(".desktop")]
+                    if category:
+                        categories[pkg] = category
     except Exception:
         pass  # simgeler süs; hata listeyi engellememeli
 
-    return icons, launchers
+    return icons, launchers, categories

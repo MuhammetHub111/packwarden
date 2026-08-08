@@ -1,3 +1,4 @@
+import os
 import re
 
 from .. import host
@@ -36,6 +37,12 @@ class PortageBackend(Backend):
                 version = match.group(1)
             else:
                 name, version = pkgver, ""
+            try:
+                # Paketin veritabanı kaydı emerge sırasında oluşturulur;
+                # dizin mtime'ı kurulum zamanının en yakın karşılığı
+                install_date = os.stat(line.rstrip("/")).st_mtime
+            except OSError:
+                install_date = None
             packages.append(Package(
                 id=f"{category}/{name}",
                 name=name,
@@ -44,6 +51,7 @@ class PortageBackend(Backend):
                 description="",
                 source=self.id,
                 origin=category,
+                install_date=install_date,
             ))
         return packages
 

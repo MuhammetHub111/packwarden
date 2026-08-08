@@ -1,8 +1,11 @@
 """Kullanılmayan uygulamalar penceresi (yalnızca test/dev sürümü).
 
-Seçilen eşiğin (3 ay / 6 ay / 1 yıl / özel) üzerinde kullanılmamış
-görünen -ya da hiç veri bulunamayan- uygulamaları listeler. "last_used"
-tahmini kesin değildir, bkz. unused.py. Kaldırma işlemi mevcut
+Seçilen eşiğin (3 ay / 6 ay / 1 yıl / özel) üzerinde kullanılmadığı
+KESİN olarak bilinen uygulamaları listeler. "Bilinmiyor" (last_used
+None) hiç listelenmez — yeni kurulmuş/güncellenmiş bir uygulamayla
+gerçekten eski bir uygulama bu şekilde ayırt edilemeyeceği için, emin
+olunmadıkça hiçbir şey "kullanılmıyor" diye işaretlenmez. "last_used"
+tahmini de kesin değildir, bkz. unused.py. Kaldırma işlemi mevcut
 RemovalWindow akışını yeniden kullanır.
 """
 
@@ -12,6 +15,7 @@ import time
 
 from gi.repository import Adw, GLib, Gtk
 
+from . import prefs
 from .backends.base import format_size
 from .i18n import _
 from .removal import RemovalWindow
@@ -52,7 +56,18 @@ class UnusedAppsWindow(Adw.Window):
         self._main = main_window
         self._data: list[tuple[object, float | None]] = []
         self._checks: list[tuple[Gtk.CheckButton, object]] = []
-        self._threshold_days = PRESETS_DAYS[1]
+
+        # Kullanıcının en son seçtiği eşik hatırlanır — pencere her
+        # açıldığında 6 aya sıfırlanması can sıkıcıydı.
+        saved_preset = prefs.get("unused_threshold_preset")
+        if not isinstance(saved_preset, int) or not 0 <= saved_preset <= 3:
+            saved_preset = 1
+        saved_custom_days = prefs.get("unused_threshold_custom_days")
+        if not isinstance(saved_custom_days, int) or not 1 <= saved_custom_days <= 3650:
+            saved_custom_days = 180
+        self._threshold_days = (
+            saved_custom_days if saved_preset == 3 else PRESETS_DAYS[saved_preset]
+        )
 
         header = Adw.HeaderBar()
 
@@ -61,14 +76,14 @@ class UnusedAppsWindow(Adw.Window):
             model=Gtk.StringList.new([
                 _("3 months"), _("6 months"), _("1 year"), _("Custom"),
             ]),
-            selected=1,
+            selected=saved_preset,
         )
         self._threshold_row.connect("notify::selected", self._on_threshold_changed)
 
         self._custom_row = Adw.SpinRow.new_with_range(1, 3650, 1)
         self._custom_row.set_title(_("Custom (days)"))
-        self._custom_row.set_value(180)
-        self._custom_row.set_visible(False)
+        self._custom_row.set_value(saved_custom_days)
+        self._custom_row.set_visible(saved_preset == 3)
         self._custom_row.connect("notify::value", self._on_threshold_changed)
 
         settings_group = Adw.PreferencesGroup()
@@ -84,12 +99,21 @@ class UnusedAppsWindow(Adw.Window):
         self._scan_row.add_prefix(Gtk.Spinner(spinning=True))
         self._list_box.append(self._scan_row)
 
+        self._empty_status = Adw.StatusPage(
+            icon_name="emblem-ok-symbolic",
+            title=_("No unused applications found"),
+            description=_("Every scanned app was used within the threshold"),
+            vexpand=True,
+            visible=False,
+        )
+
         content = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL, spacing=12,
             margin_top=12, margin_bottom=12, margin_start=12, margin_end=12,
         )
         content.append(settings_group)
         content.append(self._list_box)
+        content.append(self._empty_status)
         clamp = Adw.Clamp(maximum_size=760, child=content)
         scrolled = Gtk.ScrolledWindow(child=clamp, vexpand=True)
 
@@ -123,6 +147,9 @@ class UnusedAppsWindow(Adw.Window):
     # ---------------- Tarama ----------------
 
     def _scan(self):
+        # DEV_BUILD açıkken oyunlar zaten ana listeye (self._main._items)
+        # dahil ediliyor (bkz. window.py:refresh) — burada ayrıca
+        # taranmıyor, yoksa iki kez sayılır.
         packages = [
             item.pkg for item in self._main._items
             if self._main._is_app(item.pkg)
@@ -145,10 +172,12 @@ class UnusedAppsWindow(Adw.Window):
         preset = self._threshold_row.get_selected()
         is_custom = preset == 3
         self._custom_row.set_visible(is_custom)
-        self._threshold_days = (
-            int(self._custom_row.get_value()) if is_custom
-            else PRESETS_DAYS[preset]
-        )
+        custom_days = int(self._custom_row.get_value())
+        self._threshold_days = custom_days if is_custom else PRESETS_DAYS[preset]
+
+        prefs.set("unused_threshold_preset", preset)
+        prefs.set("unused_threshold_custom_days", custom_days)
+
         if self._data:
             self._rebuild_list()
 
@@ -161,28 +190,33 @@ class UnusedAppsWindow(Adw.Window):
             child = self._list_box.get_first_child()
         self._checks.clear()
 
+        # "Bilinmiyor" (ts is None) burada asla listelenmez: yeni kurulmuş
+        # ya da az önce güncellenmiş bir uygulamanın henüz hiç kalıntı
+        # klasörü olmayabilir, bu da onu gerçekten eski/kullanılmayan bir
+        # uygulamadan ayırt edilemez kılar. Sadece GERÇEKTEN eski olduğu
+        # bilinen (kesin zaman damgalı) uygulamalar gösterilir.
         cutoff = time.time() - self._threshold_days * 86400
         stale = [
             (pkg, ts) for pkg, ts in self._data
-            if ts is None or ts <= cutoff
+            if ts is not None and ts <= cutoff
         ]
-        stale.sort(key=lambda pair: (pair[1] is not None, pair[1] or 0))
+        stale.sort(key=lambda pair: pair[1])
 
         if not stale:
-            row = Adw.ActionRow(
-                title=_("No unused applications found"),
-                subtitle=_("Every scanned app was used within the threshold"),
-            )
-            row.add_prefix(Gtk.Image(icon_name="emblem-ok-symbolic"))
-            self._list_box.append(row)
+            self._list_box.set_visible(False)
+            self._empty_status.set_visible(True)
             self._select_all.set_sensitive(False)
             self._update_selection()
             return
 
+        self._list_box.set_visible(True)
+        self._empty_status.set_visible(False)
         for pkg, ts in stale:
             check = Gtk.CheckButton(valign=Gtk.Align.CENTER)
             check.connect("toggled", lambda *_a: self._update_selection())
             badge = f"{pkg.source} · {_format_last_used(ts)}"
+            if pkg.source.startswith("heroic-"):
+                badge += " (" + _("approximate") + ")"
             row = Adw.ActionRow(
                 title=pkg.name, subtitle=badge, activatable_widget=check,
             )

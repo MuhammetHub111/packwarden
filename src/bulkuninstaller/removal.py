@@ -328,7 +328,7 @@ class RemovalWindow(Adw.Window):
             ))
             if cleaned:
                 self._main._toast_overlay.add_toast(Adw.Toast(
-                    title=_("Deleted {count} leftover items").format(count=cleaned)
+                    title=_("Moved {count} leftover items to Trash").format(count=cleaned)
                 ))
 
         self._main.refresh()

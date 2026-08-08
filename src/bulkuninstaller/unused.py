@@ -17,7 +17,14 @@ def last_used(pkg: Package) -> float | None:
 
     Eşleşen klasör yoksa None döner — bu "bilinmiyor" demektir, asla
     "hiç kullanılmadı" diye yorumlanmamalı.
+
+    Oyun kaynakları (Steam/Lutris/Heroic) kendi last_used değerini
+    doğrudan Package üzerinde taşır (bkz. games/) — burada leftover
+    sezgisine hiç düşülmez.
     """
+    if pkg.last_used is not None:
+        return pkg.last_used
+
     latest: float | None = None
     for _category, items in find_package_leftovers([pkg]):
         for item in items:

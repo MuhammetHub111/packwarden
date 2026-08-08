@@ -711,6 +711,8 @@ class MainWindow(Adw.ApplicationWindow):
         """Paket bir son-kullanıcı uygulaması mı (kütüphane/sistem değil)?"""
         if pkg.source in ("flatpak", "snap", "appimage"):
             return True  # bu kaynaklar zaten yalnızca uygulama barındırır
+        if pkg.source.startswith(("steam", "lutris", "heroic-")):
+            return True  # oyunlar her zaman uygulama sayılır
         return (
             pkg.id.lower() in self._launcher_map
             or pkg.name.lower() in self._launcher_map
@@ -831,7 +833,11 @@ class MainWindow(Adw.ApplicationWindow):
         self._stack.set_visible_child_name("loading")
 
         def worker():
-            backends = available_backends()
+            from .games import available_game_backends
+            # Oyunlar önce gelir: kaynak dropdown'ında Pacman'ın onlarca
+            # repo alt kırılımının arkasında kaybolmasınlar, "Tüm
+            # kaynaklar"ın hemen altında görünsünler.
+            backends = available_game_backends() + available_backends()
             packages = []
             for backend in backends:
                 try:
@@ -839,7 +845,7 @@ class MainWindow(Adw.ApplicationWindow):
                 except Exception:
                     pass  # a broken backend must not take the app down
             try:
-                icon_map, launcher_map = build_maps()
+                icon_map, launcher_map, _categories = build_maps()
             except Exception:
                 icon_map, launcher_map = {}, {}
             GLib.idle_add(

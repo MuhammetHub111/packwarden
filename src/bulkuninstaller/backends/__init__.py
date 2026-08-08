@@ -1,7 +1,7 @@
 from .apk import ApkBackend
 from .appimage import AppImageBackend
 from .apt import AptBackend
-from .base import Backend, Package, RemoveResult, format_size
+from .base import Backend, Package, RemoveResult, format_install_date, format_size
 from .dnf import DnfBackend
 from .flatpak import FlatpakBackend
 from .nix import NixBackend

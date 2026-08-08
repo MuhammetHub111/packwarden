@@ -22,6 +22,14 @@ DEFAULTS = {
     # Açılışta arkaplanda güncelleme denetimi yapıp bulunca güncelleme
     # penceresini otomatik aç (yalnızca test/dev sürümünde kullanılabilir)
     "auto_update": False,
+    # Ana liste sütunlarının kullanıcının sürükleyerek belirlediği sırası
+    # (sütun kimlikleri listesi) — boşsa varsayılan sıra kullanılır
+    "column_order": [],
+    # Kullanılmayan uygulamalar penceresindeki eşik seçimi: 0=3 ay,
+    # 1=6 ay, 2=1 yıl, 3=özel — pencere her açıldığında hatırlanır
+    "unused_threshold_preset": 1,
+    # "Özel" seçiliyken kullanılan gün sayısı
+    "unused_threshold_custom_days": 180,
 }
 
 _cache: dict | None = None

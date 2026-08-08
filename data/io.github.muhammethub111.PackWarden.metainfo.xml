@@ -21,6 +21,7 @@
     <p>Features:</p>
     <ul>
       <li>One list for all package managers: pacman, APT, DNF, Flatpak</li>
+      <li>Also manages game libraries: Steam, Heroic (Epic, GOG) and Lutris</li>
       <li>Search, filter by source, sort by installed size</li>
       <li>Batch uninstall with a single confirmation</li>
       <li>Secure privilege handling through polkit (pkexec)</li>
@@ -40,6 +41,29 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.12.0" date="2026-08-08">
+      <description>
+        <p>New:</p>
+        <ul>
+          <li>Added support for Steam, Heroic (Epic, GOG) and Lutris game libraries — list and remove games alongside your regular packages, in the same window.</li>
+          <li>Steam games now show their real version number (build ID) instead of a blank field.</li>
+        </ul>
+        <p>Fixed:</p>
+        <ul>
+          <li>Games installed in a secondary Steam library (a different drive or folder than the default) were not showing up in the list.</li>
+          <li>Removing a Steam or Heroic game left its desktop and menu shortcut behind, still showing the game's icon after it was gone.</li>
+          <li>Removing a Steam game left its Workshop content and shader cache on disk.</li>
+          <li>Leftover-file detection could miss a package's settings folder when its name was written slightly differently on disk (e.g. spaces removed).</li>
+          <li>The "Unused apps" time threshold (3 months, 6 months, 1 year, or a custom period) reset every time the window was opened instead of remembering your last choice.</li>
+        </ul>
+        <p>Security:</p>
+        <ul>
+          <li>Leftover file cleanup now moves files to the Trash instead of deleting them permanently, so an accidental selection can be undone.</li>
+          <li>Protection against removing critical packages now also considers how many other installed packages depend on it, not just a fixed list of known-critical names.</li>
+          <li>The built-in updater now verifies a checksum before installing an update, and only installs a deliberately published release instead of the latest development commit.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-07-16">
       <description>
         <p>First release: pacman, APT, DNF and Flatpak support with bulk removal.</p>

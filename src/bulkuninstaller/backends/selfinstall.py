@@ -44,6 +44,11 @@ class SelfInstallBackend(Backend):
                 except OSError:
                     pass
 
+        try:
+            install_date = os.stat(base).st_mtime
+        except OSError:
+            install_date = None
+
         return [Package(
             id=base,
             name="PackWarden",
@@ -52,6 +57,8 @@ class SelfInstallBackend(Backend):
             description="Bulk application manager (this app)",
             source=self.id,
             publisher="MuhammetHub111",
+            install_path=base,
+            install_date=install_date,
         )]
 
     def remove_argv(self, ids: list[str]) -> list[str]:

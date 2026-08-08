@@ -15,23 +15,31 @@ from .i18n import _
 MAX_BOXES = 400
 
 # Sabit kategorik sıra (dataviz referans paleti, 8 yuva — CVD-güvenli
-# bitişik-çift sırası). Kaynak kimliği bu sıraya göre renk alır; 8'i aşan
-# kaynaklar "Diğer" rengine düşer, asla yeni bir ton üretilmez.
-_SOURCE_COLORS: dict[str, tuple[str, str]] = {
-    "pacman": ("#2a78d6", "#3987e5"),
-    "apt": ("#eb6834", "#d95926"),
-    "flatpak": ("#1baf7a", "#199e70"),
-    "snap": ("#eda100", "#c98500"),
-    "dnf": ("#e87ba4", "#d55181"),
-    "appimage": ("#008300", "#008300"),
-    "zypper": ("#4a3aa7", "#9085e9"),
-    "apk": ("#e34948", "#e66767"),
+# bitişik-çift sırası, asla yeniden sıralanmaz/döngüye alınmaz). 8'i aşan
+# kaynaklar "Diğer" rengine düşer, asla yeni bir ton üretilmez. Kategoriler
+# KURULUM YÖNTEMİNİ anlatır, belirli bir uygulamanın adını değil — bu
+# yüzden PackWarden'ın kendisi "PackWarden" diye değil, kurulum yöntemine
+# göre "script" (kurulum betiğiyle kurulmuş) kategorisine girer.
+_CATEGORY_COLORS: dict[str, tuple[str, str]] = {
+    "native": ("#2a78d6", "#3987e5"),   # 1. blue
+    "games": ("#eb6834", "#d95926"),    # 2. orange
+    "store": ("#1baf7a", "#199e70"),    # 3. aqua
+    "script": ("#eda100", "#c98500"),   # 4. yellow
 }
 _OTHER_COLOR = ("#898781", "#898781")
-_SOURCE_DISPLAY = {
-    "pacman": "Pacman", "apt": "APT", "flatpak": "Flatpak", "snap": "Snap",
-    "dnf": "DNF", "appimage": "AppImage", "zypper": "Zypper", "apk": "APK",
-    "xbps": "XBPS", "portage": "Portage", "nix": "Nix",
+
+_SOURCE_CATEGORY: dict[str, str] = {
+    "pacman": "native", "apt": "native", "dnf": "native", "zypper": "native",
+    "apk": "native", "xbps": "native", "portage": "native", "nix": "native",
+    "flatpak": "store", "snap": "store", "appimage": "store",
+    "steam": "games", "lutris": "games", "heroic-epic": "games",
+    "heroic-gog": "games", "heroic-amazon": "games",
+    "packwarden": "script",
+}
+_CATEGORY_DISPLAY = {
+    "native": "Native packages", "games": "Games",
+    "store": "Distribution-independent packages",
+    "script": "Manual installation",
 }
 
 
@@ -59,7 +67,8 @@ def _hex_to_rgb(value: str) -> tuple[float, float, float]:
 
 
 def _box_color(source: str, dark: bool) -> tuple[float, float, float]:
-    light_hex, dark_hex = _SOURCE_COLORS.get(source, _OTHER_COLOR)
+    category = _SOURCE_CATEGORY.get(source)
+    light_hex, dark_hex = _CATEGORY_COLORS.get(category, _OTHER_COLOR)
     return _hex_to_rgb(dark_hex if dark else light_hex)
 
 
@@ -67,6 +76,19 @@ def _label_color(rgb: tuple[float, float, float]) -> tuple[float, float, float]:
     r, g, b = rgb
     luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
     return (0.05, 0.05, 0.05) if luminance > 0.6 else (1.0, 1.0, 1.0)
+
+
+def _layout_size(size: int) -> float:
+    """Kutu ALANI için karekök ölçeklemesi.
+
+    Oyunlar (onlarca GB) ile sıradan uygulamalar (birkaç MB) aynı
+    haritada yan yana durunca, ham boyutla orantılı alan devasa
+    oyunları tek renge boğup küçük uygulamaları görünmez kılıyordu.
+    Karekök, "büyük hâlâ büyük görünür" sırasını korurken oranı
+    sıkıştırır — gerçek boyut/yüzde metinleri (hover, lejant, liste)
+    buna dokunmaz, sadece kutunun ekran alanı etkilenir.
+    """
+    return max(size, 1) ** 0.5
 
 
 # ---------------- Squarified treemap yerleşimi (saf Python) ----------------
@@ -177,11 +199,22 @@ class DiskMapArea(Gtk.DrawingArea):
         right_click.connect("released", self._on_right_click)
         self.add_controller(right_click)
 
-    def set_items(self, items):
-        """items: .pkg özniteliği olan nesneler (PackageItem)."""
+    def set_items(self, items, total_size: int | None = None):
+        """items: .pkg özniteliği olan nesneler (PackageItem).
+
+        total_size verilmezse gösterilen kutuların toplamından hesaplanır
+        (yalnızca kutu alanları için doğru orantı sağlar). Yüzde METNİ
+        için çağıran, filtreden bağımsız sabit bir toplam vermelidir —
+        yoksa aynı uygulama kaynak filtresi değişince farklı yüzde
+        gösterir (kutu boyutu her zaman gösterilen alt kümeye göre
+        kalır, bu doğrudur — treemap'in kendisi zaten sadece o kadarını
+        çiziyor).
+        """
         items = sorted(items, key=lambda it: -it.pkg.size)[:MAX_BOXES]
         self._items = items
-        self._total_size = sum(item.pkg.size for item in items) or 1
+        if total_size is None:
+            total_size = sum(item.pkg.size for item in items) or 1
+        self._total_size = total_size or 1
         self._selected_item = None
         self._hover_item = None
         self.queue_draw()
@@ -194,7 +227,7 @@ class DiskMapArea(Gtk.DrawingArea):
         if not self._items:
             return
         dark = self._is_dark()
-        sizes = [item.pkg.size for item in self._items]
+        sizes = [_layout_size(item.pkg.size) for item in self._items]
         rects = squarify(sizes, 0, 0, width, height)
         self._rects = list(zip(self._items, rects))
 
@@ -299,28 +332,28 @@ class DiskMapArea(Gtk.DrawingArea):
 
 
 def build_legend(items) -> Gtk.Widget:
-    """Haritada görünen kaynaklar için renk + isim lejantı."""
-    sources = []
-    seen = set()
+    """Haritada görünen kategoriler için renk + isim lejantı."""
+    seen_categories = set()
+    other_present = False
     for item in items:
-        source = item.pkg.source
-        if source not in seen:
-            seen.add(source)
-            sources.append(source)
-    # sabit yuva sırası; 8'i aşanlar tek bir "Diğer" girdisine katlanır
-    ordered = [s for s in _SOURCE_COLORS if s in seen]
-    other = [s for s in sources if s not in _SOURCE_COLORS]
+        category = _SOURCE_CATEGORY.get(item.pkg.source)
+        if category is None:
+            other_present = True
+        else:
+            seen_categories.add(category)
+    # sabit yuva sırası; kategorisiz kaynaklar tek bir "Diğer" girdisine katlanır
+    ordered = [c for c in _CATEGORY_COLORS if c in seen_categories]
 
     box = Gtk.Box(
         orientation=Gtk.Orientation.HORIZONTAL, spacing=12,
         margin_top=4, margin_bottom=4, margin_start=12, margin_end=12,
     )
     dark = Adw.StyleManager.get_default().get_dark()
-    for source in ordered:
-        box.append(_legend_entry(
-            _SOURCE_DISPLAY.get(source, source), _box_color(source, dark)
-        ))
-    if other:
+    for category in ordered:
+        light_hex, dark_hex = _CATEGORY_COLORS[category]
+        color = _hex_to_rgb(dark_hex if dark else light_hex)
+        box.append(_legend_entry(_(_CATEGORY_DISPLAY[category]), color))
+    if other_present:
         other_hex = _OTHER_COLOR[1] if dark else _OTHER_COLOR[0]
         box.append(_legend_entry(_("Other"), _hex_to_rgb(other_hex)))
     return box
