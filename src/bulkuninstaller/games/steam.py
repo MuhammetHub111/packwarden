@@ -11,6 +11,7 @@ import re
 import shutil
 
 from ..backends.base import Backend, Package, RemoveResult
+from ._safety import is_within
 from ._shortcuts import remove_matching_shortcuts
 from ._steam_metadata import studios_for
 
@@ -220,30 +221,48 @@ class SteamGameBackend(Backend):
                 continue
 
             try:
+                # installdir/appid .acf dosyasından geliyor — bu, Steam
+                # dışında çalışan HERHANGİ bir yerel süreç tarafından
+                # değiştirilebilen sıradan bir metin dosyası. "../" veya
+                # mutlak bir yol içerecek şekilde kurcalanmışsa
+                # os.path.join bunu sessizce steamapps'ın dışına taşırdı
+                # (doğrulandı) — her silme öncesi gerçek sonucun hâlâ
+                # beklenen köklerin İÇİNDE olduğu kontrol ediliyor.
                 if installdir:
-                    common_path = os.path.join(steamapps, "common", installdir)
-                    if os.path.isdir(common_path):
+                    common_root = os.path.join(steamapps, "common")
+                    common_path = os.path.join(common_root, installdir)
+                    if os.path.isdir(common_path) and is_within(common_path, common_root):
                         shutil.rmtree(common_path)
-                compat_path = os.path.join(steamapps, "compatdata", appid)
-                if os.path.isdir(compat_path):
+
+                compat_root = os.path.join(steamapps, "compatdata")
+                compat_path = os.path.join(compat_root, appid)
+                if os.path.isdir(compat_path) and is_within(compat_path, compat_root):
                     shutil.rmtree(compat_path)
+
                 # Workshop içeriği (mod/harita vb.) ve gölgelendirici
                 # önbelleği ayrı klasörlerde tutuluyor, "common" silinince
                 # gitmiyor — doğrulandı: Project Zomboid'in workshop
                 # klasörü oyun kaldırılsa bile öylece duruyordu.
-                workshop_content = os.path.join(
-                    steamapps, "workshop", "content", appid
-                )
-                if os.path.isdir(workshop_content):
+                workshop_root = os.path.join(steamapps, "workshop", "content")
+                workshop_content = os.path.join(workshop_root, appid)
+                if os.path.isdir(workshop_content) and is_within(
+                    workshop_content, workshop_root
+                ):
                     shutil.rmtree(workshop_content)
-                workshop_acf = os.path.join(
-                    steamapps, "workshop", f"appworkshop_{appid}.acf"
-                )
-                if os.path.isfile(workshop_acf):
+
+                workshop_dir = os.path.join(steamapps, "workshop")
+                workshop_acf = os.path.join(workshop_dir, f"appworkshop_{appid}.acf")
+                acf_parent = os.path.dirname(os.path.realpath(workshop_acf))
+                if os.path.isfile(workshop_acf) and acf_parent == os.path.realpath(
+                    workshop_dir
+                ):
                     os.remove(workshop_acf)
-                shadercache = os.path.join(steamapps, "shadercache", appid)
-                if os.path.isdir(shadercache):
+
+                shader_root = os.path.join(steamapps, "shadercache")
+                shadercache = os.path.join(shader_root, appid)
+                if os.path.isdir(shadercache) and is_within(shadercache, shader_root):
                     shutil.rmtree(shadercache)
+
                 if os.path.isfile(manifest_path):
                     os.remove(manifest_path)
                 remove_matching_shortcuts(f"steam://rungameid/{appid}")

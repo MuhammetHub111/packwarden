@@ -24,6 +24,7 @@ import shutil
 from .. import host
 from ..backends.base import Backend, Package, RemoveResult
 from ._icons import cached_icon
+from ._safety import is_critical
 from ._shortcuts import remove_matching_shortcuts
 
 CONFIG_DIR = "~/.config/heroic"
@@ -259,7 +260,14 @@ class HeroicGogBackend(Backend):
             if isinstance(entry, dict):
                 install_path = entry.get("install_path") or entry.get("path")
             try:
-                if install_path and os.path.isdir(install_path):
+                # install_path, Heroic'in yerel JSON kaydından geliyor —
+                # sıradan, korumasız bir dosya, herhangi bir yerel süreç
+                # tarafından değiştirilebilir. Kurcalanmışsa (ör. ev
+                # dizinine ayarlanmışsa) rmtree çağırmadan önce reddet.
+                if (
+                    install_path and os.path.isdir(install_path)
+                    and not is_critical(install_path)
+                ):
                     shutil.rmtree(install_path)
                 if isinstance(data, dict) and game_id in data:
                     del data[game_id]
