@@ -99,13 +99,22 @@ class MainWindow(Adw.ApplicationWindow):
         return _(raw) if raw else ""
 
     def _build_ui(self):
-        header = Adw.HeaderBar()
+        # Ayrı, sade bir başlık çubuğu — GNOME'un arama/menü/düğmeleri
+        # pencere kontrolleriyle aynı satıra gömen "headerbar" tasarımı
+        # yerine, klasik masaüstü görünümü: başlık çubuğu sadece pencere
+        # kontrollerini taşır, uygulamanın kendi araçları aşağıda ayrı
+        # bir araç çubuğunda durur.
+        # AdwApplicationWindow düz Gtk.Window.set_titlebar()'ı
+        # desteklemiyor (doğrulandı: "gtk_window_set_titlebar() is not
+        # supported for AdwApplicationWindow") — libadwaita'nın kendi
+        # ToolbarView mekanizması üzerinden, ama SADE bir Gtk.HeaderBar
+        # (Adw.HeaderBar değil) üst çubuk olarak eklenir.
+        self._titlebar = Gtk.HeaderBar()
+        self._titlebar.set_title_widget(Gtk.Label(label="PackWarden"))
 
         self._search_entry = Gtk.SearchEntry(placeholder_text=_("Search packages…"))
         self._search_entry.set_hexpand(True)
         self._search_entry.connect("search-changed", self._on_search_changed)
-        clamp = Adw.Clamp(maximum_size=420, child=self._search_entry, hexpand=True)
-        header.set_title_widget(clamp)
 
         search_action = Gio.SimpleAction.new("search", None)
         search_action.connect("activate", lambda *_: self._search_entry.grab_focus())
@@ -115,17 +124,16 @@ class MainWindow(Adw.ApplicationWindow):
             icon_name="view-refresh-symbolic", tooltip_text=_("Refresh package list")
         )
         self._refresh_button.connect("clicked", lambda *_: self.refresh())
-        header.pack_start(self._refresh_button)
 
-        # Yenile düğmesinin yanında küçük uygulama logosu
+        # Araç çubuğunun solundaki küçük uygulama logosu
         logo_path = os.path.abspath(os.path.join(
             os.path.dirname(__file__), "..", "..",
             "data", "icons", "io.github.muhammethub111.PackWarden.svg",
         ))
+        logo = None
         if os.path.exists(logo_path):
             logo = Gtk.Image(pixel_size=24, valign=Gtk.Align.CENTER)
             logo.set_from_file(logo_path)
-            header.pack_start(logo)
 
         menu = Gio.Menu()
         menu.append(_("Unused apps"), "win.unused-apps")
@@ -133,9 +141,21 @@ class MainWindow(Adw.ApplicationWindow):
         menu.append(_("About PackWarden"), "app.about")
         menu.append(_("Quit"), "app.quit")
         menu_button = Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu)
-        header.pack_end(menu_button)
 
-        # Filter row under the header: source dropdown
+        self._busy_spinner = Gtk.Spinner()
+
+        toolbar = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL, spacing=8,
+            margin_top=6, margin_bottom=6, margin_start=8, margin_end=8,
+        )
+        if logo is not None:
+            toolbar.append(logo)
+        toolbar.append(self._refresh_button)
+        toolbar.append(self._search_entry)
+        toolbar.append(self._busy_spinner)
+        toolbar.append(menu_button)
+
+        # Filter row under the toolbar: source dropdown
         self._source_dropdown = Gtk.DropDown.new_from_strings([_("All sources")])
         self._source_dropdown.connect("notify::selected", self._on_source_changed)
 
@@ -312,16 +332,15 @@ class MainWindow(Adw.ApplicationWindow):
         self._diskmap_page.append(self._diskmap_empty_status)
         self._stack.add_named(self._diskmap_page, "diskmap")
 
-        self._busy_spinner = Gtk.Spinner()
-        header.pack_end(self._busy_spinner)
-
         content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        content_box.append(toolbar)
+        content_box.append(Gtk.Separator())
         content_box.append(filter_bar)
         content_box.append(Gtk.Separator())
         content_box.append(self._stack)
 
         toolbar_view = Adw.ToolbarView(content=content_box)
-        toolbar_view.add_top_bar(header)
+        toolbar_view.add_top_bar(self._titlebar)
 
         self._toast_overlay = Adw.ToastOverlay(child=toolbar_view)
         self.set_content(self._toast_overlay)
