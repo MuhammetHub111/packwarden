@@ -15,6 +15,7 @@ import shutil
 import sqlite3
 
 from ..backends.base import Backend, Package, RemoveResult
+from ._safety import is_critical
 
 PGA_DB_PATH = "~/.local/share/lutris/pga.db"
 
@@ -107,7 +108,14 @@ class LutrisGameBackend(Backend):
                         "SELECT directory FROM games WHERE id = ?", (row_id,)
                     ).fetchone()
                     directory = row[0] if row else None
-                    if directory and os.path.isdir(directory):
+                    # directory, pga.db'den geliyor — sıradan, korumasız
+                    # bir SQLite dosyası, herhangi bir yerel süreç
+                    # tarafından değiştirilebilir. Kurcalanmışsa rmtree
+                    # çağırmadan önce reddet.
+                    if (
+                        directory and os.path.isdir(directory)
+                        and not is_critical(directory)
+                    ):
                         shutil.rmtree(directory)
                     conn.execute(
                         "UPDATE games SET installed = 0 WHERE id = ?", (row_id,)

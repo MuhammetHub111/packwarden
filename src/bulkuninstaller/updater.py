@@ -159,7 +159,13 @@ def download_and_install(progress, log, cancelled) -> bool:
     workdir = tempfile.mkdtemp(prefix="packwarden-update-")
     try:
         with tarfile.open(tmp.name) as tar:
-            tar.extractall(workdir)
+            # "data" filtresi olmadan extractall, üye adlarındaki "../"
+            # yollarını doğrulamadan kabul ediyor (Python'un eski
+            # "fully_trusted" varsayılanı) — sağlama toplamı bu arşivle
+            # aynı yayından geldiği için tek başına yeterli bir güvence
+            # değil, arşivin kendisi de workdir dışına yazamayacak
+            # şekilde kısıtlanmalı.
+            tar.extractall(workdir, filter="data")
         entries = [
             entry for entry in os.listdir(workdir)
             if os.path.isdir(os.path.join(workdir, entry))
