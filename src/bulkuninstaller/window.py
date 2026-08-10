@@ -52,6 +52,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._filter_model = Gtk.FilterListModel(model=self._store, filter=self._filter)
 
         self._setup_icon_theme()
+        self._setup_css()
         self._build_ui()
         self.refresh()
 
@@ -67,6 +68,28 @@ class MainWindow(Adw.ApplicationWindow):
         ):
             if os.path.isdir(path):
                 self._icon_theme.add_search_path(path)
+
+    def _setup_css(self):
+        """GNOME/Adwaita'nın yuvarlatılmış pencere köşelerini ve
+        gölgeli/kenarsız başlık çubuğunu düzleştirir — geleneksel
+        masaüstü uygulaması görünümüne daha yakın, keskin köşeli bir
+        çerçeve."""
+        css = b"""
+        window.background {
+            border-radius: 0px;
+        }
+        headerbar {
+            border-radius: 0px;
+            box-shadow: none;
+            border-bottom: 1px solid alpha(currentColor, 0.15);
+        }
+        """
+        provider = Gtk.CssProvider()
+        provider.load_from_data(css)
+        Gtk.StyleContext.add_provider_for_display(
+            self.get_display(), provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+        )
 
     def _icon_name_for(self, pkg) -> str:
         """Paketin uygulama simgesini bul; yoksa genel paket simgesi."""
