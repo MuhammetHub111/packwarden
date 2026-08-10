@@ -135,12 +135,30 @@ class MainWindow(Adw.ApplicationWindow):
             logo = Gtk.Image(pixel_size=24, valign=Gtk.Align.CENTER)
             logo.set_from_file(logo_path)
 
-        menu = Gio.Menu()
-        menu.append(_("Unused apps"), "win.unused-apps")
-        menu.append(_("Settings"), "app.settings")
-        menu.append(_("About PackWarden"), "app.about")
-        menu.append(_("Quit"), "app.quit")
-        menu_button = Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu)
+        # Hamburger menü yerine klasik, üst düzey açılır menü çubuğu
+        # (Dosya/Araçlar/Yardım) — Windows/eski masaüstü uygulamalarının
+        # alışılmış düzeni. "Yenile" burada da bir menü ögesi olsun diye
+        # ayrı bir eylem tanımlanıyor (araç çubuğundaki düğmeyle aynı işi yapar).
+        refresh_action = Gio.SimpleAction.new("refresh-list", None)
+        refresh_action.connect("activate", lambda *_: self.refresh())
+        self.add_action(refresh_action)
+
+        file_menu = Gio.Menu()
+        file_menu.append(_("Refresh package list"), "win.refresh-list")
+        file_menu.append(_("Quit"), "app.quit")
+
+        tools_menu = Gio.Menu()
+        tools_menu.append(_("Unused apps"), "win.unused-apps")
+        tools_menu.append(_("Settings"), "app.settings")
+
+        help_menu = Gio.Menu()
+        help_menu.append(_("About PackWarden"), "app.about")
+
+        menu_bar_model = Gio.Menu()
+        menu_bar_model.append_submenu(_("File"), file_menu)
+        menu_bar_model.append_submenu(_("Tools"), tools_menu)
+        menu_bar_model.append_submenu(_("Help"), help_menu)
+        menu_bar = Gtk.PopoverMenuBar.new_from_model(menu_bar_model)
 
         self._busy_spinner = Gtk.Spinner()
 
@@ -153,13 +171,10 @@ class MainWindow(Adw.ApplicationWindow):
         toolbar.append(self._refresh_button)
         toolbar.append(self._search_entry)
         toolbar.append(self._busy_spinner)
-        toolbar.append(menu_button)
 
         # Filter row under the toolbar: source dropdown
         self._source_dropdown = Gtk.DropDown.new_from_strings([_("All sources")])
         self._source_dropdown.connect("notify::selected", self._on_source_changed)
-
-        self._count_label = Gtk.Label(css_classes=["dim-label"], hexpand=True, xalign=1)
 
         toggle_content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         toggle_content.append(Gtk.Image(icon_name="drive-harddisk-symbolic"))
@@ -168,10 +183,6 @@ class MainWindow(Adw.ApplicationWindow):
             child=toggle_content, tooltip_text=_("Disk map"),
         )
         self._diskmap_toggle.connect("toggled", self._on_diskmap_toggled)
-        # Kutuların üzerine gelince/tıklayınca ad+boyut+oranı burada
-        # göster — GTK'nin yerleşik tooltip'i kutular arası hızlı
-        # geçişte kararsız davranıyor, kalıcı bir etiket daha güvenilir
-        self._diskmap_hover_label = Gtk.Label(css_classes=["dim-label"])
 
         filter_bar = Gtk.Box(
             orientation=Gtk.Orientation.HORIZONTAL,
@@ -180,8 +191,21 @@ class MainWindow(Adw.ApplicationWindow):
         )
         filter_bar.append(self._source_dropdown)
         filter_bar.append(self._diskmap_toggle)
-        filter_bar.append(self._count_label)
-        filter_bar.append(self._diskmap_hover_label)
+
+        # Alt durum çubuğu (Windows Gezgini tarzı) — paket sayısı ve
+        # üzerine gelince ad/boyut/oran bilgisi eskiden filtre satırının
+        # sağında duruyordu, artık pencerenin en altında ayrı bir şerit.
+        self._count_label = Gtk.Label(css_classes=["dim-label"], hexpand=True, xalign=0)
+        # Kutuların üzerine gelince/tıklayınca ad+boyut+oranı burada
+        # göster — GTK'nin yerleşik tooltip'i kutular arası hızlı
+        # geçişte kararsız davranıyor, kalıcı bir etiket daha güvenilir
+        self._diskmap_hover_label = Gtk.Label(css_classes=["dim-label"], xalign=1)
+        status_bar = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL, spacing=12,
+            margin_top=4, margin_bottom=4, margin_start=12, margin_end=12,
+        )
+        status_bar.append(self._count_label)
+        status_bar.append(self._diskmap_hover_label)
 
         # Paket listesi: tamamen özel çizilen bir tablo (PackageTableArea,
         # bkz. packagetable.py) — Gtk.ColumnView'in yerini alıyor çünkü
@@ -333,11 +357,14 @@ class MainWindow(Adw.ApplicationWindow):
         self._stack.add_named(self._diskmap_page, "diskmap")
 
         content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        content_box.append(menu_bar)
         content_box.append(toolbar)
         content_box.append(Gtk.Separator())
         content_box.append(filter_bar)
         content_box.append(Gtk.Separator())
         content_box.append(self._stack)
+        content_box.append(Gtk.Separator())
+        content_box.append(status_bar)
 
         toolbar_view = Adw.ToolbarView(content=content_box)
         toolbar_view.add_top_bar(self._titlebar)

@@ -10,6 +10,9 @@ import os
 TR = {
     "Search packages…": "Paket ara…",
     "Refresh package list": "Paket listesini yenile",
+    "File": "Dosya",
+    "Tools": "Araçlar",
+    "Help": "Yardım",
     "About PackWarden": "PackWarden Hakkında",
     "Quit": "Çık",
     "All sources": "Tüm kaynaklar",
