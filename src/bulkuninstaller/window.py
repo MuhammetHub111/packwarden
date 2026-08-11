@@ -135,8 +135,9 @@ class MainWindow(Adw.ApplicationWindow):
         self._titlebar = Gtk.HeaderBar()
         self._titlebar.set_title_widget(Gtk.Label(label="PackWarden"))
 
-        self._search_entry = Gtk.SearchEntry(placeholder_text=_("Search packages…"))
-        self._search_entry.set_hexpand(True)
+        self._search_entry = Gtk.SearchEntry(
+            placeholder_text=_("Search packages…"), width_chars=28, hexpand=False,
+        )
         self._search_entry.connect("search-changed", self._on_search_changed)
 
         search_action = Gio.SimpleAction.new("search", None)
