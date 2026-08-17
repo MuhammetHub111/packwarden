@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=PackWarden
+Comment=Uninstall packages in bulk from every package manager
+Comment[tr]=Tüm paket yöneticilerinden uygulamaları toplu kaldırın
+Exec=packwarden
+Icon=io.github.muhammethub111.PackWarden
+Terminal=false
+Categories=System;Utility;PackageManager;
+Keywords=uninstall;remove;package;bulk;cleaner;kaldır;

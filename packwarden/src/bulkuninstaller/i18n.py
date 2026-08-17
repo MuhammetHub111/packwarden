@@ -1,0 +1,231 @@
+"""Basit çeviri katmanı.
+
+Sistem dili Türkçe ise arayüz tamamen Türkçe görünür; diğer dillerde
+İngilizce kalır. İleride gettext'e geçilecek; sözlük yapısı o geçişi
+kolaylaştırmak için gettext ile aynı mantıkta kuruldu.
+"""
+
+import os
+
+TR = {
+    "Search packages…": "Paket ara…",
+    "Refresh package list": "Paket listesini yenile",
+    "About PackWarden": "PackWarden Hakkında",
+    "Quit": "Çık",
+    "All sources": "Tüm kaynaklar",
+    "{name} — all": "{name} — tümü",
+    "Name": "Ad",
+    "Loading packages…": "Paketler yükleniyor…",
+    "Reading installed packages from every source":
+        "Tüm kaynaklardan kurulu paketler okunuyor",
+    "{shown} of {total} packages": "{total} paketten {shown} tanesi",
+    "{count} selected": "{count} seçildi",
+    "Selection mode (Esc to finish)": "Seçim modu (bitirmek için Esc)",
+    "Uninstall {count} selected…": "Seçilen {count} uygulamayı kaldır…",
+    "Uninstall {count} packages?": "{count} paket kaldırılsın mı?",
+    "Cancel": "Vazgeç",
+    "Uninstall": "Kaldır",
+    "Some packages could not be removed": "Bazı paketler kaldırılamadı",
+    "OK": "Tamam",
+    "Authorization was cancelled": "Yetkilendirme iptal edildi",
+    "Uninstalled {count} packages": "{count} paket kaldırıldı",
+    "Backup failed — nothing was removed":
+        "Yedek oluşturulamadı — hiçbir şey kaldırılmadı",
+    "Backup saved: {path}": "Yedek kaydedildi: {path}",
+    "No leftover files found": "Kalıntı dosya bulunamadı",
+    "Moved {count} leftover items to Trash": "{count} kalıntı çöp kutusuna taşındı",
+    "Settings": "Ayarlar",
+    "General": "Genel",
+    "Package list": "Paket listesi",
+    "Safety": "Güvenlik",
+    "Protect system packages": "Sistem paketlerini koru",
+    "Shows an extra warning before removing packages your system needs to run":
+        "Sistemin çalışması için gereken paketleri silmeden önce ek uyarı gösterir",
+    "critical system package": "kritik sistem paketi",
+    "⚠ These packages are vital to your system!":
+        "⚠ Bu paketler sistemin çalışması için hayati!",
+    "{names}\n\nRemoving them can leave your computer unable to start, "
+    "show no display, or lose its network connection. Only continue if "
+    "you know exactly what you are doing.":
+        "{names}\n\nBunlar silinirse bilgisayarın açılmayabilir, görüntü "
+        "gelmeyebilir veya internet bağlantın kopabilir. Yalnızca ne "
+        "yaptığından kesinlikle eminsen devam et.",
+    "Remove anyway (I accept the risk)": "Yine de kaldır (riski kabul ediyorum)",
+    "Language": "Dil",
+    "Interface language": "Arayüz dili",
+    "Automatic (system)": "Otomatik (sistem)",
+    "Takes effect after restarting the app":
+        "Uygulama yeniden başlatılınca uygulanır",
+    "Restart to apply?": "Uygulamak için yeniden mi başlatılsın?",
+    "The interface language changes after the app restarts.":
+        "Arayüz dili uygulama yeniden başlatılınca değişir.",
+    "Later": "Sonra",
+    "Show applications only": "Sadece uygulamaları göster",
+    "Hides libraries and system packages":
+        "Kütüphaneleri ve sistem paketlerini gizler",
+    "Select all": "Tümünü seç",
+    "{count} selected • {size}": "{count} seçildi • {size}",
+    "Confirm Removal": "Kaldırma Onayı",
+    "Packages to remove": "Kaldırılacak paketler",
+    "{count} packages • {size}": "{count} paket • {size}",
+    "Scanning leftovers…": "Kalıntılar taranıyor…",
+    "These packages keep no extra files behind":
+        "Bu paketler geride ek dosya bırakmıyor",
+    "Back up and Remove": "Yedekle ve Kaldır",
+    "Remove without Backup": "Yedeksiz Kaldır",
+    "Choose where to save the backup": "Yedeğin kaydedileceği yeri seç",
+    "Uninstall…": "Kaldır…",
+    "Launch": "Çalıştır",
+    "Copy package ID": "Paket kimliğini kopyala",
+    "Delete leftover files…": "Kalıntı dosyalarını sil…",
+    "Properties": "Özellikler",
+    "{name} has no launchable window": "{name} çalıştırılabilir pencereye sahip değil",
+    "Selected apps have no launchable window":
+        "Seçilen uygulamaların çalıştırılabilir penceresi yok",
+    "Launching {name}…": "{name} başlatılıyor…",
+    "Launching {count} apps…": "{count} uygulama başlatılıyor…",
+    "Could not launch {name}": "{name} başlatılamadı",
+    "Could not launch selected apps": "Seçilen uygulamalar başlatılamadı",
+    "Create desktop shortcut": "Masaüstü kısayolu oluştur",
+    "Desktop shortcut created for {name}": "{name} için masaüstü kısayolu oluşturuldu",
+    "Created {count} desktop shortcuts": "{count} masaüstü kısayolu oluşturuldu",
+    "{name} has no desktop entry to copy": "{name} kopyalanacak bir masaüstü girdisine sahip değil",
+    "Selected apps have no desktop entry to copy":
+        "Seçilen uygulamaların kopyalanacak masaüstü girdisi yok",
+    "Could not create shortcut for {name}": "{name} için kısayol oluşturulamadı",
+    "Could not create shortcuts for selected apps":
+        "Seçilen uygulamalar için kısayol oluşturulamadı",
+    "Copied: {text}": "Kopyalandı: {text}",
+    "Delete leftovers of {name}?": "{name} kalıntıları silinsin mi?",
+    "Total: {size}": "Toplam: {size}",
+    "Delete": "Sil",
+    "Package ID": "Paket kimliği",
+    "Version": "Sürüm",
+    "Percent": "Yüzde",
+    "Size": "Boyut",
+    "Source": "Kaynak",
+    "Repository": "Depo",
+    "Publisher": "Yayıncı",
+    "Installed": "Kurulum",
+    "Location": "Konum",
+    "Reason": "Neden",
+    "Required by": "Bağımlı",
+    "License": "Lisans",
+    "Category": "Kategori",
+    "Explicit": "Elle kuruldu",
+    "Dependency": "Bağımlılık",
+    "Audio & Video": "Ses ve Görüntü",
+    "Audio": "Ses",
+    "Video": "Görüntü",
+    "Development": "Geliştirme",
+    "Education": "Eğitim",
+    "Game": "Oyun",
+    "Graphics": "Grafik",
+    "Internet": "İnternet",
+    "Office": "Ofis",
+    "Science": "Bilim",
+    "Settings": "Ayarlar",
+    "System": "Sistem",
+    "Utility": "Araç",
+    "Description": "Açıklama",
+    "Cache": "Önbellek",
+    "App data": "Uygulama verileri",
+    "State logs": "Durum kayıtları",
+    "Flatpak data": "Flatpak verileri",
+    "Updates": "Güncellemeler",
+    "You are running the latest version.": "En güncel sürümü kullanıyorsun.",
+    "Running version": "Çalışan sürüm",
+    "Check for Updates": "Güncellemeleri Denetle",
+    "Could not check for updates": "Güncellemeler denetlenemedi",
+    "Please check your internet connection and try again.":
+        "İnternet bağlantını kontrol edip tekrar dene.",
+    "You are up to date": "Güncelsin",
+    "PackWarden Update": "PackWarden Güncellemesi",
+    "PackWarden {version} is ready": "PackWarden {version} hazır",
+    "Current version: {version}": "Şu anki sürüm: {version}",
+    "Details": "Ayrıntılar",
+    "Release notes": "Güncelleme notları",
+    "Update": "Güncelle",
+    "Restart Now": "Şimdi Yeniden Başlat",
+    "Close": "Kapat",
+    "Downloading update…": "Güncelleme indiriliyor…",
+    "Download finished.": "İndirme tamamlandı.",
+    "Extracting…": "Arşiv açılıyor…",
+    "Installing…": "Kuruluyor…",
+    "Update installed.": "Güncelleme kuruldu.",
+    "Update installed. Restart the app to use it.":
+        "Güncelleme kuruldu. Kullanmak için uygulamayı yeniden başlat.",
+    "Update cancelled.": "Güncelleme iptal edildi.",
+    "Update failed: {error}": "Güncelleme başarısız: {error}",
+    "Error: archive is empty.": "Hata: arşiv boş çıktı.",
+    "Unused apps": "Kullanılmayan uygulamalar",
+    "Not used for": "Şu süredir kullanılmayanlar",
+    "3 months": "3 ay",
+    "6 months": "6 ay",
+    "1 year": "1 yıl",
+    "Custom": "Özel",
+    "Custom (days)": "Özel (gün)",
+    "Scanning applications…": "Uygulamalar taranıyor…",
+    "No unused applications found": "Kullanılmayan uygulama bulunamadı",
+    "Every scanned app was used within the threshold":
+        "Taranan tüm uygulamalar seçilen süre içinde kullanılmış",
+    "No packages match": "Eşleşen paket yok",
+    "Try a different search or source filter":
+        "Farklı bir arama veya kaynak filtresi deneyin",
+    "Unknown": "Bilinmiyor",
+    "approximate": "yaklaşık",
+    "{days} days ago": "{days} gün önce",
+    "{months} months ago": "{months} ay önce",
+    "{years} years ago": "{years} yıl önce",
+    "Uninstall selected…": "Seçilenleri kaldır…",
+    "Disk map": "Disk haritası",
+    "{name} — {size} ({percent}%)": "{name} — {size} (%{percent})",
+    "Other": "Diğer",
+    "Native packages": "Yerel paketler",
+    "Games": "Oyunlar",
+    "Distribution-independent packages": "Dağıtımdan bağımsız paketler",
+    "Manual installation": "Manuel kurulum",
+    "Automatic Updates": "Otomatik Güncellemeler",
+    "Automatically checks for a new version on startup and opens the "
+    "update dialog when one is found":
+        "Açılışta arkaplanda yeni sürüm olup olmadığını denetler, "
+        "bulunursa güncelleme penceresini kendiliğinden açar",
+    "PackWarden is a bulk application manager for Linux. It shows all "
+    "the applications installed on your system in one window and lets "
+    "you remove the ones you no longer need, cleanly and safely, on "
+    "any distribution.":
+        "PackWarden, Linux için toplu uygulama yöneticisidir. Sisteminde "
+        "kurulu tüm uygulamaları tek pencerede gösterir ve artık ihtiyaç "
+        "duymadıklarını her dağıtımda temiz ve güvenli şekilde kaldırmanı "
+        "sağlar.",
+}
+
+
+def _detect_lang() -> str:
+    # Kullanıcı Ayarlar'dan dil seçtiyse o kazanır; "auto" sistem diline bakar
+    try:
+        from . import prefs
+        chosen = prefs.get("language")
+        if chosen in ("tr", "en"):
+            return chosen
+    except Exception:
+        pass
+    for var in ("LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"):
+        value = os.environ.get(var)
+        if value:
+            return value.split(":")[0].split(".")[0].split("_")[0].lower()
+    return "en"
+
+
+_LANG = _detect_lang()
+
+
+def _(text: str) -> str:
+    if _LANG == "tr":
+        return TR.get(text, text)
+    return text
+
+
+def current_language() -> str:
+    """Arayüzün kullandığı ISO dil kodu (ör. 'tr', 'en', 'de')."""
+    return _LANG
