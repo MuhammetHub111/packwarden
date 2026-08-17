@@ -69,6 +69,7 @@ This command removes the application:
 sh ~/.local/share/packwarden/install.sh remove
 ```
 
+A Flathub release is planned...
 
 ## License
 
