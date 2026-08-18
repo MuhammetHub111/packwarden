@@ -31,6 +31,10 @@ class _Item:
         self.pkg = pkg
 
 
+def _pkg_key(pkg) -> str:
+    return f"{pkg.source}:{pkg.id}"
+
+
 def _format_last_used(ts):
     if ts is None:
         return _("Unknown")
@@ -56,6 +60,14 @@ class UnusedAppsWindow(Adw.Window):
         self._main = main_window
         self._data: list[tuple[object, float | None]] = []
         self._checks: list[tuple[Gtk.CheckButton, object]] = []
+        # Taramalar arasında hayatta kalan işaretleme durumu — periyodik
+        # yeniden tarama listeyi yeniden kurduğunda kullanıcının az önce
+        # işaretlediği kutucuklar sıfırlanmasın diye.
+        self._selected_keys: set[str] = set()
+        # Son kurulan listenin paket anahtarları — bu değişmediği sürece
+        # _rebuild_list() tekrar çağrılmaz (gereksiz yeniden kurma =
+        # üzerine gelince yanıp sönme, kaydırmanın sıfırlanması).
+        self._last_stale_keys: frozenset[str] | None = None
 
         # Kullanıcının en son seçtiği eşik hatırlanır — pencere her
         # açıldığında 6 aya sıfırlanması can sıkıcıydı.
@@ -184,7 +196,16 @@ class UnusedAppsWindow(Adw.Window):
 
     def _on_scanned(self, data):
         self._data = data
-        self._rebuild_list()
+        # Liste üyeliği (hangi paketler eşiğin üzerinde) değişmediyse
+        # yeniden kurma — sadece metin/zaman damgası birkaç saniye
+        # ilerlemiş olabilir, bu görsel olarak önemli değil ve sürekli
+        # yeniden kurmak seçimleri/kaydırmayı bozuyordu.
+        new_stale_keys = frozenset(
+            _pkg_key(pkg) for pkg, ts in data
+            if ts is not None and ts <= time.time() - self._threshold_days * 86400
+        )
+        if new_stale_keys != self._last_stale_keys:
+            self._rebuild_list()
         return GLib.SOURCE_REMOVE
 
     # ---------------- Eşik ----------------
@@ -223,6 +244,11 @@ class UnusedAppsWindow(Adw.Window):
         ]
         stale.sort(key=lambda pair: pair[1])
 
+        self._last_stale_keys = frozenset(_pkg_key(pkg) for pkg, _ts in stale)
+        # Artık listede olmayan paketlerin işaretlerini biriktirmeye
+        # gerek yok — set büyümesin diye mevcut listeyle kesişimine indir.
+        self._selected_keys &= self._last_stale_keys
+
         if not stale:
             self._list_box.set_visible(False)
             self._empty_status.set_visible(True)
@@ -233,8 +259,11 @@ class UnusedAppsWindow(Adw.Window):
         self._list_box.set_visible(True)
         self._empty_status.set_visible(False)
         for pkg, ts in stale:
-            check = Gtk.CheckButton(valign=Gtk.Align.CENTER)
-            check.connect("toggled", lambda *_a: self._update_selection())
+            key = _pkg_key(pkg)
+            check = Gtk.CheckButton(
+                valign=Gtk.Align.CENTER, active=key in self._selected_keys,
+            )
+            check.connect("toggled", self._on_row_toggled, key)
             badge = f"{pkg.source} · {_format_last_used(ts)}"
             if pkg.source.startswith("heroic-"):
                 badge += " (" + _("approximate") + ")"
@@ -253,6 +282,13 @@ class UnusedAppsWindow(Adw.Window):
             self._checks.append((check, pkg))
 
         self._select_all.set_sensitive(True)
+        self._update_selection()
+
+    def _on_row_toggled(self, check, key):
+        if check.get_active():
+            self._selected_keys.add(key)
+        else:
+            self._selected_keys.discard(key)
         self._update_selection()
 
     def _icon_for(self, pkg) -> Gtk.Image:
