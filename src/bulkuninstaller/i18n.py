@@ -42,6 +42,11 @@ TR = {
     "Package list": "Paket listesi",
     "Safety": "Güvenlik",
     "Protect system packages": "Sistem paketlerini koru",
+        "Leftover deletion method": "Kalıntı silme yöntemi",
+    "Choose what happens to leftover files":
+        "Kalıntı dosyalarına ne yapılacağını seç",
+    "Move to Trash": "Çöp Kutusu'na taşı",
+    "Delete permanently": "Kalıcı olarak sil",
     "Shows an extra warning before removing packages your system needs to run":
         "Sistemin çalışması için gereken paketleri silmeden önce ek uyarı gösterir",
     "critical system package": "kritik sistem paketi",
@@ -59,6 +64,14 @@ TR = {
     "Automatic (system)": "Otomatik (sistem)",
     "Takes effect after restarting the app":
         "Uygulama yeniden başlatılınca uygulanır",
+
+    "Appearance": "Görünüm",
+    "Theme": "Tema",
+    "Choose application appearance": "Uygulama görünümünü seç",
+    "System default": "Sistem varsayılanı",
+    "Light": "Açık",
+    "Dark": "Koyu",
+
     "Restart to apply?": "Uygulamak için yeniden mi başlatılsın?",
     "The interface language changes after the app restarts.":
         "Arayüz dili uygulama yeniden başlatılınca değişir.",
@@ -91,6 +104,8 @@ TR = {
     "Could not launch selected apps": "Seçilen uygulamalar başlatılamadı",
     "Create desktop shortcut": "Masaüstü kısayolu oluştur",
     "Desktop shortcut created for {name}": "{name} için masaüstü kısayolu oluşturuldu",
+    "Desktop shortcut already exists for {name}": "{name} için masaüstü kısayolu zaten mevcut",
+    "Desktop shortcuts already exist": "Masaüstü kısayolları zaten mevcut",
     "Created {count} desktop shortcuts": "{count} masaüstü kısayolu oluşturuldu",
     "{name} has no desktop entry to copy": "{name} kopyalanacak bir masaüstü girdisine sahip değil",
     "Selected apps have no desktop entry to copy":

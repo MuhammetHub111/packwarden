@@ -20,6 +20,8 @@ class PackWardenApp(Adw.Application):
             flags=Gio.ApplicationFlags.DEFAULT_FLAGS,
         )
 
+        self.apply_theme(prefs.get("theme"))
+        
         about_action = Gio.SimpleAction.new("about", None)
         about_action.connect("activate", self._on_about)
         self.add_action(about_action)
@@ -34,6 +36,16 @@ class PackWardenApp(Adw.Application):
         self.add_action(quit_action)
         self.set_accels_for_action("app.quit", ["<Ctrl>q"])
         self.set_accels_for_action("win.search", ["<Ctrl>f"])
+
+    def apply_theme(self, theme):
+        style_manager = Adw.StyleManager.get_default()
+
+        if theme == "dark":
+            style_manager.set_color_scheme(Adw.ColorScheme.FORCE_DARK)
+        elif theme == "light":
+            style_manager.set_color_scheme(Adw.ColorScheme.FORCE_LIGHT)
+        else:
+            style_manager.set_color_scheme(Adw.ColorScheme.DEFAULT)
 
     def do_activate(self):
         # Uygulama simgesi kurulu temada yoksa (geliştirme/betik kurulumu)

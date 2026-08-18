@@ -15,21 +15,32 @@ DEFAULTS = {
     # Sadece .desktop girdisi olan gerçek uygulamaları listele;
     # kütüphaneleri ve sistem paketlerini gizle
     "apps_only": True,
+
     # Arayüz dili: "auto" (sistem dili), "tr" veya "en"
     "language": "auto",
+
     # Kritik sistem paketlerini silmeden önce ek uyarı göster
     "protect_system": True,
-    # Açılışta arkaplanda güncelleme denetimi yapıp bulunca güncelleme
-    # penceresini otomatik aç (yalnızca test/dev sürümünde kullanılabilir)
+
+    # Açılışta arkaplanda güncelleme denetimi yapıp bulunca
+    # güncelleme penceresini otomatik aç
     "auto_update": False,
-    # Ana liste sütunlarının kullanıcının sürükleyerek belirlediği sırası
-    # (sütun kimlikleri listesi) — boşsa varsayılan sıra kullanılır
+
+    # Ana liste sütunlarının kullanıcının belirlediği sırası
     "column_order": [],
-    # Kullanılmayan uygulamalar penceresindeki eşik seçimi: 0=3 ay,
-    # 1=6 ay, 2=1 yıl, 3=özel — pencere her açıldığında hatırlanır
+
+    # Kullanılmayan uygulamalar penceresindeki eşik:
+    # 0=3 ay, 1=6 ay, 2=1 yıl, 3=özel
     "unused_threshold_preset": 1,
+
     # "Özel" seçiliyken kullanılan gün sayısı
     "unused_threshold_custom_days": 180,
+
+    # Arayüz teması: "system", "light" veya "dark"
+    "theme": "system",
+
+    # Kalıntı silme yöntemi: "trash" veya "permanent"
+    "leftover_delete_mode": "trash",
 }
 
 _cache: dict | None = None

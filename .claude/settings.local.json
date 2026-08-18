@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(flatpak-spawn --host env PACKWARDEN_DEV=1 bash -c 'echo \"PACKWARDEN_DEV inside host env-wrapped: $PACKWARDEN_DEV\"')",
+      "Bash(PACKWARDEN_DEV=1 flatpak-spawn --host bash -c 'echo \"PACKWARDEN_DEV without --env, relying on sandbox inheritance: $PACKWARDEN_DEV\"')",
+      "Bash(flatpak-spawn --host curl -s --max-time 6 \"https://tr.wikipedia.org/api/rest_v1/page/summary/Firefox\")",
+      "Bash(flatpak-spawn --host curl -s --max-time 6 \"https://tr.wikipedia.org/api/rest_v1/page/summary/GIMP\")",
+      "Bash(nohup flatpak-spawn --host env PYTHONPATH=\"$\\(pwd\\)/src\" PACKWARDEN_DEV=1 python3 -m bulkuninstaller)",
+      "Bash(disown)",
+      "Bash(flatpak-spawn --host ps -eo pid,cmd)",
+      "Read(//tmp/**)",
+      "Bash(flatpak-spawn --host pgrep -af \"python3 -m bulkuninstaller\")",
+      "Bash(flatpak-spawn --host env PYTHONPATH=/mnt/D/packwarden/src python3 -c ' *)"
+    ]
+  }
+}
