@@ -25,7 +25,7 @@ from .appicons import build_maps
 from .backends import available_backends
 
 PACKAGE_REFRESH_SECONDS = 15 * 60
-SCAN_SECONDS = 30
+SCAN_SECONDS = 2
 
 _stop = False
 

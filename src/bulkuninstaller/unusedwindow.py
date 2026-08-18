@@ -146,7 +146,7 @@ class UnusedAppsWindow(Adw.Window):
         # Pencere açık kaldığı sürece periyodik olarak yeniden tara —
         # kullanıcı burayı açık bırakıp başka bir uygulamaya geçerse, o
         # kullanım kapatıp yeniden açmaya gerek kalmadan yakalanır.
-        self._rescan_source = GLib.timeout_add_seconds(30, self._on_rescan_tick)
+        self._rescan_source = GLib.timeout_add_seconds(2, self._on_rescan_tick)
         self.connect("close-request", self._on_close_request)
 
     def _on_rescan_tick(self):
