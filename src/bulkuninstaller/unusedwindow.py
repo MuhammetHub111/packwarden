@@ -15,7 +15,7 @@ import time
 
 from gi.repository import Adw, GLib, Gtk
 
-from . import prefs
+from . import prefs, usage
 from .backends.base import format_size
 from .i18n import _
 from .removal import RemovalWindow
@@ -143,6 +143,21 @@ class UnusedAppsWindow(Adw.Window):
         self.set_content(toolbar_view)
 
         self._scan()
+        # Pencere açık kaldığı sürece periyodik olarak yeniden tara —
+        # kullanıcı burayı açık bırakıp başka bir uygulamaya geçerse, o
+        # kullanım kapatıp yeniden açmaya gerek kalmadan yakalanır.
+        self._rescan_source = GLib.timeout_add_seconds(30, self._on_rescan_tick)
+        self.connect("close-request", self._on_close_request)
+
+    def _on_rescan_tick(self):
+        self._scan()
+        return GLib.SOURCE_CONTINUE
+
+    def _on_close_request(self, *_args):
+        if self._rescan_source is not None:
+            GLib.source_remove(self._rescan_source)
+            self._rescan_source = None
+        return False
 
     # ---------------- Tarama ----------------
 
@@ -154,8 +169,14 @@ class UnusedAppsWindow(Adw.Window):
             item.pkg for item in self._main._items
             if self._main._is_app(item.pkg)
         ]
+        launcher_map = self._main._launcher_map
 
         def worker():
+            # Pencere her açıldığında/tazelendiğinde şu an fiilen çalışan
+            # paketleri tespit et ve yerel kayda işle — kapanış/açılışta
+            # ayar klasörüne hiç yazmayan uygulamalar bile bu sayede
+            # "az önce kullanıldı" olarak doğru yakalanır (bkz. usage.py).
+            usage.scan_and_record(packages, launcher_map)
             data = [(pkg, last_used(pkg)) for pkg in packages]
             GLib.idle_add(self._on_scanned, data)
 
