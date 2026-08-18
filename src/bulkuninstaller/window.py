@@ -689,9 +689,9 @@ class MainWindow(Adw.ApplicationWindow):
             items = [self._context_item]
         if not items:
             return
-
         desktop_dir = self._desktop_dir()
         created = []
+        existing = []
         unsupported = []
         failed = []
         for item in items:
@@ -709,12 +709,16 @@ class MainWindow(Adw.ApplicationWindow):
                 # dosya yöneticisinde çirkin görünür.
                 safe_name = pkg.name.replace("/", "_").strip() or desktop_id
                 dest_path = os.path.join(desktop_dir, f"{safe_name}.desktop")
+                if os.path.lexists(dest_path):
+                    existing.append(pkg.name)
+                    continue
                 shutil.copyfile(source_path, dest_path)
                 os.chmod(dest_path, 0o755)
                 created.append(pkg.name)
             except OSError:
                 failed.append(pkg.name)
-
+        if not created and not existing and not unsupported and not failed:
+            self._toast_overlay.add_toast(Adw.Toast(title=_("No action taken")))
         if created:
             title = (
                 _("Desktop shortcut created for {name}").format(name=created[0])
@@ -722,6 +726,16 @@ class MainWindow(Adw.ApplicationWindow):
                 else _("Created {count} desktop shortcuts").format(count=len(created))
             )
             self._toast_overlay.add_toast(Adw.Toast(title=title))
+        elif existing:
+            title = (
+                _("Desktop shortcut already exists for {name}").format(
+                    name=existing[0]
+                )
+                if len(existing) == 1
+                else _("Desktop shortcuts already exist")
+            )
+            self._toast_overlay.add_toast(Adw.Toast(title=title))
+
         elif unsupported and not failed:
             title = (
                 _("{name} has no desktop entry to copy").format(name=unsupported[0])
@@ -741,6 +755,8 @@ class MainWindow(Adw.ApplicationWindow):
         item = self._context_item
         if not item:
             return
+
+        
         self.get_clipboard().set(item.pkg.id)
         self._toast_overlay.add_toast(
             Adw.Toast(title=_("Copied: {text}").format(text=item.pkg.id))
