@@ -4,7 +4,7 @@ import threading
 
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango
 
-from . import DEV_BUILD, host, prefs
+from . import host, prefs
 from .appicons import APP_DIRS, build_maps
 from .backends import available_backends, format_size
 from .diskmap import DiskMapArea, build_legend, format_percent
@@ -404,9 +404,8 @@ class MainWindow(Adw.ApplicationWindow):
             "ctx-leftovers": self._ctx_leftovers,
             "ctx-properties": self._ctx_properties,
             "unused-apps": self._open_unused_apps,
+            "ctx-desktop-shortcut": self._ctx_desktop_shortcut,
         }
-        if DEV_BUILD:
-            actions["ctx-desktop-shortcut"] = self._ctx_desktop_shortcut
         for name, handler in actions.items():
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", handler)
@@ -487,8 +486,7 @@ class MainWindow(Adw.ApplicationWindow):
         else:
             menu.append(_("Uninstall…"), "win.ctx-uninstall")
         menu.append(_("Launch"), "win.ctx-launch")
-        if DEV_BUILD:
-            menu.append(_("Create desktop shortcut"), "win.ctx-desktop-shortcut")
+        menu.append(_("Create desktop shortcut"), "win.ctx-desktop-shortcut")
         menu.append(_("Copy package ID"), "win.ctx-copy")
         menu.append(_("Delete leftover files…"), "win.ctx-leftovers")
         menu.append(_("Properties"), "win.ctx-properties")
