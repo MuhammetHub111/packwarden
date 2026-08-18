@@ -8,6 +8,8 @@ REPO="https://github.com/MuhammetHub111/packwarden"
 DIR="$HOME/.local/share/packwarden"
 BIN="$HOME/.local/bin"
 APPS="$HOME/.local/share/applications"
+SYSTEMD_USER="$HOME/.config/systemd/user"
+USAGE_SERVICE="packwarden-usage-daemon.service"
 
 desktop_dir() {
     if command -v xdg-user-dir >/dev/null 2>&1; then
@@ -18,8 +20,14 @@ desktop_dir() {
 }
 
 if [ "$1" = "remove" ] || [ "$1" = "--remove" ]; then
-    rm -rf "$DIR" "$BIN/packwarden" "$APPS/io.github.muhammethub111.PackWarden.desktop"
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl --user disable --now "$USAGE_SERVICE" >/dev/null 2>&1 || true
+    fi
+    rm -rf "$DIR" "$BIN/packwarden" "$BIN/packwarden-usage-daemon" \
+        "$APPS/io.github.muhammethub111.PackWarden.desktop" \
+        "$SYSTEMD_USER/$USAGE_SERVICE"
     rm -f "$(desktop_dir)/packwarden.desktop" "$(desktop_dir)/io.github.muhammethub111.PackWarden.desktop"
+    command -v systemctl >/dev/null 2>&1 && systemctl --user daemon-reload 2>/dev/null || true
     command -v kbuildsycoca6 >/dev/null 2>&1 && kbuildsycoca6 2>/dev/null || true
     command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$APPS" 2>/dev/null || true
     echo "PackWarden removed."
@@ -55,6 +63,29 @@ cat > "$BIN/packwarden" << LAUNCHER
 exec env PYTHONPATH="$DIR/src" python3 -m bulkuninstaller "\$@"
 LAUNCHER
 chmod +x "$BIN/packwarden"
+
+cat > "$BIN/packwarden-usage-daemon" << LAUNCHER
+#!/bin/sh
+exec env PYTHONPATH="$DIR/src" python3 -m bulkuninstaller.usage_daemon "\$@"
+LAUNCHER
+chmod +x "$BIN/packwarden-usage-daemon"
+
+# Arkaplan kullanım algılama servisi: birim dosyası burada yazılır ama
+# hiç etkinleştirilmez — yalnızca Ayarlar > Gizlilik'ten bilerek
+# açıldığında systemctl ile devreye girer (bkz. usage_service.py).
+mkdir -p "$SYSTEMD_USER"
+cat > "$SYSTEMD_USER/$USAGE_SERVICE" << SERVICE
+[Unit]
+Description=PackWarden local app-usage detector (optional, off by default)
+
+[Service]
+ExecStart=$BIN/packwarden-usage-daemon
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+SERVICE
+command -v systemctl >/dev/null 2>&1 && systemctl --user daemon-reload 2>/dev/null || true
 
 cat > "$APPS/io.github.muhammethub111.PackWarden.desktop" << DESKTOP
 [Desktop Entry]

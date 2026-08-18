@@ -2,7 +2,7 @@ import threading
 
 from gi.repository import Adw, GLib, Gtk
 
-from . import VERSION, prefs
+from . import VERSION, prefs, usage_service
 from .i18n import _
 from .updater import fetch_remote_version
 
@@ -83,6 +83,33 @@ class SettingsDialog(Adw.PreferencesDialog):
             self._on_leftover_delete_mode_changed,
         )
         safety_group.add(deletion_row)
+
+        # ---------------------------------------------------------
+        # Privacy
+        # ---------------------------------------------------------
+        privacy_group = Adw.PreferencesGroup(
+            title=_("Privacy"),
+            description=_(
+                "Off by default. Everything stays on this device — no "
+                "network access, no process names or window titles are "
+                "stored, only a package id and a timestamp."
+            ),
+        )
+        page.add(privacy_group)
+
+        self._background_usage_row = Adw.SwitchRow(
+            title=_("Detect app usage in the background"),
+            subtitle=_(
+                "Improves the Unused Apps list by noticing when an app "
+                "runs even while PackWarden is closed"
+            ),
+            active=bool(prefs.get("background_usage_detection")),
+        )
+        self._background_usage_row.connect(
+            "notify::active",
+            self._on_background_usage_changed,
+        )
+        privacy_group.add(self._background_usage_row)
 
         # ---------------------------------------------------------
         # Language
@@ -208,6 +235,28 @@ class SettingsDialog(Adw.PreferencesDialog):
         theme = self._theme_values[index]
         prefs.set("theme", theme)
         self._app.apply_theme(theme)
+
+    # -------------------------------------------------------------
+    # Background usage detection
+    # -------------------------------------------------------------
+    def _on_background_usage_changed(self, row, _pspec):
+        wanted = row.get_active()
+        ok, error = usage_service.set_enabled(wanted)
+        if not ok:
+            # Anahtarı gerçek duruma geri al — sinyali tekrar tetiklememek
+            # için handler'ı geçici olarak susturuyoruz.
+            row.handler_block_by_func(self._on_background_usage_changed)
+            row.set_active(not wanted)
+            row.handler_unblock_by_func(self._on_background_usage_changed)
+
+            dialog = Adw.AlertDialog(
+                heading=_("Could not change this setting"),
+                body=error,
+            )
+            dialog.add_response("ok", _("OK"))
+            dialog.present(self)
+            return
+        prefs.set("background_usage_detection", wanted)
 
     # -------------------------------------------------------------
     # Leftover deletion method
