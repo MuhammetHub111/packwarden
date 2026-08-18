@@ -241,7 +241,20 @@ class SettingsDialog(Adw.PreferencesDialog):
     # -------------------------------------------------------------
     def _on_background_usage_changed(self, row, _pspec):
         wanted = row.get_active()
-        ok, error = usage_service.set_enabled(wanted)
+        # systemctl senkron olarak birkaç saniye sürebilir (daemon-reload,
+        # servis başlatma) — ana thread'de çağrılırsa arayüz o süre boyunca
+        # tamamen kilitlenir. Diğer ayarlardaki güncelleme kontrolü gibi
+        # arka plan thread'ine alınıyor.
+        row.set_sensitive(False)
+
+        def worker():
+            ok, error = usage_service.set_enabled(wanted)
+            GLib.idle_add(self._on_background_usage_done, row, wanted, ok, error)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_background_usage_done(self, row, wanted, ok, error):
+        row.set_sensitive(True)
         if not ok:
             # Anahtarı gerçek duruma geri al — sinyali tekrar tetiklememek
             # için handler'ı geçici olarak susturuyoruz.
@@ -255,8 +268,9 @@ class SettingsDialog(Adw.PreferencesDialog):
             )
             dialog.add_response("ok", _("OK"))
             dialog.present(self)
-            return
+            return GLib.SOURCE_REMOVE
         prefs.set("background_usage_detection", wanted)
+        return GLib.SOURCE_REMOVE
 
     # -------------------------------------------------------------
     # Leftover deletion method

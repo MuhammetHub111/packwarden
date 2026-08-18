@@ -11,6 +11,7 @@ yoksayılmaz.
 import os
 
 from . import host
+from .i18n import _
 
 SERVICE_NAME = "packwarden-usage-daemon.service"
 UNIT_PATH = os.path.expanduser(f"~/.config/systemd/user/{SERVICE_NAME}")
@@ -31,7 +32,7 @@ def is_enabled() -> bool:
 def set_enabled(enabled: bool) -> tuple[bool, str]:
     """Servisi aç/kapat. (başarılı mı, hata mesajı) döner."""
     if not is_installed():
-        return False, (
+        return False, _(
             "Service unit not found — run install.sh to install PackWarden "
             "properly before enabling this."
         )

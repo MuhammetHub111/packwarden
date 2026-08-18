@@ -59,6 +59,24 @@ TR = {
         "gelmeyebilir veya internet bağlantın kopabilir. Yalnızca ne "
         "yaptığından kesinlikle eminsen devam et.",
     "Remove anyway (I accept the risk)": "Yine de kaldır (riski kabul ediyorum)",
+    "Privacy": "Gizlilik",
+    "Off by default. Everything stays on this device — no network access, "
+    "no process names or window titles are stored, only a package id and "
+    "a timestamp.":
+        "Varsayılan olarak kapalı. Her şey bu cihazda kalır — ağ erişimi "
+        "yok, süreç adı veya pencere başlığı saklanmaz, yalnızca bir paket "
+        "kimliği ve zaman damgası tutulur.",
+    "Detect app usage in the background":
+        "Arkaplanda uygulama kullanımını algıla",
+    "Improves the Unused Apps list by noticing when an app runs even "
+    "while PackWarden is closed":
+        "PackWarden kapalıyken bile bir uygulamanın çalıştığını fark "
+        "ederek Kullanılmayan Uygulamalar listesini iyileştirir",
+    "Could not change this setting": "Bu ayar değiştirilemedi",
+    "Service unit not found — run install.sh to install PackWarden "
+    "properly before enabling this.":
+        "Servis birimi bulunamadı — bunu etkinleştirmeden önce "
+        "PackWarden'ı install.sh ile düzgün kurman gerekiyor.",
     "Language": "Dil",
     "Interface language": "Arayüz dili",
     "Automatic (system)": "Otomatik (sistem)",
