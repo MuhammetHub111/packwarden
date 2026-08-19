@@ -274,21 +274,26 @@ class PackageTableArea(Gtk.DrawingArea, Gtk.Scrollable):
 
         icon = self._load_icon_pixbuf(icon_ref, ICON_SIZE) if icon_ref else None
         if icon is not None:
-            pixbuf, is_symbolic = icon
+            pixbuf, needs_recolor = icon
             icon_y = y + (h - ICON_SIZE) / 2
-            if is_symbolic:
-                # Sembolik ikonlar (ör. Breeze'in currentColor'a bağlı
-                # cihaz/durum simgeleri) kendi dosyalarına gömülü sabit
-                # bir renkle geliyor — GTK dışında ham pixbuf olarak
-                # okununca o sabit renk hiç temaya uymuyor (bkz. commit
-                # mesajı). Rengi görmezden gelip yalnızca şeklini
+            if needs_recolor:
+                # currentColor'a bağlı ikonlar (GTK'nin is_symbolic() ile
+                # tanıdıkları + Breeze'in kendi kuralıyla currentColor
+                # kullanan ama GTK'ye göre "sembolik" sayılmayanlar, bkz.
+                # _svg_uses_current_color) kendi dosyalarına gömülü, aktif
+                # MASAÜSTÜ ikon temasına göre sabit bir renkle geliyor —
+                # bu PackWarden'ın kendi açık/koyu ayarıyla hiç ilgili
+                # olmayabilir. Rengi görmezden gelip yalnızca şeklini
                 # (alfa kanalını) o anki metin rengiyle boyuyoruz.
-                icon_surface = Gdk.cairo_surface_create_from_pixbuf(
-                    pixbuf, self.get_scale_factor(), None
-                )
+                # GTK4'ün Gdk'sinde GTK3'teki gdk_cairo_surface_create_from_pixbuf
+                # karşılığı yok — pixbuf'u normal şekilde kaynak olarak
+                # ayarlayıp o pattern'i maske olarak kullanıyoruz, böylece
+                # sadece alfa kanalı işe yarıyor, RGB'si hiç kullanılmıyor.
+                Gdk.cairo_set_source_pixbuf(cr, pixbuf, cursor, icon_y)
+                mask_pattern = cr.get_source()
                 fg = self._fg_rgba()
                 cr.set_source_rgba(fg.red, fg.green, fg.blue, fg.alpha)
-                cr.mask_surface(icon_surface, cursor, icon_y)
+                cr.mask(mask_pattern)
             else:
                 Gdk.cairo_set_source_pixbuf(cr, pixbuf, cursor, icon_y)
                 cr.paint()
@@ -305,13 +310,31 @@ class PackageTableArea(Gtk.DrawingArea, Gtk.Scrollable):
 
     # ---------------- İkon önbelleği ----------------
 
-    def _load_icon_pixbuf(self, icon_ref: str, size: int):
-        """(pixbuf, is_symbolic) döner; yüklenemezse None.
+    @staticmethod
+    def _svg_uses_current_color(path: str) -> bool:
+        """KDE/Breeze tarzı ikonlar "sembolik" olarak işaretlenmez (GTK'nin
+        kendi is_symbolic() kontrolü bunu tanımıyor, doğrulandı) ama yine
+        de dosyalarına currentColor ile gömülü, geçerli masaüstü ikon
+        temasına (GTK'nin kendi açık/koyu ayarından bağımsız, ör.
+        breeze-dark) göre sabitlenmiş bir renk taşıyorlar — bu rengi PackWarden'ın
+        kendi temasıyla hiç ilgisi olmayabilir (ör. koyu masaüstü ikon
+        temasında neredeyse beyaz, PackWarden açık modundayken görünmez
+        olur). İçerikte "currentColor" geçiyorsa güvenilmez sayılır."""
+        if not path.endswith(".svg"):
+            return False
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                head = f.read(4000)
+        except OSError:
+            return False
+        return "currentColor" in head
 
-        is_symbolic True ise pixbuf'un RGB değerleri güvenilmez — GTK bu
-        ikonu "sembolik" (tek renkli, currentColor'a bağlı) olarak
-        işaretlemiş demektir; çağıran yalnızca alfa kanalını (şekli)
-        kullanıp o anki metin rengiyle boyamalı, bkz. draw_icon_and_text_cell.
+    def _load_icon_pixbuf(self, icon_ref: str, size: int):
+        """(pixbuf, needs_recolor) döner; yüklenemezse None.
+
+        needs_recolor True ise pixbuf'un RGB değerleri güvenilmez —
+        çağıran yalnızca alfa kanalını (şekli) kullanıp o anki metin
+        rengiyle boyamalı, bkz. draw_icon_and_text_cell.
         """
         key = (icon_ref, size)
         if key in self._icon_cache:
@@ -333,7 +356,11 @@ class PackageTableArea(Gtk.DrawingArea, Gtk.Scrollable):
                     path = file.get_path() if file else None
                     if path:
                         pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_size(path, size, size)
-                        result = (pixbuf, paintable.is_symbolic())
+                        needs_recolor = (
+                            paintable.is_symbolic()
+                            or self._svg_uses_current_color(path)
+                        )
+                        result = (pixbuf, needs_recolor)
         except (GLib.Error, OSError):
             result = None
         self._icon_cache[key] = result
