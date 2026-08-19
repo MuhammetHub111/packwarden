@@ -197,6 +197,18 @@ class PackageTableArea(Gtk.DrawingArea, Gtk.Scrollable):
         ok, color = self.get_style_context().lookup_color("accent_bg_color")
         return color if ok else self._accent_rgba()
 
+    def _grid_alpha(self, alpha, fg=None):
+        """Kenar çizgisi/ayraç/hover gibi ince, fg renginde düşük opaklıklı
+        katmanlar için alfa. Aynı düşük opaklık, koyu temada (beyaz fg)
+        açık temadakinden (siyah fg) belirgin şekilde daha görünür oluyor
+        — göz siyah-beyaz zeminde/beyaz-siyah zeminde eşit opaklığı eşit
+        algılamıyor. Açık temada (fg koyuysa) telafi için alfayı artırır."""
+        fg = fg or self._fg_rgba()
+        luminance = 0.2126 * fg.red + 0.7152 * fg.green + 0.0722 * fg.blue
+        if luminance < 0.5:
+            alpha = min(alpha * 1.8, 1.0)
+        return alpha
+
     def _hadj_value(self):
         adj = self.get_hadjustment()
         return adj.get_value() if adj else 0.0
@@ -510,11 +522,11 @@ class PackageTableArea(Gtk.DrawingArea, Gtk.Scrollable):
                 # Yuvası boş/soluk kalır — başlığın kendisi, çip olarak
                 # sürüklenirken imleci takip edecek (bkz. altta
                 # _draw_floating_header_chip). Burada yazı çizilmez.
-                cr.set_source_rgba(fg.red, fg.green, fg.blue, 0.04)
+                cr.set_source_rgba(fg.red, fg.green, fg.blue, self._grid_alpha(0.04, fg))
                 cr.paint()
                 cr.restore()
                 edge = col.x + col.width
-                cr.set_source_rgba(fg.red, fg.green, fg.blue, 0.08)
+                cr.set_source_rgba(fg.red, fg.green, fg.blue, self._grid_alpha(0.08, fg))
                 cr.set_line_width(1)
                 cr.move_to(edge, 0)
                 cr.line_to(edge, HEADER_HEIGHT)
@@ -563,12 +575,12 @@ class PackageTableArea(Gtk.DrawingArea, Gtk.Scrollable):
                 accent = self._accent_rgba()
                 cr.set_source_rgba(accent.red, accent.green, accent.blue, 0.9)
             else:
-                cr.set_source_rgba(fg.red, fg.green, fg.blue, 0.12)
+                cr.set_source_rgba(fg.red, fg.green, fg.blue, self._grid_alpha(0.12, fg))
             cr.move_to(edge, 0)
             cr.line_to(edge, HEADER_HEIGHT)
             cr.stroke()
 
-        cr.set_source_rgba(fg.red, fg.green, fg.blue, 0.15)
+        cr.set_source_rgba(fg.red, fg.green, fg.blue, self._grid_alpha(0.15, fg))
         cr.set_line_width(1)
         cr.move_to(0, HEADER_HEIGHT - 0.5)
         cr.line_to(max(visible_width, self._total_width), HEADER_HEIGHT - 0.5)
@@ -656,7 +668,7 @@ class PackageTableArea(Gtk.DrawingArea, Gtk.Scrollable):
                 cr.rectangle(0, row.y, row_w, row.height)
                 cr.fill()
             elif row.position == self._hover_position:
-                cr.set_source_rgba(fg.red, fg.green, fg.blue, 0.05)
+                cr.set_source_rgba(fg.red, fg.green, fg.blue, self._grid_alpha(0.05, fg))
                 cr.rectangle(0, row.y, row_w, row.height)
                 cr.fill()
 
@@ -673,7 +685,7 @@ class PackageTableArea(Gtk.DrawingArea, Gtk.Scrollable):
                     cr.set_source_rgba(accent.red, accent.green, accent.blue, 0.28)
                     cr.paint()
                 elif row.position == self._hover_position:
-                    cr.set_source_rgba(fg.red, fg.green, fg.blue, 0.05)
+                    cr.set_source_rgba(fg.red, fg.green, fg.blue, self._grid_alpha(0.05, fg))
                     cr.paint()
                 if col.draw_content:
                     col.draw_content(self, cr, col, item, col.x, row.y, col.width,
@@ -681,7 +693,7 @@ class PackageTableArea(Gtk.DrawingArea, Gtk.Scrollable):
                 cr.restore()
 
                 edge = col.x + col.width
-                cr.set_source_rgba(fg.red, fg.green, fg.blue, 0.08)
+                cr.set_source_rgba(fg.red, fg.green, fg.blue, self._grid_alpha(0.08, fg))
                 cr.set_line_width(1)
                 cr.move_to(edge, row.y)
                 cr.line_to(edge, row.y + row.height)
@@ -694,7 +706,7 @@ class PackageTableArea(Gtk.DrawingArea, Gtk.Scrollable):
                 cr.rectangle(1, row.y + 1, row_w - 2, row.height - 2)
                 cr.stroke()
 
-            cr.set_source_rgba(fg.red, fg.green, fg.blue, 0.06)
+            cr.set_source_rgba(fg.red, fg.green, fg.blue, self._grid_alpha(0.06, fg))
             cr.set_line_width(1)
             cr.move_to(0, row.y + row.height - 0.5)
             cr.line_to(row_w, row.y + row.height - 0.5)
