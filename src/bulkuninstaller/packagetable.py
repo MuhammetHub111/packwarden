@@ -272,11 +272,26 @@ class PackageTableArea(Gtk.DrawingArea, Gtk.Scrollable):
             cr.fill()
         cursor += pill_w + 8
 
-        pixbuf = self._load_icon_pixbuf(icon_ref, ICON_SIZE) if icon_ref else None
-        if pixbuf is not None:
+        icon = self._load_icon_pixbuf(icon_ref, ICON_SIZE) if icon_ref else None
+        if icon is not None:
+            pixbuf, is_symbolic = icon
             icon_y = y + (h - ICON_SIZE) / 2
-            Gdk.cairo_set_source_pixbuf(cr, pixbuf, cursor, icon_y)
-            cr.paint()
+            if is_symbolic:
+                # Sembolik ikonlar (ör. Breeze'in currentColor'a bağlı
+                # cihaz/durum simgeleri) kendi dosyalarına gömülü sabit
+                # bir renkle geliyor — GTK dışında ham pixbuf olarak
+                # okununca o sabit renk hiç temaya uymuyor (bkz. commit
+                # mesajı). Rengi görmezden gelip yalnızca şeklini
+                # (alfa kanalını) o anki metin rengiyle boyuyoruz.
+                icon_surface = Gdk.cairo_surface_create_from_pixbuf(
+                    pixbuf, self.get_scale_factor(), None
+                )
+                fg = self._fg_rgba()
+                cr.set_source_rgba(fg.red, fg.green, fg.blue, fg.alpha)
+                cr.mask_surface(icon_surface, cursor, icon_y)
+            else:
+                Gdk.cairo_set_source_pixbuf(cr, pixbuf, cursor, icon_y)
+                cr.paint()
         cursor += ICON_SIZE + 12
 
         remaining = max(x + w - cursor - CELL_PADDING, 0)
@@ -291,13 +306,21 @@ class PackageTableArea(Gtk.DrawingArea, Gtk.Scrollable):
     # ---------------- İkon önbelleği ----------------
 
     def _load_icon_pixbuf(self, icon_ref: str, size: int):
+        """(pixbuf, is_symbolic) döner; yüklenemezse None.
+
+        is_symbolic True ise pixbuf'un RGB değerleri güvenilmez — GTK bu
+        ikonu "sembolik" (tek renkli, currentColor'a bağlı) olarak
+        işaretlemiş demektir; çağıran yalnızca alfa kanalını (şekli)
+        kullanıp o anki metin rengiyle boyamalı, bkz. draw_icon_and_text_cell.
+        """
         key = (icon_ref, size)
         if key in self._icon_cache:
             return self._icon_cache[key]
-        pixbuf = None
+        result = None
         try:
             if os.path.isabs(icon_ref) and os.path.isfile(icon_ref):
                 pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_size(icon_ref, size, size)
+                result = (pixbuf, False)
             else:
                 display = self.get_display()
                 if display is not None:
@@ -310,10 +333,11 @@ class PackageTableArea(Gtk.DrawingArea, Gtk.Scrollable):
                     path = file.get_path() if file else None
                     if path:
                         pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_size(path, size, size)
+                        result = (pixbuf, paintable.is_symbolic())
         except (GLib.Error, OSError):
-            pixbuf = None
-        self._icon_cache[key] = pixbuf
-        return pixbuf
+            result = None
+        self._icon_cache[key] = result
+        return result
 
     # ---------------- Genel API ----------------
 
