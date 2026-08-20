@@ -34,6 +34,7 @@ TR = {
     "Backup saved: {path}": "Yedek kaydedildi: {path}",
     "No leftover files found": "Kalıntı dosya bulunamadı",
     "Moved {count} leftover items to Trash": "{count} kalıntı çöp kutusuna taşındı",
+    "Permanently deleted {count} leftover items": "{count} kalıntı kalıcı olarak silindi",
     "Settings": "Ayarlar",
     "General": "Genel",
     "Package list": "Paket listesi",

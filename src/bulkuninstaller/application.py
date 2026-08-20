@@ -92,7 +92,7 @@ class PackWardenApp(Adw.Application):
             developer_name="MuhammetHub111",
             website="https://github.com/MuhammetHub111/packwarden",
             issue_url="https://github.com/MuhammetHub111/packwarden/issues",
-            license_type=7,  # Gtk.License.GPL_3_0
+            license_type=Gtk.License.GPL_3_0,
             comments=_(
                 "PackWarden is a bulk application manager for Linux. "
                 "It shows all the applications installed on your system "
