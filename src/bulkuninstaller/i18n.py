@@ -112,6 +112,10 @@ TR = {
     "Could not create shortcuts for selected apps":
         "Seçilen uygulamalar için kısayol oluşturulamadı",
     "Copied: {text}": "Kopyalandı: {text}",
+    "Sort by name": "Ada göre sırala",
+    "Sort by size": "Boyuta göre sırala",
+    "No action taken": "Hiçbir işlem yapılmadı",
+    "Deleted {count} leftover items": "{count} kalıntı silindi",
     "Delete leftovers of {name}?": "{name} kalıntıları silinsin mi?",
     "Total: {size}": "Toplam: {size}",
     "Delete": "Sil",
