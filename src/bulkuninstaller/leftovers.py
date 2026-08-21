@@ -34,6 +34,13 @@ LEFTOVER_CATEGORIES = (
     ("~/.local/state", "State logs"),
 )
 
+# Wine ile kurulmuş bir program kaldırılırken, onu kurmak için indirilmiş
+# .exe dosyasını da (varsa) İndirilenler/Masaüstü'nde arar — bu dosya hiçbir
+# paket yöneticisine kayıtlı değildir, PackWarden'ın kendi kurulum dosyası
+# temizliğinin dışında kalır.
+_INSTALLER_SCAN_DIRS = ("~/Downloads", "~/İndirilenler", "~/Desktop", "~/Masaüstü")
+_VERSION_SUFFIX_RE = re.compile(r"\s+[\d][\d.]*.*$")
+
 
 @dataclass
 class Leftover:
@@ -61,6 +68,49 @@ def _tree_size(path: str) -> int:
             except OSError:
                 pass
     return total
+
+
+def _installer_stem(name: str) -> str:
+    """Program görünen adının sonundaki sürüm numarasını atıp normalize
+    eder (ör. 'SteelSeries GG 115.0.0' -> 'steelseriesgg')."""
+    return _normalize(_VERSION_SUFFIX_RE.sub("", name))
+
+
+def _find_installer_leftovers(packages: list[Package], safe) -> list[Leftover]:
+    """Kaldırılan Wine programlarının kurulum dosyasını (varsa) bulur.
+
+    Burada TAM eşleşme aranmıyor — bir kurulum dosyasının adı ("Steel
+    SeriesGG115.0.0Setup.exe") hiçbir zaman programın görünen adıyla
+    ("SteelSeries GG 115.0.0") birebir aynı olmaz, o yüzden normalize
+    edilmiş program adı, normalize edilmiş dosya adının İÇİNDE aranıyor
+    (alt dize eşleşmesi). Yanlış pozitif riski üç şekilde sınırlanıyor:
+    yalnızca .exe uzantılı dosyalara bakılıyor, yalnızca bilinen birkaç
+    klasörde (İndirilenler/Masaüstü) aranıyor, ve çok kısa (<3 karakter)
+    kök adları hiç eşleştirilmiyor."""
+    stems = {
+        stem for pkg in packages if pkg.source == "wine"
+        for stem in [_installer_stem(pkg.name)]
+        if len(stem) >= 3
+    }
+    if not stems:
+        return []
+    items = []
+    for base in _INSTALLER_SCAN_DIRS:
+        base_dir = os.path.expanduser(base)
+        try:
+            entries = os.listdir(base_dir)
+        except OSError:
+            continue
+        for entry in entries:
+            if not entry.lower().endswith(".exe"):
+                continue
+            normalized_entry = _normalize(entry[:-4])
+            if not any(stem in normalized_entry for stem in stems):
+                continue
+            path = os.path.join(base_dir, entry)
+            if safe(path):
+                items.append(Leftover(path=path, size=_tree_size(path)))
+    return items
 
 
 def find_package_leftovers(
@@ -117,6 +167,11 @@ def find_package_leftovers(
     if items:
         items.sort(key=lambda item: -item.size)
         result.append(("Flatpak data", items))
+
+    installer_items = _find_installer_leftovers(packages, safe)
+    if installer_items:
+        installer_items.sort(key=lambda item: -item.size)
+        result.append(("Installer file", installer_items))
 
     return result
 

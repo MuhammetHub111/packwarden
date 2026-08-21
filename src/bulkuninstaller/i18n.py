@@ -168,6 +168,7 @@ TR = {
     "App data": "Uygulama verileri",
     "State logs": "Durum kayıtları",
     "Flatpak data": "Flatpak verileri",
+    "Installer file": "Kurulum dosyası",
     "Updates": "Güncellemeler",
     "You are running the latest version.": "En güncel sürümü kullanıyorsun.",
     "Running version": "Çalışan sürüm",
