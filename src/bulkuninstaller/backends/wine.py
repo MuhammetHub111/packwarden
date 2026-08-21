@@ -120,6 +120,36 @@ def _windows_path_to_unix(prefix: str, windows_path: str) -> str | None:
     return os.path.join(prefix, "drive_c", rel)
 
 
+def _resolve_case_insensitive(path: str) -> str | None:
+    """path'i diskte bulur; tam eşleşme yoksa her bileşeni büyük/küçük
+    harf duyarsız arar.
+
+    Windows/NTFS büyük-küçük harfe duyarsız, ama gerçek Linux dosya
+    sistemi (ext4 vb.) duyarlı — Wine bunu kendi çalışma zamanında
+    (bir programı gerçekten ÇALIŞTIRIRKEN) şeffifçe çözüyor, ama biz
+    burada Wine'ı hiç devreye sokmadan doğrudan Linux tarafından
+    dosyayı okuyoruz (ikon çıkarmak için), o yüzden kendi çözümümüzü
+    yapmamız gerekiyor. Doğrulandı: Total Commander'ın registry kaydı
+    "totalcmd64.exe" diyor, diskteki gerçek dosya "TOTALCMD64.EXE"."""
+    if os.path.exists(path):
+        return path
+    if not os.path.isabs(path):
+        return None
+    current = os.sep
+    for part in path.split(os.sep):
+        if not part:
+            continue
+        try:
+            entries = os.listdir(current)
+        except OSError:
+            return None
+        match = next((e for e in entries if e.lower() == part.lower()), None)
+        if match is None:
+            return None
+        current = os.path.join(current, match)
+    return current if os.path.exists(current) else None
+
+
 _GROUP_ICON_RE = re.compile(r"--type=14\s+--name=(?:'([^']*)'|(\S+))")
 
 
@@ -152,8 +182,10 @@ def _extract_icon(exe_path: str, cache_key: str) -> str | None:
     başarısız olursa None döner — çağıran genel pakete geri düşer."""
     if not (host.command_exists("wrestool") and host.command_exists("icotool")):
         return None
-    if not os.path.isfile(exe_path):
+    resolved = _resolve_case_insensitive(exe_path)
+    if resolved is None:
         return None
+    exe_path = resolved
     out_png = os.path.join(_ICON_CACHE_DIR, f"{cache_key}.png")
     if os.path.isfile(out_png):
         return out_png
@@ -234,7 +266,7 @@ class WineBackend(Backend):
                     size=(size_kb * 1024) if isinstance(size_kb, int) else 0,
                     description="",
                     source=self.id,
-                    publisher=entry.get("Publisher", ""),
+                    publisher=entry.get("Publisher") or entry.get("publisher", ""),
                     origin="" if prefix == default_prefix else os.path.basename(prefix),
                     install_date=_install_date(entry.get("InstallDate")),
                     install_reason="explicit",
