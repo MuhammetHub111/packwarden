@@ -601,8 +601,6 @@ class MainWindow(Adw.ApplicationWindow):
         if pkg.source == "wine":
             from .backends.wine import launch_argv
             return launch_argv(pkg.id)
-        if pkg.source == "winexe":
-            return ["env", f"WINEPREFIX={os.path.expanduser('~/.wine')}", "wine", pkg.id]
         desktop_id = self._launcher_map.get(
             pkg.id.lower()
         ) or self._launcher_map.get(pkg.name.lower())
@@ -890,7 +888,7 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _is_app(self, pkg) -> bool:
         """Paket bir son-kullanıcı uygulaması mı (kütüphane/sistem değil)?"""
-        if pkg.source in ("flatpak", "snap", "appimage", "wine", "winexe"):
+        if pkg.source in ("flatpak", "snap", "appimage", "wine"):
             return True  # bu kaynaklar zaten yalnızca uygulama barındırır
         if pkg.source.startswith(("steam", "lutris", "heroic-")):
             return True  # oyunlar her zaman uygulama sayılır
