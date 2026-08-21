@@ -19,10 +19,15 @@ kaynaklardan farklı olarak "sessiz/etkileşimsiz" garantisi verilemez.
 
 import os
 import re
+import shutil
+import tempfile
 import time
 
 from .. import host
 from .base import Backend, Package, RemoveResult
+
+_ICON_CACHE_DIR = os.path.expanduser("~/.cache/bulkuninstaller/wine-icons")
+_ICON_SIZE_RE = re.compile(r"(\d+)x(\d+)")
 
 _UNINSTALL_KEY_RE = re.compile(
     r'^\[Software\\\\(?:Wow6432Node\\\\)?Microsoft\\\\Windows\\\\'
@@ -102,6 +107,62 @@ def _split_uninstall_string(raw: str) -> list[str]:
     return raw.split()
 
 
+def _windows_path_to_unix(prefix: str, windows_path: str) -> str | None:
+    """'C:\\Program Files\\Foo\\bar.exe' -> '<prefix>/drive_c/Program Files/Foo/bar.exe'.
+
+    Yalnızca C: sürücüsü destekleniyor — Wine prefix'lerinin neredeyse
+    tamamında kurulumlar oraya gider, başka harfler (özel bağlanmış
+    sürücüler) kapsanmıyor."""
+    windows_path = windows_path.split(",")[0].strip('"').strip()
+    if not windows_path.upper().startswith("C:"):
+        return None
+    rel = windows_path[2:].replace("\\", "/").lstrip("/")
+    return os.path.join(prefix, "drive_c", rel)
+
+
+def _extract_icon(exe_path: str, cache_key: str) -> str | None:
+    """.exe içine gömülü ikonu yerel olarak çıkarır (ağa hiç çıkmaz);
+    sonucu diske önbellekler. Araç kurulu değilse veya çıkarma
+    başarısız olursa None döner — çağıran genel pakete geri düşer."""
+    if not (host.command_exists("wrestool") and host.command_exists("icotool")):
+        return None
+    if not os.path.isfile(exe_path):
+        return None
+    out_png = os.path.join(_ICON_CACHE_DIR, f"{cache_key}.png")
+    if os.path.isfile(out_png):
+        return out_png
+    try:
+        os.makedirs(_ICON_CACHE_DIR, exist_ok=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            ico_path = os.path.join(tmp, "icon.ico")
+            extracted = host.run(
+                ["wrestool", "-x", "-t", "14", "-o", ico_path, exe_path],
+                timeout=15,
+            )
+            if extracted.returncode != 0 or not os.path.isfile(ico_path):
+                return None
+            converted = host.run(
+                ["icotool", "-x", "-o", tmp, ico_path], timeout=15
+            )
+            if converted.returncode != 0:
+                return None
+            pngs = [f for f in os.listdir(tmp) if f.lower().endswith(".png")]
+            if not pngs:
+                return None
+
+            def _icon_area(name: str) -> int:
+                match = _ICON_SIZE_RE.search(name)
+                if not match:
+                    return 0
+                return int(match.group(1)) * int(match.group(2))
+
+            best = max(pngs, key=_icon_area)
+            shutil.copyfile(os.path.join(tmp, best), out_png)
+            return out_png
+    except Exception:
+        return None
+
+
 class WineBackend(Backend):
     """Wine prefix'lerindeki Windows programları."""
 
@@ -130,6 +191,13 @@ class WineBackend(Backend):
                 if not entry.get("UninstallString"):
                     continue
                 size_kb = entry.get("EstimatedSize")
+                icon_path = ""
+                display_icon = entry.get("DisplayIcon")
+                if display_icon:
+                    exe_path = _windows_path_to_unix(prefix, display_icon)
+                    if exe_path:
+                        cache_key = re.sub(r"[^\w.-]+", "_", f"{prefix}_{entry['_key']}")
+                        icon_path = _extract_icon(exe_path, cache_key) or ""
                 packages.append(Package(
                     id=f"{prefix}::{entry['_key']}",
                     name=name,
@@ -141,6 +209,7 @@ class WineBackend(Backend):
                     origin="" if prefix == default_prefix else os.path.basename(prefix),
                     install_date=_install_date(entry.get("InstallDate")),
                     install_reason="explicit",
+                    icon_path=icon_path,
                 ))
         return packages
 
