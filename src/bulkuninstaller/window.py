@@ -885,7 +885,7 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _is_app(self, pkg) -> bool:
         """Paket bir son-kullanıcı uygulaması mı (kütüphane/sistem değil)?"""
-        if pkg.source in ("flatpak", "snap", "appimage"):
+        if pkg.source in ("flatpak", "snap", "appimage", "wine"):
             return True  # bu kaynaklar zaten yalnızca uygulama barındırır
         if pkg.source.startswith(("steam", "lutris", "heroic-")):
             return True  # oyunlar her zaman uygulama sayılır

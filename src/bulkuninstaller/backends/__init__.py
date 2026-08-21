@@ -9,6 +9,7 @@ from .pacman import PacmanBackend
 from .portage import PortageBackend
 from .selfinstall import SelfInstallBackend
 from .snap import SnapBackend
+from .wine import WineBackend
 from .xbps import XbpsBackend
 from .zypper import ZypperBackend
 
@@ -26,6 +27,7 @@ ALL_BACKENDS: list[type[Backend]] = [
     FlatpakBackend,   # dağıtımdan bağımsız
     SnapBackend,      # dağıtımdan bağımsız
     AppImageBackend,  # dağıtımdan bağımsız
+    WineBackend,      # Wine prefix'lerindeki Windows programları
     SelfInstallBackend,  # PackWarden'ın kendisi (install.sh kurulumu)
 ]
 
