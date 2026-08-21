@@ -224,6 +224,42 @@ def _extract_icon(exe_path: str, cache_key: str) -> str | None:
         return None
 
 
+def _find_entry(prefix: str, key: str) -> dict | None:
+    reg_path = os.path.join(prefix, "system.reg")
+    for entry in _parse_uninstall_entries(reg_path):
+        if entry.get("_key") == key:
+            return entry
+    return None
+
+
+def launch_argv(pkg_id: str) -> list[str] | None:
+    """Bir Wine paketini başlatma komutu; bulunamazsa None.
+
+    window.py'nin diğer kaynaklar (flatpak/snap/appimage) için yaptığı
+    gibi bunu da doğrudan çağırabilmesi için — Wine paketlerinin id'si
+    normal .desktop tabanlı _launcher_map ile hiç eşleşmediğinden
+    "Çalıştır" olmadan sessizce "çalıştırılabilir penceresi yok"
+    diyordu. DisplayIcon alanı, kaldırma kaydındaki tek güvenilir
+    "asıl program bu" işareti — ikon çıkarmak için de zaten bunu
+    kullanıyoruz."""
+    prefix, sep, key = pkg_id.partition("::")
+    if not sep:
+        return None
+    entry = _find_entry(prefix, key)
+    if not entry:
+        return None
+    display_icon = entry.get("DisplayIcon")
+    if not display_icon:
+        return None
+    exe_path = _windows_path_to_unix(prefix, display_icon)
+    if not exe_path:
+        return None
+    resolved = _resolve_case_insensitive(exe_path)
+    if resolved is None:
+        return None
+    return ["env", f"WINEPREFIX={prefix}", "wine", resolved]
+
+
 class WineBackend(Backend):
     """Wine prefix'lerindeki Windows programları."""
 
@@ -275,11 +311,7 @@ class WineBackend(Backend):
         return packages
 
     def _find_entry(self, prefix: str, key: str) -> dict | None:
-        reg_path = os.path.join(prefix, "system.reg")
-        for entry in _parse_uninstall_entries(reg_path):
-            if entry.get("_key") == key:
-                return entry
-        return None
+        return _find_entry(prefix, key)
 
     def _wine_argv(self, prefix: str, uninstall_string: str) -> list[str]:
         return (

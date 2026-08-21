@@ -598,6 +598,9 @@ class MainWindow(Adw.ApplicationWindow):
             return ["snap", "run", pkg.id]
         if pkg.source == "appimage":
             return [pkg.id]  # kimlik = dosya yolu
+        if pkg.source == "wine":
+            from .backends.wine import launch_argv
+            return launch_argv(pkg.id)
         desktop_id = self._launcher_map.get(
             pkg.id.lower()
         ) or self._launcher_map.get(pkg.name.lower())
