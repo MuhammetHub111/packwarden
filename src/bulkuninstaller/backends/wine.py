@@ -120,6 +120,32 @@ def _windows_path_to_unix(prefix: str, windows_path: str) -> str | None:
     return os.path.join(prefix, "drive_c", rel)
 
 
+_GROUP_ICON_RE = re.compile(r"--type=14\s+--name=(?:'([^']*)'|(\S+))")
+
+
+def _first_icon_group_name(exe_path: str) -> str | None:
+    """.exe'deki ilk RT_GROUP_ICON kaynağının adını döner.
+
+    Bazı programlar (SteelSeries GG'de doğrulandı: TRAYICON_OK ve
+    TRAYICON_RECORDING gibi) birden fazla simge grubu taşır — bildirim
+    alanı simgesinin normal/uyarı/kayıt gibi farklı durumları için.
+    Hepsini birden çekip "en büyüğünü seç" yaklaşımı yanlış grubu
+    (ör. üzerinde kayıt göstergesi olan) seçebiliyor. Kaynak
+    tablosundaki İLK grup, Windows Gezgini'nin dosya simgesi olarak
+    kullandığı grupla aynı — o yüzden yalnızca o çekiliyor."""
+    try:
+        listed = host.run(["wrestool", "-l", exe_path], timeout=15)
+    except Exception:
+        return None
+    if listed.returncode != 0:
+        return None
+    for line in listed.stdout.splitlines():
+        match = _GROUP_ICON_RE.search(line)
+        if match:
+            return match.group(1) if match.group(1) is not None else match.group(2)
+    return None
+
+
 def _extract_icon(exe_path: str, cache_key: str) -> str | None:
     """.exe içine gömülü ikonu yerel olarak çıkarır (ağa hiç çıkmaz);
     sonucu diske önbellekler. Araç kurulu değilse veya çıkarma
@@ -131,12 +157,15 @@ def _extract_icon(exe_path: str, cache_key: str) -> str | None:
     out_png = os.path.join(_ICON_CACHE_DIR, f"{cache_key}.png")
     if os.path.isfile(out_png):
         return out_png
+    group_name = _first_icon_group_name(exe_path)
+    if group_name is None:
+        return None
     try:
         os.makedirs(_ICON_CACHE_DIR, exist_ok=True)
         with tempfile.TemporaryDirectory() as tmp:
             ico_path = os.path.join(tmp, "icon.ico")
             extracted = host.run(
-                ["wrestool", "-x", "-t", "14", "-o", ico_path, exe_path],
+                ["wrestool", "-x", "-t", "14", "-n", group_name, "-o", ico_path, exe_path],
                 timeout=15,
             )
             if extracted.returncode != 0 or not os.path.isfile(ico_path):
