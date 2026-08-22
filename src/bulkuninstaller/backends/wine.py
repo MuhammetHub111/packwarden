@@ -95,15 +95,35 @@ def _install_date(raw) -> float | None:
         return None
 
 
-def _split_uninstall_string(raw: str) -> list[str]:
-    """'"C:\\...\\uninst.exe" /S' -> ['C:\\...\\uninst.exe', '/S']."""
+def _split_uninstall_string(raw: str, prefix: str) -> list[str]:
+    """UninstallString'i [çalıştırılabilir, argüman, ...] olarak ayırır.
+
+    Çoğu UninstallString tırnaksız, tek bir yol — hiç argüman yok (ör.
+    'C:\\Program Files\\SteelSeries\\GG\\uninst.exe'). Yolun kendisi
+    boşluk içerdiği için düz .split() bunu YANLIŞLIKLA iki parçaya
+    bölüyordu ("C:\\Program" + "Files\\..."), wine de var olmayan
+    "C:\\Program" dosyasını açmaya çalışıp hata veriyordu (doğrulandı).
+    Önce TÜM dizeyi tek bir yol olarak diskte var mı diye deniyoruz —
+    büyük/küçük harf düzeltmesiyle birlikte (bkz. _resolve_case_
+    insensitive); gerçekten böyle bir dosya varsa bu doğru olan.
+    Yalnızca gerçekten argüman içeren komutlarda (ör. tırnaklı
+    '"...\\uninst.exe" /S', ya da boşluksuz 'MsiExec.exe /I{GUID}')
+    ayrıştırmaya/boşluktan bölmeye düşülüyor."""
     raw = raw.strip()
     if raw.startswith('"'):
         end = raw.find('"', 1)
         if end != -1:
             exe = raw[1:end]
             rest = raw[end + 1:].strip()
-            return [exe] + (rest.split() if rest else [])
+            unix_path = _windows_path_to_unix(prefix, exe)
+            resolved = _resolve_case_insensitive(unix_path) if unix_path else None
+            first = resolved or exe
+            return [first] + (rest.split() if rest else [])
+        raw = raw.strip('"')
+    unix_path = _windows_path_to_unix(prefix, raw)
+    resolved = _resolve_case_insensitive(unix_path) if unix_path else None
+    if resolved:
+        return [resolved]
     return raw.split()
 
 
@@ -316,7 +336,7 @@ class WineBackend(Backend):
     def _wine_argv(self, prefix: str, uninstall_string: str) -> list[str]:
         return (
             ["env", f"WINEPREFIX={prefix}", "wine"]
-            + _split_uninstall_string(uninstall_string)
+            + _split_uninstall_string(uninstall_string, prefix)
         )
 
     def remove_argv(self, ids: list[str]) -> list[str]:
