@@ -109,7 +109,8 @@ class PackageTableArea(Gtk.DrawingArea, Gtk.Scrollable):
     def __init__(self):
         super().__init__(hexpand=True, vexpand=True, focusable=True)
 
-        self._columns: list[Column] = []
+        self._columns: list[Column] = []  # şu an GÖRÜNÜR sütunlar, bu sırayla
+        self._all_columns: list[Column] = []  # eklenmiş TÜM sütunlar (gizli dahil), sabit sıra
         self._raw_items: list = []
         self._flat_items: list = []
         self._rows: list[RowEntry] = []
@@ -156,6 +157,7 @@ class PackageTableArea(Gtk.DrawingArea, Gtk.Scrollable):
         self.on_context_menu: Callable | None = None
         self.on_selection_changed: Callable | None = None
         self.on_columns_reordered: Callable | None = None
+        self.on_header_context_menu: Callable | None = None
 
         self.set_draw_func(self._on_draw)
         self.connect("notify::vadjustment", self._on_adjustment_replaced)
@@ -370,9 +372,47 @@ class PackageTableArea(Gtk.DrawingArea, Gtk.Scrollable):
 
     def add_column(self, column: Column):
         self._columns.append(column)
+        self._all_columns.append(column)
         self._reflow_column_x()
         if self._sort_column_id is None and column.sort_key:
             self._sort_column_id = column.id
+
+    def all_columns(self) -> list[Column]:
+        """Gizli olanlar dahil, eklenmiş tüm sütunlar — başlık sağ tık
+        menüsünü kurmak için (bkz. window.py)."""
+        return list(self._all_columns)
+
+    def visible_column_ids(self) -> set[str]:
+        return {c.id for c in self._columns}
+
+    def set_column_visible(self, column_id: str, visible: bool) -> None:
+        """Bir sütunu gizler/gösterir. Öncü (en soldaki, genelde "Ad")
+        sütun hiç gizlenemez — boş bir tablo bırakmamak için, tıpkı bir
+        dosya yöneticisinde "Ad" sütununun kapatılamaması gibi."""
+        currently_visible = self.visible_column_ids()
+        if visible == (column_id in currently_visible):
+            return
+        if not visible:
+            if len(self._columns) <= 1:
+                return  # son sütun gizlenemez
+            target = next((c for c in self._columns if c.id == column_id), None)
+            if target is None or self.is_leading_column(target):
+                return
+            self._columns = [c for c in self._columns if c.id != column_id]
+        else:
+            column = next((c for c in self._all_columns if c.id == column_id), None)
+            if column is None or column in self._columns:
+                return
+            # Sona eklemek yerine doğal (eklenme sırasındaki) konumuna
+            # geri koy: kendisinden önceki sütunlardan hâlâ görünür
+            # olanları say, o kadar index'e ekle.
+            natural_index = self._all_columns.index(column)
+            insert_at = sum(
+                1 for c in self._all_columns[:natural_index] if c in self._columns
+            )
+            self._columns.insert(insert_at, column)
+        self._reflow_column_x()
+        self.queue_draw()
 
     def reorder_columns(self, id_order: list[str]):
         """Sütunları verilen kimlik sırasına göre yeniden diz — daha
@@ -825,6 +865,8 @@ class PackageTableArea(Gtk.DrawingArea, Gtk.Scrollable):
         self.grab_focus()
         content_x, content_y = self._viewport_to_content(x, y)
         if y < HEADER_HEIGHT:
+            if self.on_header_context_menu:
+                self.on_header_context_menu(x, y)
             return
         row = self._row_at_content_y(content_y)
         if not row or row.kind != "item":

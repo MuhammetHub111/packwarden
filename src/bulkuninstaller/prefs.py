@@ -29,6 +29,9 @@ DEFAULTS = {
     # Ana liste sütunlarının kullanıcının belirlediği sırası
     "column_order": [],
 
+    # Başlığa sağ tıklayıp kapatılan sütunların kimlikleri
+    "hidden_columns": [],
+
     # Kullanılmayan uygulamalar penceresindeki eşik:
     # 0=3 ay, 1=6 ay, 2=1 yıl, 3=özel
     "unused_threshold_preset": 1,

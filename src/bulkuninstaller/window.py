@@ -244,6 +244,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._table.on_context_menu = self._on_table_context_menu
         self._table.on_selection_changed = self._update_count_label
         self._table.on_columns_reordered = self._on_table_columns_reordered
+        self._table.on_header_context_menu = self._on_table_header_context_menu
 
         self._table.add_column(Column(
             id="name", title=_("Name"), width=320, min_width=4,
@@ -319,6 +320,13 @@ class MainWindow(Adw.ApplicationWindow):
         saved_order = prefs.get("column_order")
         if saved_order:
             self._table.reorder_columns(saved_order)
+
+        # Kullanıcının başlığa sağ tıklayıp kapattığı sütunlar da kalıcı
+        # (bkz. _on_toggle_column) — sıralamayla aynı mantık.
+        for column_id in prefs.get("hidden_columns") or []:
+            self._table.set_column_visible(column_id, False)
+
+        self._setup_column_visibility_actions()
 
         self._scrolled = Gtk.ScrolledWindow(child=self._table, vexpand=True)
         scrolled = self._scrolled
@@ -533,6 +541,49 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _on_table_columns_reordered(self, id_order):
         prefs.set("column_order", id_order)
+
+    # ---------------- Sütun görünürlüğü (başlığa sağ tık) ----------------
+
+    def _setup_column_visibility_actions(self):
+        """Öncü olmayan her sütun için tek seferlik, durum tutan
+        (checkable) bir eylem kurar — sütun kümesi oturum boyunca
+        değişmediğinden menü her açıldığında yeniden oluşturulmuyor,
+        sadece bu eylemlerin durumu değişiyor."""
+        visible_ids = self._table.visible_column_ids()
+        for column in self._table.all_columns():
+            if self._table.is_leading_column(column):
+                continue
+            action = Gio.SimpleAction.new_stateful(
+                f"toggle-col-{column.id}", None,
+                GLib.Variant.new_boolean(column.id in visible_ids),
+            )
+            action.connect("change-state", self._on_toggle_column, column.id)
+            self.add_action(action)
+
+    def _on_toggle_column(self, action, value, column_id):
+        visible = value.get_boolean()
+        action.set_state(value)
+        self._table.set_column_visible(column_id, visible)
+        hidden = [
+            col.id for col in self._table.all_columns()
+            if col.id not in self._table.visible_column_ids()
+        ]
+        prefs.set("hidden_columns", hidden)
+
+    def _on_table_header_context_menu(self, x, y):
+        menu = Gio.Menu()
+        for column in self._table.all_columns():
+            if self._table.is_leading_column(column):
+                continue
+            menu.append(column.title, f"win.toggle-col-{column.id}")
+        popover = Gtk.PopoverMenu.new_from_model(menu)
+        popover.set_parent(self._table)
+        popover.set_has_arrow(False)
+        rect = Gdk.Rectangle()
+        rect.x, rect.y, rect.width, rect.height = int(x), int(y), 1, 1
+        popover.set_pointing_to(rect)
+        popover.connect("closed", lambda p: GLib.idle_add(p.unparent))
+        popover.popup()
 
     # ---------------- Sağ tık menüsü ----------------
 
