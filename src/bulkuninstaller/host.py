@@ -9,6 +9,7 @@ the desktop's polkit authentication dialog.
 
 import os
 import subprocess
+import threading
 
 IN_FLATPAK = os.path.exists("/.flatpak-info")
 
@@ -38,14 +39,59 @@ def run_privileged(argv: list[str], timeout: int | None = 1800) -> subprocess.Co
     return run(["pkexec"] + argv, timeout=timeout)
 
 
-def spawn(argv: list[str]) -> None:
-    """Bir uygulamayı ayrık süreç olarak başlatır (çıktı beklenmez)."""
-    subprocess.Popen(
+class SpawnedProcess:
+    """Bir spawn() çağrısının sonucu — çağıran, kısa bir süre sonra
+    sürecin gerçekten ayakta kalıp kalmadığını (ve çöktüyse hangi
+    çıktıyı bıraktığını) kontrol edebilsin diye.
+
+    Çıktı sürekli, arka planda bir thread'le okunup son birkaç KB'ı
+    tutulur — hiç okunmasaydı, çıktı üreten uzun ömürlü bir uygulama
+    işletim sisteminin pipe arabelleği dolunca yazma üzerinde
+    tıkanabilirdi (klasik subprocess PIPE tuzağı); bu yüzden okuma
+    sürecin TÜM ömrü boyunca sürer, sadece ilk kontrolle sınırlı değil.
+    """
+
+    _TAIL_LIMIT = 4096
+
+    def __init__(self, proc: subprocess.Popen):
+        self._proc = proc
+        self._tail = b""
+        self._lock = threading.Lock()
+        if proc.stdout is not None:
+            threading.Thread(target=self._drain, daemon=True).start()
+
+    def _drain(self):
+        try:
+            for chunk in iter(lambda: self._proc.stdout.read(4096), b""):
+                with self._lock:
+                    self._tail = (self._tail + chunk)[-self._TAIL_LIMIT:]
+        except (OSError, ValueError):
+            pass
+
+    def poll(self) -> int | None:
+        """Süreç hâlâ çalışıyorsa None, bittiyse çıkış kodu."""
+        return self._proc.poll()
+
+    def output_tail(self) -> str:
+        """Yakalanan çıktının (stdout+stderr birleşik) son kısmı."""
+        with self._lock:
+            return self._tail.decode("utf-8", "replace").strip()
+
+
+def spawn(argv: list[str]) -> SpawnedProcess:
+    """Bir uygulamayı ayrık süreç olarak başlatır.
+
+    Ham Popen değil bir SpawnedProcess sarmalayıcısı döner — çağıran
+    isterse kısa bir süre sonra .poll()/.output_tail() ile sürecin
+    gerçekten açık kalıp kalmadığını ve çöktüyse neden olduğunu
+    öğrenebilir; istemezse hiç dokunmayabilir, davranış aynı kalır."""
+    proc = subprocess.Popen(
         host_argv(argv),
         start_new_session=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
     )
+    return SpawnedProcess(proc)
 
 
 def command_exists(name: str) -> bool:

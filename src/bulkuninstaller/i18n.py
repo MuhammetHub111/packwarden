@@ -63,15 +63,19 @@ TR = {
     "Off by default. Everything stays on this device — no network access, "
     "no process names or window titles are stored, only a package id and "
     "a timestamp.":
-        "Varsayılan olarak kapalı. Her şey bu cihazda kalır — ağ erişimi "
-        "yok, süreç adı veya pencere başlığı saklanmaz, yalnızca bir paket "
-        "kimliği ve zaman damgası tutulur.",
+        "Varsayılan olarak kapalıdır. Her şey bu cihazda kalır, ağa erişim "
+        "olmaz, süreç adı ya da pencere başlığı saklanmaz, yalnızca bir "
+        "paket kimliği ve zaman damgası tutulur.",
     "Detect app usage in the background":
         "Arkaplanda uygulama kullanımını algıla",
-    "Improves the Unused Apps list by noticing when an app runs even "
-    "while PackWarden is closed":
-        "PackWarden kapalıyken bile bir uygulamanın çalıştığını fark "
-        "ederek Kullanılmayan Uygulamalar listesini iyileştirir",
+    "Without this, app usage isn't updated while PackWarden is closed, "
+    "so the Unused Apps list can be inaccurate":
+        "Bu kapalıyken, PackWarden kapalı olduğu sürece uygulama "
+        "kullanımı güncellenmez, bu da Kullanılmayan Uygulamalar "
+        "listesinin yanlış sonuçlar vermesine yol açabilir",
+    "Enable background detection in Settings for more accurate results":
+        "Daha doğru sonuçlar için Ayarlar'dan arka plan algılamayı aç",
+    "Open Settings": "Ayarları Aç",
     "Could not change this setting": "Bu ayar değiştirilemedi",
     "Service unit not found — run install.sh to install PackWarden "
     "properly before enabling this.":
@@ -119,6 +123,7 @@ TR = {
     "Launching {name}…": "{name} başlatılıyor…",
     "Launching {count} apps…": "{count} uygulama başlatılıyor…",
     "Could not launch {name}": "{name} başlatılamadı",
+    "Could not launch {name}: {detail}": "{name} başlatılamadı: {detail}",
     "Could not launch selected apps": "Seçilen uygulamalar başlatılamadı",
     "Create desktop shortcut": "Masaüstü kısayolu oluştur",
     "Desktop shortcut created for {name}": "{name} için masaüstü kısayolu oluşturuldu",
@@ -147,6 +152,7 @@ TR = {
     "Reason": "Neden",
     "Required by": "Bağımlı",
     "License": "Lisans",
+    "Closed Source": "Kapalı Kaynak",
     "Category": "Kategori",
     "Explicit": "Elle kuruldu",
     "Dependency": "Bağımlılık",
@@ -169,6 +175,11 @@ TR = {
     "State logs": "Durum kayıtları",
     "Flatpak data": "Flatpak verileri",
     "Installer file": "Kurulum dosyası",
+    "Filtering": "Filtreleme",
+    "Clear All Filters": "Tümünü Temizle",
+    "Select All": "Tümünü Seç",
+    "Apply": "Uygula",
+    "{letter} ({count} items)": "{letter} ({count} öğe)",
     "Updates": "Güncellemeler",
     "You are running the latest version.": "En güncel sürümü kullanıyorsun.",
     "Running version": "Çalışan sürüm",

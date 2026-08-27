@@ -29,6 +29,7 @@ import time
 from . import host
 from .appicons import APP_DIRS
 from .backends.base import Package
+from .backends.wine import exec_basename as _wine_exec_basename
 
 USAGE_PATH = os.path.expanduser("~/.config/bulkuninstaller/usage.json")
 
@@ -53,21 +54,55 @@ def _load() -> dict:
 
 
 def _save(data: dict) -> None:
+    # Atomik yazma: aynı dizinde geçici bir dosyaya yazıp os.replace ile
+    # yerine koyuyoruz. Bu dosyayı biri arka plan daemon'ı, biri de
+    # PackWarden'ın kendisi (Kullanılmayan Uygulamalar penceresi açıkken)
+    # olmak üzere iki ayrı süreç eşzamanlı güncelleyebiliyor — doğrudan
+    # üzerine yazmak, ikisi tam o anda çakışırsa yarım/bozuk bir JSON
+    # bırakıp tüm geçmişin sessizce sıfırlanmasına yol açabilirdi.
+    # os.replace POSIX'te atomiktir: bir okuyucu ya eski ya da yeni
+    # tam içeriği görür, asla yarısını görmez.
+    tmp_path = f"{USAGE_PATH}.tmp.{os.getpid()}"
     try:
         os.makedirs(os.path.dirname(USAGE_PATH), exist_ok=True)
-        with open(USAGE_PATH, "w", encoding="utf-8") as f:
+        with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
+        os.replace(tmp_path, USAGE_PATH)
     except OSError:
-        pass  # diske yazılamasa da oturum boyunca tarama yine çalışır
+        # diske yazılamasa da oturum boyunca tarama yine çalışır — ama
+        # yarım kalan geçici dosyayı arkada bırakmayalım. Bu temizlik de
+        # başarısız olursa (ör. dosya hiç oluşmadıysa) asıl hatayı
+        # gizlemeden sessizce yut.
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
 
 
 def _key(pkg: Package) -> str:
     return f"{pkg.source}:{pkg.id}"
 
 
-def get_seen(pkg: Package) -> float | None:
-    """Paketin en son "çalışırken görüldüğü" zaman; hiç görülmediyse None."""
-    return _load().get(_key(pkg))
+def get_seen_map() -> dict:
+    """Tüm "paket -> son görülme zamanı" kaydını bir kerede döner.
+
+    Birden çok paket için get_seen() çağıracak bir tarama döngüsü, bunun
+    yerine bu haritayı bir kez yükleyip get_seen(pkg, seen_map=...) ile
+    kullanmalı — aksi halde her paket için dosya yeniden okunur/ayrıştırılır.
+    """
+    return _load()
+
+
+def get_seen(pkg: Package, seen_map: dict | None = None) -> float | None:
+    """Paketin en son "çalışırken görüldüğü" zaman; hiç görülmediyse None.
+
+    seen_map verilmezse dosya bu çağrı için ayrıca yüklenir (tek paketlik
+    kullanım için uygun); bir döngü içinde çağrılıyorsa get_seen_map() ile
+    önceden yüklenip buraya geçilmeli.
+    """
+    if seen_map is None:
+        seen_map = _load()
+    return seen_map.get(_key(pkg))
 
 
 def _running_flatpak_ids() -> set:
@@ -154,6 +189,15 @@ def scan_and_record(packages: list, launcher_map: dict) -> None:
             needle = pkg.id  # kimlik = tam dosya yolu
         elif pkg.source == "snap":
             needle = f"/snap/{pkg.id}/"
+        elif pkg.source == "wine":
+            # launch_argv() ile AYNI .exe çözümlemesi (bkz. backends/wine.py:
+            # _resolve_exe) — needle her zaman o Wine paketinin SPESİFİK
+            # hedef .exe'si, bu yüzden wineserver/winedevice.exe gibi
+            # prefix'e ait paylaşılan süreçlerle asla eşleşmez. Proton/Steam
+            # prefix'leri _prefixes()'in tarama kapsamına hiç girmediği için
+            # (~/.wine ve $WINEPREFIX dışında hiçbir yeri taramıyor) burada
+            # ayrıca bir dışlama gerekmiyor.
+            needle = _wine_exec_basename(pkg.id)
         else:
             needle = _exec_base_for(pkg, launcher_map)
 
@@ -168,7 +212,16 @@ def scan_and_record(packages: list, launcher_map: dict) -> None:
                 match = needle in cmdline
             else:
                 first_token = cmdline.split()[0] if cmdline else ""
-                match = comm == needle or os.path.basename(first_token) == needle
+                # comm/cmdline büyük/küçük harf korur (Windows .exe adları
+                # sık sık PascalCase, ör. "KeePass.exe") ama needle her
+                # zaman küçük harf üretiliyor (_exec_base_for/exec_basename)
+                # — karşılaştırmadan önce ikisini de küçük harfe çevirmek
+                # gerekiyor. Linux ikili adları zaten neredeyse hep küçük
+                # harf olduğundan bu, diğer kaynaklar için etkisiz (no-op).
+                match = (
+                    comm.lower() == needle
+                    or os.path.basename(first_token).lower() == needle
+                )
             if match:
                 data[_key(pkg)] = now
                 changed = True

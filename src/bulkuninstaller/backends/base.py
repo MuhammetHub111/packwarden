@@ -23,6 +23,7 @@ class Package:
     license: str = ""
     category: str = ""  # .desktop dosyasının Categories alanından, Türkçeleştirilmiş
     icon_path: str = ""  # absolute path to a real icon/cover, if the backend has one
+    has_desktop_entry: bool | None = None  # backend belirlediyse True/False, aksi None
 
 
 @dataclass

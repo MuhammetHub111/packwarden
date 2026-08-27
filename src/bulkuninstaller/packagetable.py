@@ -552,7 +552,7 @@ class PackageTableArea(Gtk.DrawingArea, Gtk.Scrollable):
             alloc_h = max(self.get_height() - HEADER_HEIGHT, 0)
             vadj.configure(
                 min(vadj.get_value(), max(self._total_height - alloc_h, 0)),
-                0, self._total_height, ROW_HEIGHT, alloc_h, alloc_h,
+                0, max(self._total_height, alloc_h), ROW_HEIGHT, alloc_h, alloc_h,
             )
         hadj = self.get_hadjustment()
         if hadj is not None:
@@ -866,7 +866,8 @@ class PackageTableArea(Gtk.DrawingArea, Gtk.Scrollable):
         content_x, content_y = self._viewport_to_content(x, y)
         if y < HEADER_HEIGHT:
             if self.on_header_context_menu:
-                self.on_header_context_menu(x, y)
+                col = self._column_at_content_x(content_x)
+                self.on_header_context_menu(x, y, col.id if col else None)
             return
         row = self._row_at_content_y(content_y)
         if not row or row.kind != "item":

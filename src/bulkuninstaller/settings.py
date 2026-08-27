@@ -100,8 +100,8 @@ class SettingsDialog(Adw.PreferencesDialog):
         self._background_usage_row = Adw.SwitchRow(
             title=_("Detect app usage in the background"),
             subtitle=_(
-                "Improves the Unused Apps list by noticing when an app "
-                "runs even while PackWarden is closed"
+                "Without this, app usage isn't updated while PackWarden "
+                "is closed, so the Unused Apps list can be inaccurate"
             ),
             active=bool(prefs.get("background_usage_detection")),
         )

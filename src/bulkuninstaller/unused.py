@@ -21,7 +21,7 @@ from .backends.base import Package
 from .leftovers import find_package_leftovers
 
 
-def last_used(pkg: Package) -> float | None:
+def last_used(pkg: Package, seen_map: dict | None = None) -> float | None:
     """pkg için bilinen en güncel "son kullanım" zamanı (epoch).
 
     Eşleşen sinyal yoksa None döner — bu "bilinmiyor" demektir, asla
@@ -30,13 +30,17 @@ def last_used(pkg: Package) -> float | None:
     Oyun kaynakları (Steam/Lutris/Heroic) kendi last_used değerini
     doğrudan Package üzerinde taşır (bkz. games/) — burada diğer
     sinyallere hiç düşülmez.
+
+    seen_map: birden çok paket için art arda çağrılıyorsa
+    usage.get_seen_map() ile önceden yüklenip geçilmeli — aksi halde her
+    çağrı usage.json'ı ayrıca okur/ayrıştırır.
     """
     if pkg.last_used is not None:
         return pkg.last_used
 
     candidates = []
 
-    tracked = usage.get_seen(pkg)
+    tracked = usage.get_seen(pkg, seen_map)
     if tracked is not None:
         candidates.append(tracked)
 

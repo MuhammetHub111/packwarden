@@ -85,6 +85,30 @@ def _parse_uninstall_entries(reg_path: str) -> list[dict]:
     return entries
 
 
+# reg_path -> (dosyanın son ayrıştırmadaki mtime'ı, ayrıştırılmış girdiler).
+# Kullanım taramasında her Wine paketi için ayrı ayrı çağrılan _find_entry(),
+# her seferinde birkaç MB'lık system.reg'i baştan okuyup ayrıştırıyordu
+# (doğrulandı: bu sistemde 7 paket için ~143ms, taramanın toplam
+# maliyetinin çoğu). Anahtar tam reg_path olduğundan farklı prefix'ler
+# hiç karışmaz; mtime değişmediği sürece önceki sonuç yeniden kullanılır,
+# dosya değişince (yeni kurulum/kaldırma) otomatik yeniden ayrıştırılır.
+_entries_cache: dict[str, tuple[float, list[dict]]] = {}
+
+
+def _cached_uninstall_entries(reg_path: str) -> list[dict]:
+    try:
+        mtime = os.stat(reg_path).st_mtime
+    except OSError:
+        _entries_cache.pop(reg_path, None)
+        return _parse_uninstall_entries(reg_path)
+    cached = _entries_cache.get(reg_path)
+    if cached is not None and cached[0] == mtime:
+        return cached[1]
+    entries = _parse_uninstall_entries(reg_path)
+    _entries_cache[reg_path] = (mtime, entries)
+    return entries
+
+
 def _install_date(raw) -> float | None:
     # Windows "InstallDate" YYYYMMDD dizesi olarak tutar
     if not isinstance(raw, str) or len(raw) != 8 or not raw.isdigit():
@@ -246,22 +270,20 @@ def _extract_icon(exe_path: str, cache_key: str) -> str | None:
 
 def _find_entry(prefix: str, key: str) -> dict | None:
     reg_path = os.path.join(prefix, "system.reg")
-    for entry in _parse_uninstall_entries(reg_path):
+    for entry in _cached_uninstall_entries(reg_path):
         if entry.get("_key") == key:
             return entry
     return None
 
 
-def launch_argv(pkg_id: str) -> list[str] | None:
-    """Bir Wine paketini başlatma komutu; bulunamazsa None.
+def _resolve_exe(pkg_id: str) -> str | None:
+    """pkg_id ('prefix::key') -> diskte doğrulanmış gerçek .exe yolu, yoksa None.
 
-    window.py'nin diğer kaynaklar (flatpak/snap/appimage) için yaptığı
-    gibi bunu da doğrudan çağırabilmesi için — Wine paketlerinin id'si
-    normal .desktop tabanlı _launcher_map ile hiç eşleşmediğinden
-    "Çalıştır" olmadan sessizce "çalıştırılabilir penceresi yok"
-    diyordu. DisplayIcon alanı, kaldırma kaydındaki tek güvenilir
-    "asıl program bu" işareti — ikon çıkarmak için de zaten bunu
-    kullanıyoruz."""
+    DisplayIcon alanı, kaldırma kaydındaki tek güvenilir "asıl program bu"
+    işareti — ikon çıkarma, launch_argv() (Çalıştır düğmesi) ve
+    exec_basename() (kullanım tespiti) hepsi bu TEK çözümlemeyi paylaşır;
+    ayrı ayrı çözümleseler "Çalıştır"ın açtığı program ile kullanım
+    takibinin izlediği program birbirinden sessizce sapabilirdi."""
     prefix, sep, key = pkg_id.partition("::")
     if not sep:
         return None
@@ -274,10 +296,37 @@ def launch_argv(pkg_id: str) -> list[str] | None:
     exe_path = _windows_path_to_unix(prefix, display_icon)
     if not exe_path:
         return None
-    resolved = _resolve_case_insensitive(exe_path)
+    return _resolve_case_insensitive(exe_path)
+
+
+def launch_argv(pkg_id: str) -> list[str] | None:
+    """Bir Wine paketini başlatma komutu; bulunamazsa None.
+
+    window.py'nin diğer kaynaklar (flatpak/snap/appimage) için yaptığı
+    gibi bunu da doğrudan çağırabilmesi için — Wine paketlerinin id'si
+    normal .desktop tabanlı _launcher_map ile hiç eşleşmediğinden
+    "Çalıştır" olmadan sessizce "çalıştırılabilir penceresi yok"
+    diyordu."""
+    prefix, sep, _key = pkg_id.partition("::")
+    if not sep:
+        return None
+    resolved = _resolve_exe(pkg_id)
     if resolved is None:
         return None
     return ["env", f"WINEPREFIX={prefix}", "wine", resolved]
+
+
+def exec_basename(pkg_id: str) -> str | None:
+    """pkg_id'nin çözülen .exe'sinin dosya adı, küçük harf; yoksa None.
+
+    usage.py'nin Wine kullanım tespiti bunu /proc'taki çalışan süreçlerin
+    comm/cmdline'ıyla karşılaştırır — launch_argv() ile AYNI _resolve_exe()
+    çözümlemesini kullandığı için "Çalıştır"ın açtığı .exe ile izlenen
+    .exe her zaman aynıdır. wineserver/winedevice.exe gibi prefix'e ait
+    paylaşılan süreçler bu adla hiç eşleşmez, çünkü needle her zaman
+    SPESİFİK hedef programın dosya adıdır, genel bir "wine" deseni değil."""
+    resolved = _resolve_exe(pkg_id)
+    return os.path.basename(resolved).lower() if resolved else None
 
 
 class WineBackend(Backend):
@@ -295,7 +344,7 @@ class WineBackend(Backend):
         default_prefix = os.path.realpath(os.path.expanduser("~/.wine"))
         for prefix in _prefixes():
             reg_path = os.path.join(prefix, "system.reg")
-            for entry in _parse_uninstall_entries(reg_path):
+            for entry in _cached_uninstall_entries(reg_path):
                 name = entry.get("DisplayName")
                 if not name:
                     continue

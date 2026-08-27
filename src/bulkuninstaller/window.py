@@ -14,6 +14,11 @@ from .packagetable import Column, PackageTableArea
 from .removal import RemovalWindow
 from .unusedwindow import UnusedAppsWindow
 
+# _build_name_filter_panel'daki genişlik isteğiyle aynı tutulmalı — sütun
+# görünürlüğü popover'ı genişleyince yatay kaymayı iptal etmek için
+# kullanılıyor (bkz. _show_column_visibility_popover).
+_FILTER_PANEL_WIDTH = 190
+
 
 class PackageItem(GObject.Object):
     """GObject wrapper so Package rows can live in a Gio.ListStore."""
@@ -44,6 +49,9 @@ class MainWindow(Adw.ApplicationWindow):
         # (backend_id | None, origin | None): (None, None) = tümü
         self._source_filter = (None, None)
         self._source_choices = [(None, None)]
+        # None = harf filtresi yok (hepsi görünür); aksi halde sadece bu
+        # baş harflerdeki paketler gösterilir (bkz. _section_letter).
+        self._name_letter_filter: set[str] | None = None
         self._busy = False
         self._total_size = 1
 
@@ -82,6 +90,59 @@ class MainWindow(Adw.ApplicationWindow):
             border-radius: 0px;
             box-shadow: none;
             border-bottom: 1px solid alpha(currentColor, 0.15);
+        }
+        .pw-popover-close {
+            background-color: alpha(currentColor, 0.16);
+            transition: background-color 150ms ease, color 150ms ease;
+        }
+        .pw-popover-close:hover, .pw-popover-close:focus {
+            background-color: alpha(currentColor, 0.26);
+        }
+        .pw-popover-list, .pw-popover-list row {
+            background-color: transparent;
+            background-image: none;
+        }
+        .pw-popover-list row:hover {
+            background-color: alpha(currentColor, 0.08);
+        }
+        .pw-popover-header {
+            padding-top: 3px;
+            padding-bottom: 3px;
+        }
+        .pw-popover-header:hover {
+            background-color: alpha(currentColor, 0.08);
+        }
+        .pw-columns-popover {
+            background-color: @window_bg_color;
+            box-shadow: none;
+            margin: 0px;
+        }
+        .pw-columns-popover > contents {
+            padding: 0px;
+            background-color: @window_bg_color;
+        }
+        .pw-warning-banner {
+            background-color: #f6d32d;
+            color: rgba(0, 0, 0, 0.85);
+            border-radius: 12px;
+            padding: 0px 14px;
+        }
+        .pw-warning-banner image {
+            color: rgba(0, 0, 0, 0.85);
+        }
+        .pw-warning-btn {
+            background-color: transparent;
+            background-image: none;
+            color: rgba(0, 0, 0, 0.85);
+            box-shadow: none;
+            border: none;
+            border-radius: 8px;
+            text-decoration: underline;
+            font-weight: bold;
+            padding: 8px 14px;
+        }
+        .pw-warning-btn:hover, .pw-warning-btn:focus {
+            background-color: alpha(black, 0.1);
         }
         """
         provider = Gtk.CssProvider()
@@ -509,8 +570,27 @@ class MainWindow(Adw.ApplicationWindow):
                               align=self._cell_align(table, col), dim=True)
 
     def _draw_license_cell(self, table, cr, col, item, x, y, w, h, _selected):
-        table.draw_text_cell(cr, x, y, w, h, item.pkg.license or "—",
+        table.draw_text_cell(cr, x, y, w, h,
+                              self._display_license(item.pkg.license) or "—",
                               align=self._cell_align(table, col), dim=True)
+
+    @staticmethod
+    def _display_license(raw_license: str) -> str:
+        """Ham lisans dizesini kullanıcıya gösterilecek hale getirir.
+
+        "LicenseRef-proprietary..." Flatpak/Flathub'ın kapalı kaynak
+        uygulamalar için kullandığı standart SPDX kalıbı (doğrulandı:
+        Spotify/VSCode/Sober böyle geliyor) — ham SPDX referansını/URL'i
+        göstermek yerine okunabilir bir etikete çevriliyor. Düz
+        "proprietary" değeri de aynı şekilde ele alınıyor. Tanınan bir
+        SPDX lisansı (GPL-3.0 vb.) veya boşsa olduğu gibi bırakılır."""
+        value = (raw_license or "").strip()
+        if not value:
+            return ""
+        lowered = value.lower()
+        if lowered.startswith("licenseref-proprietary") or lowered == "proprietary":
+            return _("Closed Source")
+        return value
 
     def _draw_category_cell(self, table, cr, col, item, x, y, w, h, _selected):
         table.draw_text_cell(cr, x, y, w, h, self._category_for(item.pkg) or "—",
@@ -550,33 +630,286 @@ class MainWindow(Adw.ApplicationWindow):
         ]
         prefs.set("hidden_columns", hidden)
 
-    def _on_table_header_context_menu(self, x, y):
+    def _on_table_header_context_menu(self, x, y, column_id):
+        self._show_column_visibility_popover(x, y)
+
+    def _show_column_visibility_popover(self, x, y):
         # Gio.Menu tabanlı bir Gtk.PopoverMenu her tıklamada kapanır — bu,
         # arka arkaya birkaç sütunu işaretlemek/kaldırmak isteyen biri için
         # (asıl kullanım şekli bu) her seferinde tekrar sağ tıklamayı
         # gerektirirdi. Bunun yerine düz Gtk.CheckButton'lardan oluşan bir
         # panel: tıklamak kutuyu değiştirir ama pencereyi kapatmaz, kapanış
         # dışarı tıklayınca/Esc ile olur.
-        box = Gtk.Box(
-            orientation=Gtk.Orientation.VERTICAL, spacing=2,
-            margin_top=6, margin_bottom=6, margin_start=10, margin_end=10,
+        # GTK, zaten açık olan bir popover'ı bu ortamda (Wayland/KWin)
+        # sonradan büyütmeyi güvenilir şekilde yapmıyor (doğrulandı: bir
+        # çocuğu sonradan visible=True yapmak "çalışıyor" ama popover'ın
+        # yüzeyi büyümediği için görünmüyor). Bu yüzden: normalde sadece
+        # sütun listesini gösteren KÜÇÜK bir popover açılır; "Filtreleme"
+        # satırının üstüne gelince bu popover kapatılıp, aynı noktada,
+        # baştan sütun listesi + harf paneliyle birlikte GENİŞ bir popover
+        # yeniden açılır — büyütme değil, doğru boyutla yeniden doğum.
+        def _open(expanded: bool):
+            left_box, _filter_row_content, close_btn, listbox = (
+                self._build_columns_left_box()
+            )
+            # "Filtreleme" her zaman listbox'taki ilk satır — kendi boşluğu
+            # (margin) dahil TÜM alanı kapsayan gerçek satır sarmalayıcısı
+            # bu. filter_row_content'in kendisi bu boşluk kadar içeride
+            # kaldığından, hover dinleyicisini ona değil bu satıra
+            # bağlıyoruz (kenara yakın noktalarda "iz" çıkıyor ama
+            # filter_row_content'e hiç ulaşmıyordu).
+            filter_row = listbox.get_row_at_index(0)
+            if expanded:
+                filter_panel, apply_or_clear = self._build_name_filter_panel()
+                outer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+                outer.append(left_box)
+                outer.append(filter_panel)
+                content = outer
+            else:
+                apply_or_clear = None
+                content = left_box
+
+            popover = Gtk.Popover(
+                child=content, has_arrow=False, css_classes=["pw-columns-popover"],
+            )
+            popover.set_parent(self._table)
+            rect = Gdk.Rectangle()
+            # GTK popover'ı, işaret ettiği noktanın etrafında YATAY olarak
+            # ORTALIYOR — bu yüzden genişleyince (panel eklenince) sol
+            # kenar da sola kayıyordu. Panelin genişliğinin yarısı kadar
+            # işaret noktasını sağa kaydırarak bu kaymayı iptal ediyoruz;
+            # böylece sol taraf (sütun listesi) sabit kalıyor.
+            anchor_x = int(x) + (_FILTER_PANEL_WIDTH // 2 if expanded else 0)
+            rect.x, rect.y, rect.width, rect.height = anchor_x, int(y), 1, 1
+            popover.set_pointing_to(rect)
+            close_btn.connect("clicked", lambda b: popover.popdown())
+            if apply_or_clear is not None:
+                apply_or_clear(lambda: popover.popdown())
+
+            if not expanded:
+                # Popover ilk açıldığında fare, sağ tık noktasından
+                # "Filtreleme" satırına doğru hareket ediyor — bu, yeni
+                # eşlenmiş bir yüzeye ilk giriş olduğundan "enter" olayı
+                # bazen kaçıyordu. "motion" ile de aynı tetikleyiciyi
+                # dinleyip bir bayrakla tek seferlik çalışmasını
+                # garantiliyoruz.
+                triggered = [False]
+
+                def _trigger_expand(*_a):
+                    if not triggered[0]:
+                        triggered[0] = True
+                        popover.popdown()
+                        _open(True)
+
+                filter_hover = Gtk.EventControllerMotion()
+                filter_hover.connect("enter", _trigger_expand)
+                filter_hover.connect("motion", _trigger_expand)
+                filter_row.add_controller(filter_hover)
+            else:
+                # Sadece "Filtreleme" satırı VE ABC paneli "güvenli" bölge —
+                # Sürüm/Boyut/... gibi diğer sütun satırlarına gelince bile
+                # (outer'ın içinde olsa da) küçük popover'a dönülmeli. Küçük
+                # bir gecikmeyle: satırdan panele geçerken aradaki anlık
+                # "leave" iptal ediliyor, gerçekten ikisinden de çıkınca
+                # kapanıyor.
+                close_src = [None]
+
+                def _cancel_close():
+                    if close_src[0] is not None:
+                        GLib.source_remove(close_src[0])
+                        close_src[0] = None
+
+                def _schedule_close():
+                    _cancel_close()
+
+                    def _do_close():
+                        close_src[0] = None
+                        popover.popdown()
+                        _open(False)
+                        return False
+
+                    close_src[0] = GLib.timeout_add(120, _do_close)
+
+                for safe_widget in (filter_row, filter_panel):
+                    safe_hover = Gtk.EventControllerMotion()
+                    safe_hover.connect("enter", lambda *_a: _cancel_close())
+                    safe_hover.connect("leave", lambda *_a: _schedule_close())
+                    safe_widget.add_controller(safe_hover)
+
+            popover.connect("closed", lambda p: GLib.idle_add(p.unparent))
+            popover.popup()
+
+        _open(False)
+
+    def _build_columns_left_box(self):
+        """Sütun görünürlüğü panelini (çarpı + Filtreleme satırı + sütun
+        check'leri) kurar. (left_box, filter_row_content, close_btn,
+        listbox) döner."""
+        # Satırların hover izi tam genişlikte görünsün diye box'ta yan
+        # boşluk yok; iç boşluk her satırın kendi check button'unda.
+        left_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+
+        close_icon = Gtk.Image.new_from_icon_name("window-close-symbolic")
+        close_icon.set_pixel_size(12)
+        close_btn = Gtk.Button(
+            child=close_icon, css_classes=["circular", "flat", "pw-popover-close"],
+            halign=Gtk.Align.CENTER, hexpand=True, tooltip_text=_("Close"),
         )
+        close_btn.set_size_request(20, 20)
+        # Sadece çarpının kendi dairesi değil, satırlardaki gibi tüm üst
+        # şerit (kenardan kenara, satırlarla aynı hizada) üzerine gelince
+        # iz göstersin; çarpı da bu şeridin tam ortasında dursun.
+        header_row = Gtk.Box(css_classes=["pw-popover-header"])
+        header_row.append(close_btn)
+        left_box.append(header_row)
+
+        # "boxed-list" popover'ın kendi arka planından ayrı, ikinci bir
+        # kutu/pencere görünümü veriyordu — düz Gtk.ListBox kullanıyoruz;
+        # satır vurgusu (hover) zaten tema tarafından sağlanıyor.
+        listbox = Gtk.ListBox(
+            selection_mode=Gtk.SelectionMode.NONE, css_classes=["pw-popover-list"],
+        )
+
+        # "Filtreleme" — çarpı ile Sürüm arasında; üzerine gelince harfe
+        # göre filtre paneli sağında açılır.
+        filter_row_content = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL, hexpand=True,
+            margin_top=6, margin_bottom=6, margin_start=8, margin_end=8,
+        )
+        filter_row_content.append(
+            Gtk.Label(label=_("Filtering"), xalign=0, hexpand=True)
+        )
+        filter_row_content.append(
+            Gtk.Image.new_from_icon_name("pan-end-symbolic")
+        )
+        listbox.append(filter_row_content)
+
         visible_ids = self._table.visible_column_ids()
         for column in self._table.all_columns():
             if self._table.is_leading_column(column):
                 continue
             check = Gtk.CheckButton(
                 label=column.title, active=column.id in visible_ids,
+                margin_top=6, margin_bottom=6, margin_start=8, margin_end=8,
             )
             check.connect("toggled", self._on_column_check_toggled, column.id)
-            box.append(check)
-        popover = Gtk.Popover(child=box, has_arrow=False)
-        popover.set_parent(self._table)
-        rect = Gdk.Rectangle()
-        rect.x, rect.y, rect.width, rect.height = int(x), int(y), 1, 1
-        popover.set_pointing_to(rect)
-        popover.connect("closed", lambda p: GLib.idle_add(p.unparent))
-        popover.popup()
+            listbox.append(check)
+        left_box.append(listbox)
+
+        return left_box, filter_row_content, close_btn, listbox
+
+    # ---------------- Ad filtresi (harfe göre, "Ad" başlığına sağ tık) ----
+
+    def _letter_counts_ignoring_name_filter(self) -> dict:
+        """Harf filtresi devre dışıymış gibi, diğer filtrelere (kaynak,
+        arama, apps_only) uyan öğeleri baş harfe göre sayar."""
+        counts: dict[str, int] = {}
+        saved = self._name_letter_filter
+        self._name_letter_filter = None
+        try:
+            for i in range(self._store.get_n_items()):
+                item = self._store.get_item(i)
+                if not self._filter_func(item):
+                    continue
+                letter = self._section_letter(item.pkg)
+                counts[letter] = counts.get(letter, 0) + 1
+        finally:
+            self._name_letter_filter = saved
+        return counts
+
+    def _apply_name_letter_filter(self, letters: set | None):
+        self._name_letter_filter = letters
+        self._filter.changed(Gtk.FilterChange.DIFFERENT)
+        self._refresh_table()
+        self._update_count_label()
+
+    def _build_name_filter_panel(self):
+        """Sağa bitişik açılan harf filtresi panelini kurar. (panel,
+        register) döner — register(on_applied_or_cleared) çağrılarak
+        Uygula/Temizle sonrası çalışacak (ör. popover'ı kapatan) bir geri
+        çağırma bağlanabilir."""
+        counts = self._letter_counts_ignoring_name_filter()
+        letters = sorted(counts, key=lambda ltr: (ltr == "#", ltr))
+        # Referans örnekteki gibi: filtre uygulanmamışken hiçbir kutu işaretli
+        # değil (boş seçim = filtre yok, hepsi görünür); daha önce Uygula'ya
+        # basılmışsa yalnızca o harfler işaretli açılır.
+        active_letters = self._name_letter_filter or set()
+
+        panel = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL, spacing=2,
+            width_request=_FILTER_PANEL_WIDTH,
+            css_classes=["pw-columns-popover"],
+        )
+
+        clear_btn = Gtk.Button(
+            label=_("Clear All Filters"), css_classes=["flat"], margin_bottom=2,
+        )
+        panel.append(clear_btn)
+
+        # vexpand=True, propagate_natural_height ile çakışıp GTK'de geçersiz
+        # bir adjustment durumuna (Gtk-CRITICAL) yol açtı. Onun yerine sabit
+        # ama daha büyük bir üst sınır: sol paneldeki daha uzun sütun
+        # listesiyle boyu daha iyi eşleşsin, Uygula altında kalan boşluk
+        # küçülsün.
+        scroller = Gtk.ScrolledWindow(
+            hscrollbar_policy=Gtk.PolicyType.NEVER,
+            vscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
+            max_content_height=380, propagate_natural_height=True,
+        )
+        listbox = Gtk.ListBox(
+            selection_mode=Gtk.SelectionMode.NONE, css_classes=["pw-popover-list"],
+        )
+        checks: dict[str, Gtk.CheckButton] = {}
+        for letter in letters:
+            check = Gtk.CheckButton(
+                label=_("{letter} ({count} items)").format(
+                    letter=letter, count=counts[letter]
+                ),
+                active=letter in active_letters,
+                margin_top=6, margin_bottom=6, margin_start=8, margin_end=8,
+            )
+            checks[letter] = check
+            listbox.append(check)
+        scroller.set_child(listbox)
+        panel.append(scroller)
+
+        select_all = Gtk.CheckButton(
+            label=_("Select All"), active=len(active_letters) == len(letters),
+            margin_top=6, margin_bottom=6, margin_start=8, margin_end=8,
+        )
+
+        def _on_select_all(chk):
+            state = chk.get_active()
+            for c in checks.values():
+                c.set_active(state)
+
+        select_all.connect("toggled", _on_select_all)
+        panel.append(select_all)
+
+        apply_btn = Gtk.Button(
+            label=_("Apply"), css_classes=["suggested-action"], margin_top=4,
+        )
+        panel.append(apply_btn)
+
+        callbacks: list = []
+
+        def _do_apply(_btn):
+            chosen = {ltr for ltr, c in checks.items() if c.get_active()}
+            # Hiçbiri veya hepsi işaretliyse fiilen filtre yok demektir.
+            no_filter = not chosen or chosen == set(letters)
+            self._apply_name_letter_filter(None if no_filter else chosen)
+            for cb in callbacks:
+                cb()
+
+        def _do_clear(_btn):
+            self._apply_name_letter_filter(None)
+            for cb in callbacks:
+                cb()
+
+        apply_btn.connect("clicked", _do_apply)
+        clear_btn.connect("clicked", _do_clear)
+
+        return panel, callbacks.append
 
     # ---------------- Sağ tık menüsü ----------------
 
@@ -659,9 +992,9 @@ class MainWindow(Adw.ApplicationWindow):
         if not items:
             return
 
-        launched = []
         no_window = []
         failed = []
+        pending = []  # (pkg.name, host.SpawnedProcess)
         for item in items:
             pkg = item.pkg
             argv = self._launch_argv(pkg)
@@ -669,11 +1002,40 @@ class MainWindow(Adw.ApplicationWindow):
                 no_window.append(pkg.name)
                 continue
             try:
-                host.spawn(argv)
-                launched.append(pkg.name)
+                pending.append((pkg.name, host.spawn(argv)))
             except Exception:
                 failed.append(pkg.name)
 
+        if not pending:
+            self._show_launch_toast([], no_window, failed)
+            return
+
+        # Bir süreç başladıktan hemen sonra sessizce çökebilir (ör. eksik
+        # bir grafik eklentisi) — eskiden bu durumda bile hep "Launching…"
+        # gösterilir, gerçek hata /dev/null'a gidip kaybolurdu. Kısa bir
+        # süre bekleyip gerçekten hâlâ ayakta mı diye bakıyoruz. SADECE
+        # sürenin kısalığına bakmıyoruz: bazı başlatıcılar (ör. gtk-launch)
+        # gerçek uygulamayı ayrı bir süreç/PID olarak başlatıp kendisi
+        # hemen, çıkış kodu 0 ile kapanır — bu normal bir devretme, hata
+        # değil (doğrulandı: gtk-launch ~80ms'de kod 0 ile dönüyor, asıl
+        # uygulama ayrı bir PID'de devam ediyor). Yalnızca SIFIR OLMAYAN
+        # bir çıkış koduyla hızlıca ölen süreçler hataya sayılır.
+        def _check_after_grace():
+            launched = []
+            crashed = []
+            for name, proc in pending:
+                code = proc.poll()
+                if code in (None, 0):
+                    launched.append(name)
+                else:
+                    crashed.append((name, proc.output_tail()))
+            self._show_launch_toast(launched, no_window, failed, crashed)
+            return GLib.SOURCE_REMOVE
+
+        GLib.timeout_add(1000, _check_after_grace)
+
+    def _show_launch_toast(self, launched, no_window, failed, crashed=None):
+        crashed = crashed or []
         if launched:
             title = (
                 _("Launching {name}…").format(name=launched[0])
@@ -681,19 +1043,24 @@ class MainWindow(Adw.ApplicationWindow):
                 else _("Launching {count} apps…").format(count=len(launched))
             )
             self._toast_overlay.add_toast(Adw.Toast(title=title))
-        elif no_window and not failed:
+        elif no_window and not failed and not crashed:
             title = (
                 _("{name} has no launchable window").format(name=no_window[0])
                 if len(no_window) == 1
                 else _("Selected apps have no launchable window")
             )
             self._toast_overlay.add_toast(Adw.Toast(title=title))
-        elif failed:
-            title = (
-                _("Could not launch {name}").format(name=failed[0])
-                if len(failed) == 1
-                else _("Could not launch selected apps")
-            )
+        elif crashed or failed:
+            if len(crashed) == 1 and not failed and crashed[0][1]:
+                name, detail = crashed[0]
+                title = _("Could not launch {name}: {detail}").format(
+                    name=name, detail=detail[:120]
+                )
+            elif len(crashed) + len(failed) == 1:
+                name = crashed[0][0] if crashed else failed[0]
+                title = _("Could not launch {name}").format(name=name)
+            else:
+                title = _("Could not launch selected apps")
             self._toast_overlay.add_toast(Adw.Toast(title=title))
 
     # Flatpak/Snap kendi .desktop dosyalarını APP_DIRS'ın taradığı sıradan
@@ -903,11 +1270,31 @@ class MainWindow(Adw.ApplicationWindow):
         self._context_item = item
         self._popup_context_menu(self._diskmap_area, x, y, 1)
 
+    def _snap_license(self, snap_id: str) -> str:
+        """Sadece Özellikler penceresi tek bir Snap paketi için açılınca
+        çağrılır — snap info paket başına ~300ms sürdüğü için (mağazaya
+        gidiyor) liste yüklenirken hiç kullanılmıyor (bkz. backends/
+        snap.py: _installed_size yorumu), sadece burada, tek seferlik."""
+        try:
+            proc = host.run(["snap", "info", snap_id], timeout=5)
+        except Exception:
+            return ""
+        if proc.returncode != 0:
+            return ""
+        for line in proc.stdout.splitlines():
+            if line.startswith("license:"):
+                value = line[len("license:"):].strip()
+                return "" if value in ("", "unset") else value
+        return ""
+
     def _ctx_properties(self, *_args):
         item = self._context_item
         if not item:
             return
         pkg = item.pkg
+        license_value = pkg.license
+        if pkg.source == "snap" and not license_value:
+            license_value = self._snap_license(pkg.id)
         rows = [
             (_("Package ID"), pkg.id),
             (_("Version"), pkg.version),
@@ -919,7 +1306,7 @@ class MainWindow(Adw.ApplicationWindow):
             (_("Location"), pkg.install_path),
             (_("Reason"), self._INSTALL_REASON_LABELS.get(pkg.install_reason, "")),
             (_("Required by"), str(pkg.required_by) if pkg.required_by else ""),
-            (_("License"), pkg.license),
+            (_("License"), self._display_license(license_value)),
             (_("Category"), self._category_for(pkg)),
             (_("Description"), pkg.description),
         ]
@@ -932,7 +1319,12 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _is_app(self, pkg) -> bool:
         """Paket bir son-kullanıcı uygulaması mı (kütüphane/sistem değil)?"""
-        if pkg.source in ("flatpak", "snap", "appimage", "wine"):
+        if pkg.source == "snap":
+            # Snap'te CLI-only paketler de olabiliyor (ör. "hello-world") —
+            # gerçek bir .desktop girdisi olup olmadığına bakılır (bkz.
+            # backends/snap.py: _has_desktop_entry).
+            return pkg.has_desktop_entry is True
+        if pkg.source in ("flatpak", "appimage", "wine"):
             return True  # bu kaynaklar zaten yalnızca uygulama barındırır
         if pkg.source.startswith(("steam", "lutris", "heroic-")):
             return True  # oyunlar her zaman uygulama sayılır
@@ -1008,6 +1400,11 @@ class MainWindow(Adw.ApplicationWindow):
         if backend_id and pkg.source != backend_id:
             return False
         if origin and pkg.origin != origin:
+            return False
+        if (
+            self._name_letter_filter is not None
+            and self._section_letter(pkg) not in self._name_letter_filter
+        ):
             return False
         if self._search_text:
             haystack = (
@@ -1101,7 +1498,35 @@ class MainWindow(Adw.ApplicationWindow):
             self._stack.set_visible_child_name("list")
         self._set_busy(False)
         self._update_count_label()
+        self._fetch_snap_licenses()
         return GLib.SOURCE_REMOVE
+
+    def _fetch_snap_licenses(self):
+        """Snap paketlerinin lisansını arka planda, tek tek doldurur.
+
+        list_packages() bunu bilerek atlıyor — snap info paket başına
+        ~300-500ms sürüyor (mağazaya gidiyor), tüm listeyi senkron
+        yüklerken çağırmak açılışı saniyelerce geciktirirdi (doğrulandı).
+        Liste zaten görünür haldeyken burada arka planda dolduruluyor;
+        her paketin lisansı geldikçe tablo yeniden çizilir, kullanıcı
+        hiç beklemez. Bu sırada yeni bir refresh() çağrılırsa (self._items
+        değişirse) bu thread'in elindeki eski Package nesneleri artık
+        gösterilmiyor olur — zararsız, sadece boşa giden bir iş."""
+        targets = [
+            item.pkg for item in self._items
+            if item.pkg.source == "snap" and not item.pkg.license
+        ]
+        if not targets:
+            return
+
+        def worker():
+            for pkg in targets:
+                license_value = self._snap_license(pkg.id)
+                if license_value:
+                    pkg.license = license_value
+                    GLib.idle_add(self._table.queue_draw)
+
+        threading.Thread(target=worker, daemon=True).start()
 
     # ---------------- Helpers ----------------
 
