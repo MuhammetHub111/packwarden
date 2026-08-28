@@ -27,6 +27,22 @@ SCAN_BASES = (
 
 FLATPAK_DATA_BASE = "~/.var/app"
 
+# Bazı uygulamalar ilk çalıştırmada, kendi adını taşımayan, standart
+# tarama konumlarının (SCAN_BASES) dışında büyük bir ek SDK/araç seti
+# indiriyor — genel ad-eşleştirmeli tarama bunu hiç yakalayamaz (ör.
+# "~/Android" klasör adı normalize edilince "Android Studio" ile
+# eşleşmiyor). Doğrulandı: Android Studio'nun oluşturduğu ~/Android/Sdk
+# (1.4GB) ve ~/.android sadece SDK/araç verisi, gerçek proje kaynak
+# kodu içermiyor — yine de varsayılan olarak İŞARETLİ gelmiyor, çünkü
+# SDK bağımsız olarak (Android Studio olmadan, komut satırından) da
+# kullanılabiliyor.
+_KNOWN_EXTRA_DATA = {
+    "com.google.AndroidStudio": (
+        ("~/Android", "Android SDK"),
+        ("~/.android", "Android SDK"),
+    ),
+}
+
 # Kategori anahtarları i18n sözlüğünden çevrilir
 LEFTOVER_CATEGORIES = (
     ("~/.config", "Settings"),
@@ -168,6 +184,18 @@ def find_package_leftovers(
     if items:
         items.sort(key=lambda item: -item.size)
         result.append(("Flatpak data", items))
+
+    extra_by_category: dict[str, list[Leftover]] = {}
+    for pkg in packages:
+        for extra_path, category in _KNOWN_EXTRA_DATA.get(pkg.id, ()):
+            path = os.path.expanduser(extra_path)
+            if os.path.lexists(path) and safe(path):
+                extra_by_category.setdefault(category, []).append(
+                    Leftover(path=path, size=_tree_size(path))
+                )
+    for category, extra_items in extra_by_category.items():
+        extra_items.sort(key=lambda item: -item.size)
+        result.append((category, extra_items))
 
     installer_items = _find_installer_leftovers(packages, safe)
     if installer_items:
