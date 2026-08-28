@@ -32,6 +32,8 @@ TR = {
     "OK": "Tamam",
     "Authorization was cancelled": "Yetkilendirme iptal edildi",
     "Uninstalled {count} packages": "{count} paket kaldırıldı",
+    "Closed {count} running app(s) before removal":
+        "Kaldırmadan önce {count} çalışan uygulama kapatıldı",
     "Backup failed — nothing was removed":
         "Yedek oluşturulamadı — hiçbir şey kaldırılmadı",
     "Backup saved: {path}": "Yedek kaydedildi: {path}",

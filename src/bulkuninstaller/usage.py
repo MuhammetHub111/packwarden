@@ -24,6 +24,7 @@ sistem servisi olmadan ulaşılabilecek en iyi yaklaşımdır.
 
 import json
 import os
+import signal
 import time
 
 from . import host
@@ -229,3 +230,112 @@ def scan_and_record(packages: list, launcher_map: dict) -> None:
 
     if changed:
         _save(data)
+
+
+def _needle_for(pkg: Package, launcher_map: dict) -> str | None:
+    """scan_and_record()'un kaynak bazlı needle seçimiyle aynı — Flatpak
+    hariç (o, `flatpak ps` ile ayrıca ele alınıyor, bkz. running_pids)."""
+    if pkg.source == "appimage":
+        return pkg.id
+    if pkg.source == "snap":
+        return f"/snap/{pkg.id}/"
+    if pkg.source == "wine":
+        return _wine_exec_basename(pkg.id)
+    return _exec_base_for(pkg, launcher_map)
+
+
+def running_pids(pkg: Package, launcher_map: dict) -> list[int]:
+    """Bu paketin şu an çalışan süreçlerinin PID listesi (yoksa boş).
+
+    scan_and_record() ile aynı eşleştirme mantığı ama PID de tutuyor —
+    kaldırma öncesi çalışan süreci kapatabilmek için (bkz. close_running,
+    removal.py). scan_and_record ayrı tutuldu, dokunulmadı."""
+    if pkg.source == "flatpak":
+        # "pid" sütunu SARICI sürecin PID'i — canlı test ettim (Gear
+        # Lever), bu süreç sandbox tam kurulunca hemen kapanıyor,
+        # kapatılacak gerçek süreç değil. "child-pid" gerçek, yalıtılmış
+        # uygulama sürecinin PID'i — flatpak ps --help bunu doğruluyor.
+        try:
+            proc = host.run(
+                ["flatpak", "ps", "--columns=application,child-pid"], timeout=5
+            )
+        except Exception:
+            return []
+        pids = []
+        for line in proc.stdout.splitlines():
+            parts = line.split()
+            if len(parts) >= 2 and parts[0] == pkg.id:
+                try:
+                    pids.append(int(parts[1]))
+                except ValueError:
+                    pass
+        return pids
+
+    needle = _needle_for(pkg, launcher_map)
+    if not needle:
+        return []
+
+    pids: list[int] = []
+    try:
+        entries = os.listdir("/proc")
+    except OSError:
+        return pids
+    for pid_str in entries:
+        if not pid_str.isdigit():
+            continue
+        comm = ""
+        cmdline = ""
+        try:
+            with open(
+                f"/proc/{pid_str}/comm", encoding="utf-8", errors="replace"
+            ) as f:
+                comm = f.read().strip()
+        except OSError:
+            pass
+        try:
+            with open(f"/proc/{pid_str}/cmdline", "rb") as f:
+                cmdline = f.read().replace(b"\0", b" ").decode("utf-8", "replace").strip()
+        except OSError:
+            pass
+        if not comm and not cmdline:
+            continue
+        if pkg.source in ("appimage", "snap"):
+            match = needle in cmdline
+        else:
+            first_token = cmdline.split()[0] if cmdline else ""
+            match = (
+                comm.lower() == needle
+                or os.path.basename(first_token).lower() == needle
+            )
+        if match:
+            pids.append(int(pid_str))
+    return pids
+
+
+def close_running(pkg: Package, launcher_map: dict) -> bool:
+    """Bu paketin şu an çalışan süreçlerini kapatmayı dener.
+
+    Önce SIGTERM (düzgün kapanma şansı), yarım saniye sonra hâlâ
+    yaşıyorsa SIGKILL. En az bir süreç bulunduysa True döner — kapanmayı
+    reddetse bile kaldırma işlemi yine de sürer, bu sadece "hiç
+    kurulmamış gibi" bırakmak için bir en iyi çaba adımı (bkz. Kullanıcı
+    isteği: kaldırma, uygulamayı arkada açık bırakmamalı)."""
+    pids = running_pids(pkg, launcher_map)
+    if not pids:
+        return False
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+    time.sleep(0.5)
+    for pid in pids:
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            continue  # zaten kapanmış
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+    return True

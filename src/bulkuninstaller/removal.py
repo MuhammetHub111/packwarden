@@ -11,7 +11,7 @@ import threading
 
 from gi.repository import Adw, Gio, GLib, Gtk
 
-from . import prefs
+from . import prefs, usage
 from .backends.base import format_size
 from .backup import create_backup
 from .i18n import _
@@ -268,6 +268,15 @@ class RemovalWindow(Adw.Window):
                     GLib.idle_add(self._on_backup_failed, str(exc))
                     return
 
+            # Kaldırma "hiç kurulmamış gibi" olmalı — paket dosyaları
+            # silinse bile uygulama arkada açık/kullanılabilir kalıyorsa
+            # bu amaca ulaşılmamış demektir. Silmeden önce çalışan
+            # süreçleri kapatmayı dene (reddetse bile kaldırma sürer).
+            closed_running = [
+                pkg.name for pkg in self._pkgs
+                if usage.close_running(pkg, self._main._launcher_map)
+            ]
+
             errors = []
             cancelled = False
             for backend in self._main._backends:
@@ -288,6 +297,7 @@ class RemovalWindow(Adw.Window):
             GLib.idle_add(
                 self._on_done,
                 errors, leftover_errors, cancelled, backup_path, len(checked),
+                closed_running,
             )
 
         threading.Thread(target=worker, daemon=True).start()
@@ -302,7 +312,10 @@ class RemovalWindow(Adw.Window):
         dialog.present(self)
         return GLib.SOURCE_REMOVE
 
-    def _on_done(self, errors, leftover_errors, cancelled, backup_path, cleaned):
+    def _on_done(
+        self, errors, leftover_errors, cancelled, backup_path, cleaned,
+        closed_running=(),
+    ):
         self._set_busy(False)
 
         if cancelled:
@@ -311,6 +324,12 @@ class RemovalWindow(Adw.Window):
             )
             return GLib.SOURCE_REMOVE
 
+        if closed_running:
+            self._main._toast_overlay.add_toast(Adw.Toast(
+                title=_("Closed {count} running app(s) before removal").format(
+                    count=len(closed_running)
+                )
+            ))
         if backup_path:
             self._main._toast_overlay.add_toast(
                 Adw.Toast(title=_("Backup saved: {path}").format(path=backup_path))
