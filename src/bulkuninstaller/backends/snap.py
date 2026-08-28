@@ -114,4 +114,9 @@ class SnapBackend(Backend):
         return packages
 
     def remove_argv(self, ids: list[str]) -> list[str]:
-        return ["snap", "remove"] + ids
+        # --purge: snapd varsayılan olarak kaldırırken verinin bir anlık
+        # görüntüsünü (snapshot) saklıyor — "hiç kurulmamış gibi"
+        # olması için bunu devre dışı bırakıyoruz (doğrulandı: `snap
+        # remove --help`, "Unless ... a snapshot ... is saved upon
+        # removal" diyor).
+        return ["snap", "remove", "--purge"] + ids
