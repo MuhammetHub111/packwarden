@@ -37,6 +37,7 @@ TR = {
     "Backup saved: {path}": "Yedek kaydedildi: {path}",
     "No leftover files found": "Kalıntı dosya bulunamadı",
     "Moved {count} leftover items to Trash": "{count} kalıntı çöp kutusuna taşındı",
+    "Permanently deleted {count} leftover items": "{count} kalıntı kalıcı olarak silindi",
     "Settings": "Ayarlar",
     "General": "Genel",
     "Package list": "Paket listesi",
@@ -137,6 +138,10 @@ TR = {
     "Could not create shortcuts for selected apps":
         "Seçilen uygulamalar için kısayol oluşturulamadı",
     "Copied: {text}": "Kopyalandı: {text}",
+    "Sort by name": "Ada göre sırala",
+    "Sort by size": "Boyuta göre sırala",
+    "No action taken": "Hiçbir işlem yapılmadı",
+    "Deleted {count} leftover items": "{count} kalıntı silindi",
     "Delete leftovers of {name}?": "{name} kalıntıları silinsin mi?",
     "Total: {size}": "Toplam: {size}",
     "Delete": "Sil",

@@ -921,9 +921,8 @@ class MainWindow(Adw.ApplicationWindow):
             "ctx-leftovers": self._ctx_leftovers,
             "ctx-properties": self._ctx_properties,
             "unused-apps": self._open_unused_apps,
+            "ctx-desktop-shortcut": self._ctx_desktop_shortcut,
         }
-        if DEV_BUILD:
-            actions["ctx-desktop-shortcut"] = self._ctx_desktop_shortcut
         for name, handler in actions.items():
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", handler)
@@ -939,8 +938,7 @@ class MainWindow(Adw.ApplicationWindow):
         else:
             menu.append(_("Uninstall…"), "win.ctx-uninstall")
         menu.append(_("Launch"), "win.ctx-launch")
-        if DEV_BUILD:
-            menu.append(_("Create desktop shortcut"), "win.ctx-desktop-shortcut")
+        menu.append(_("Create desktop shortcut"), "win.ctx-desktop-shortcut")
         menu.append(_("Copy package ID"), "win.ctx-copy")
         menu.append(_("Delete leftover files…"), "win.ctx-leftovers")
         menu.append(_("Properties"), "win.ctx-properties")
@@ -1150,6 +1148,107 @@ class MainWindow(Adw.ApplicationWindow):
             )
             self._toast_overlay.add_toast(Adw.Toast(title=title))
 
+        elif unsupported and not failed:
+            title = (
+                _("{name} has no desktop entry to copy").format(name=unsupported[0])
+                if len(unsupported) == 1
+                else _("Selected apps have no desktop entry to copy")
+            )
+            self._toast_overlay.add_toast(Adw.Toast(title=title))
+        elif failed:
+            title = (
+                _("Could not create shortcut for {name}").format(name=failed[0])
+                if len(failed) == 1
+                else _("Could not create shortcuts for selected apps")
+            )
+            self._toast_overlay.add_toast(Adw.Toast(title=title))
+
+    # Flatpak/Snap kendi .desktop dosyalarını APP_DIRS'ın taradığı sıradan
+    # sistem klasörlerine değil, kendi dışa aktarma klasörlerine koyar —
+    # bu yüzden kısayol için ayrıca aranmaları gerekir.
+    _EXTRA_DESKTOP_DIRS = (
+        "/var/lib/flatpak/exports/share/applications",
+        "~/.local/share/flatpak/exports/share/applications",
+        "/var/lib/snapd/desktop/applications",
+    )
+
+    def _desktop_file_path(self, desktop_id: str) -> str | None:
+        for base in APP_DIRS + self._EXTRA_DESKTOP_DIRS:
+            path = os.path.join(os.path.expanduser(base), f"{desktop_id}.desktop")
+            if os.path.isfile(path):
+                return path
+        return None
+
+    def _shortcut_desktop_id(self, pkg) -> str | None:
+        if pkg.source == "flatpak":
+            # Flatpak .desktop dosyaları her zaman <app-id>.desktop olarak
+            # adlandırılır — pkg.id zaten tam olarak bu.
+            return pkg.id
+        return self._launcher_map.get(
+            pkg.id.lower()
+        ) or self._launcher_map.get(pkg.name.lower())
+
+    def _desktop_dir(self) -> str:
+        try:
+            proc = host.run(["xdg-user-dir", "DESKTOP"], timeout=5)
+            if proc.returncode == 0 and proc.stdout.strip():
+                return proc.stdout.strip()
+        except Exception:
+            pass
+        return os.path.expanduser("~/Desktop")
+
+    def _ctx_desktop_shortcut(self, *_args):
+        items = self._selected_items()
+        if not items and self._context_item:
+            items = [self._context_item]
+        if not items:
+            return
+        desktop_dir = self._desktop_dir()
+        created = []
+        existing = []
+        unsupported = []
+        failed = []
+        for item in items:
+            pkg = item.pkg
+            desktop_id = self._shortcut_desktop_id(pkg)
+            source_path = self._desktop_file_path(desktop_id) if desktop_id else None
+            if not source_path:
+                unsupported.append(pkg.name)
+                continue
+            try:
+                os.makedirs(desktop_dir, exist_ok=True)
+                # Kaynak dosya adı yerine gerçek uygulama adını kullan —
+                # Flatpak/kendi kurulumumuz gibi kaynaklar dosyayı ters-DNS
+                # kimliğiyle adlandırır (io.github.foo.Bar.desktop), bu da
+                # dosya yöneticisinde çirkin görünür.
+                safe_name = pkg.name.replace("/", "_").strip() or desktop_id
+                dest_path = os.path.join(desktop_dir, f"{safe_name}.desktop")
+                if os.path.lexists(dest_path):
+                    existing.append(pkg.name)
+                    continue
+                shutil.copyfile(source_path, dest_path)
+                os.chmod(dest_path, 0o755)
+                created.append(pkg.name)
+            except OSError:
+                failed.append(pkg.name)
+        if not created and not existing and not unsupported and not failed:
+            self._toast_overlay.add_toast(Adw.Toast(title=_("No action taken")))
+        if created:
+            title = (
+                _("Desktop shortcut created for {name}").format(name=created[0])
+                if len(created) == 1
+                else _("Created {count} desktop shortcuts").format(count=len(created))
+            )
+            self._toast_overlay.add_toast(Adw.Toast(title=title))
+        elif existing:
+            title = (
+                _("Desktop shortcut already exists for {name}").format(
+                    name=existing[0]
+                )
+                if len(existing) == 1
+                else _("Desktop shortcuts already exist")
+            )
+            self._toast_overlay.add_toast(Adw.Toast(title=title))
         elif unsupported and not failed:
             title = (
                 _("{name} has no desktop entry to copy").format(name=unsupported[0])

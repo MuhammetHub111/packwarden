@@ -327,9 +327,15 @@ class RemovalWindow(Adw.Window):
                 title=_("Uninstalled {count} packages").format(count=len(self._pkgs))
             ))
             if cleaned:
-                self._main._toast_overlay.add_toast(Adw.Toast(
-                    title=_("Moved {count} leftover items to Trash").format(count=cleaned)
-                ))
+                if prefs.get("leftover_delete_mode") == "permanent":
+                    title = _("Permanently deleted {count} leftover items").format(
+                        count=cleaned
+                    )
+                else:
+                    title = _("Moved {count} leftover items to Trash").format(
+                        count=cleaned
+                    )
+                self._main._toast_overlay.add_toast(Adw.Toast(title=title))
 
         self._main.refresh()
         self.close()

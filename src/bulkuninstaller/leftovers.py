@@ -12,9 +12,10 @@ Güvenlik kuralları:
 
 import os
 import re
+import shutil
 from dataclasses import dataclass
 
-from . import host
+from . import host, prefs
 from .backends.base import Package
 
 SCAN_BASES = (
@@ -186,12 +187,17 @@ def find_leftovers(packages: list[Package]) -> list[Leftover]:
 
 
 def remove_leftovers(leftovers: list[Leftover]) -> list[str]:
-    """Verilen kalıntıları siler; silinemeyenler için hata listesi döner."""
+    """Verilen kalıntıları siler; silinemeyenler için hata listesi döner.
+
+    Ayarlar → Güvenlik → Kalıntı silme yöntemi tercihine göre ya çöp
+    kutusuna taşır ya da kalıcı olarak siler.
+    """
     errors = []
     home = os.path.realpath(os.path.expanduser("~"))
     protected = {os.path.realpath(os.path.expanduser(b)) for b in SCAN_BASES}
     protected.add(os.path.realpath(os.path.expanduser(FLATPAK_DATA_BASE)))
     protected.add(home)
+    permanent = prefs.get("leftover_delete_mode") == "permanent"
 
     for item in leftovers:
         real = os.path.realpath(item.path)
@@ -199,13 +205,19 @@ def remove_leftovers(leftovers: list[Leftover]) -> list[str]:
             errors.append(f"{item.path}: güvenlik nedeniyle atlandı")
             continue
         try:
-            # Kalıcı silme yerine çöp kutusuna taşınır (gio trash, XDG Trash
-            # spesifikasyonuna uyar) — yanlış tiklenen bir kalıntı geri
-            # alınabilsin diye. Paket kaldırmadaki "yedekle" seçeneğiyle
-            # aynı mantık: geri dönüşü olmayan işlemden kaçınmak.
-            proc = host.run(["gio", "trash", item.path], timeout=30)
-            if proc.returncode != 0:
-                errors.append(f"{item.path}: {(proc.stderr or proc.stdout).strip()}")
+            if permanent:
+                if os.path.isdir(item.path) and not os.path.islink(item.path):
+                    shutil.rmtree(item.path)
+                else:
+                    os.remove(item.path)
+            else:
+                # Çöp kutusuna taşınır (gio trash, XDG Trash spesifikasyonuna
+                # uyar) — yanlış tiklenen bir kalıntı geri alınabilsin diye.
+                # Paket kaldırmadaki "yedekle" seçeneğiyle aynı mantık:
+                # geri dönüşü olmayan işlemden kaçınmak.
+                proc = host.run(["gio", "trash", item.path], timeout=30)
+                if proc.returncode != 0:
+                    errors.append(f"{item.path}: {(proc.stderr or proc.stdout).strip()}")
         except Exception as exc:
             errors.append(f"{item.path}: {exc}")
     return errors

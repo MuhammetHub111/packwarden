@@ -1,5 +1,5 @@
 import os
 
 APP_ID = os.environ.get("PACKWARDEN_APP_ID", "io.github.muhammethub111.PackWarden")
-VERSION = "0.12.0"
+VERSION = "0.13.1"
 DEV_BUILD = os.environ.get("PACKWARDEN_DEV") == "1"
