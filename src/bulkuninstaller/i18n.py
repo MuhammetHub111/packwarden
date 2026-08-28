@@ -212,6 +212,22 @@ TR = {
     "Update failed: {error}": "Güncelleme başarısız: {error}",
     "Error: archive is empty.": "Hata: arşiv boş çıktı.",
     "Unused apps": "Kullanılmayan uygulamalar",
+    "Clean unused Flatpak data": "Kullanılmayan Flatpak verilerini temizle",
+    "No unused Flatpak data to clean": "Temizlenecek kullanılmayan Flatpak verisi yok",
+    "Clean unused Flatpak data?": "Kullanılmayan Flatpak verileri temizlensin mi?",
+    "The following will be removed — shared runtimes no "
+    "longer needed by any installed app:":
+        "Şunlar kaldırılacak — hiçbir kurulu uygulama tarafından artık "
+        "ihtiyaç duyulmayan paylaşımlı çalışma zamanları:",
+    "Clean": "Temizle",
+    "Unused Flatpak data cleaned": "Kullanılmayan Flatpak verileri temizlendi",
+    "Could not clean unused Flatpak data":
+        "Kullanılmayan Flatpak verileri temizlenemedi",
+    "Installed apps were affected": "Kurulu uygulamalar etkilendi",
+    "Cleaning unused data also removed these installed apps as a side "
+    "effect. You may want to reinstall them:":
+        "Kullanılmayan veri temizliği, yan etki olarak şu kurulu "
+        "uygulamaları da kaldırdı. Yeniden kurmak isteyebilirsin:",
     "Not used for": "Şu süredir kullanılmayanlar",
     "3 months": "3 ay",
     "6 months": "6 ay",
