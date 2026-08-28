@@ -234,7 +234,6 @@ class MainWindow(Adw.ApplicationWindow):
 
         tools_menu = Gio.Menu()
         tools_menu.append(_("Unused apps"), "win.unused-apps")
-        tools_menu.append(_("Clean unused Flatpak data"), "win.clean-flatpak-unused")
         tools_menu.append(_("Settings"), "app.settings")
 
         help_menu = Gio.Menu()
@@ -923,7 +922,6 @@ class MainWindow(Adw.ApplicationWindow):
             "ctx-properties": self._ctx_properties,
             "unused-apps": self._open_unused_apps,
             "ctx-desktop-shortcut": self._ctx_desktop_shortcut,
-            "clean-flatpak-unused": self._clean_flatpak_unused,
         }
         for name, handler in actions.items():
             action = Gio.SimpleAction.new(name, None)
@@ -1415,144 +1413,6 @@ class MainWindow(Adw.ApplicationWindow):
         dialog = Adw.AlertDialog(heading=pkg.name, body=body)
         dialog.add_response("ok", _("OK"))
         dialog.present(self)
-
-    # ---------------- Kullanılmayan Flatpak verisi temizliği ----------
-
-    def _clean_flatpak_unused(self, *_args):
-        """flatpak uninstall --unused'ı önce ÖNİZLEME olarak çalıştırır
-        (stdin'e "n" vererek onaylamadan iptal ediyoruz) — hiçbir şey
-        silmeden, sadece flatpak'in kendisinin "kaldırılacak" dediği
-        listeyi görmek için. Gerçek silme, kullanıcı bunu PackWarden'ın
-        kendi onay penceresinde gördükten SONRA yapılır."""
-        if not host.command_exists("flatpak"):
-            return
-
-        def worker():
-            try:
-                proc = host.run(
-                    ["bash", "-c", "echo n | env LC_ALL=C flatpak uninstall --unused"],
-                    timeout=60,
-                )
-                output = (proc.stdout or "") + (proc.stderr or "")
-            except Exception as exc:
-                output = str(exc)
-            GLib.idle_add(self._on_flatpak_unused_preview, output)
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _on_flatpak_unused_preview(self, output):
-        # "flatpak uninstall --unused" yalnızca tamamen artık yetim kalmış
-        # runtime REFERANSLARINI hedefliyor — halbuki Bazaar'ın "Çöp
-        # Verisi" dediği (doğrulandı: aynı bu sistemde canlı test edildi)
-        # farklı bir kategori: zaten kaldırılmış bir uygulamanın OSTree
-        # deposunda kalan, artık hiçbir referanstan erişilemeyen ham
-        # nesneler. Bunun için flatpak CLI'de önizleme/kuru-çalıştırma
-        # yok (Flatpak.Installation.prune_local_repo() API'sinin kendisi
-        # de vermiyor) — bu yüzden ikinci adım için liste gösteremiyoruz,
-        # ama OSTree'nin kendi tasarımı (içerik-adresli, erişilebilirlik
-        # sayımlı depolama — git gc ile ayni ilke) hâlâ referanslı bir
-        # nesneyi ASLA silmeyeceğini garanti ediyor.
-        lines = [
-            line.strip() for line in output.splitlines()
-            if line.strip().lower().startswith("uninstalling")
-        ]
-        prune_note = _(
-            "Also reclaims leftover data from apps you've already "
-            "uninstalled (what Bazaar shows as \"Trash Data\") — no "
-            "preview available for this part, but it can only remove "
-            "data no installed app can still reference."
-        )
-        if lines:
-            body = _(
-                "The following will be removed — shared runtimes no "
-                "longer needed by any installed app:"
-            ) + "\n\n" + "\n".join(lines) + "\n\n" + prune_note
-        else:
-            body = _("No shared runtimes need removing right now.") + " " + prune_note
-
-        dialog = Adw.AlertDialog(
-            heading=_("Clean unused Flatpak data?"),
-            body=body,
-        )
-        dialog.add_response("cancel", _("Cancel"))
-        dialog.add_response("clean", _("Clean"))
-        dialog.set_response_appearance("clean", Adw.ResponseAppearance.DESTRUCTIVE)
-        dialog.connect("response", self._on_flatpak_unused_confirmed)
-        dialog.present(self)
-        return GLib.SOURCE_REMOVE
-
-    @staticmethod
-    def _installed_flatpak_ids() -> set:
-        try:
-            proc = host.run(
-                ["flatpak", "list", "--app", "--columns=application"], timeout=15
-            )
-            return {line.strip() for line in proc.stdout.splitlines() if line.strip()}
-        except Exception:
-            return set()
-
-    def _on_flatpak_unused_confirmed(self, _dialog, response):
-        if response != "clean":
-            return
-        # Gerçekten silmeden ÖNCE hangi uygulamaların kurulu olduğunu
-        # kaydediyoruz — flatpak uninstall --unused, canlı testte
-        # (doğrulandı) beklenmedik şekilde kurulu bir uygulamayı da
-        # (VLC) yan etki olarak kaldırabiliyor. Silme sonrası bu
-        # listeyle karşılaştırıp kullanıcıyı uyarmadan geçmiyoruz.
-        before = self._installed_flatpak_ids()
-
-        def worker():
-            try:
-                proc = host.run(["flatpak", "uninstall", "--unused", "-y"], timeout=120)
-                ok = proc.returncode == 0
-            except Exception:
-                ok = False
-            # İkinci adım: zaten kaldırılmış uygulamaların depoda kalan
-            # yetim nesnelerini temizler (bkz. _on_flatpak_unused_preview
-            # yorumu). Bunun için CLI'de değil, doğrudan Flatpak GI
-            # kütüphanesinde bir API var; sistem ve kullanıcı kurulumlarını
-            # ayrı ayrı deniyoruz, biri yoksa/başarısız olsa da diğerini
-            # engellemesin diye ayrı ayrı yutuyoruz.
-            try:
-                import gi
-                gi.require_version("Flatpak", "1.0")
-                from gi.repository import Flatpak
-                for make_installation in (
-                    Flatpak.Installation.new_system,
-                    Flatpak.Installation.new_user,
-                ):
-                    try:
-                        make_installation().prune_local_repo()
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-            after = self._installed_flatpak_ids()
-            GLib.idle_add(self._on_flatpak_unused_done, ok, before - after)
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _on_flatpak_unused_done(self, ok, missing_apps):
-        if missing_apps:
-            dialog = Adw.AlertDialog(
-                heading=_("Installed apps were affected"),
-                body=_(
-                    "Cleaning unused data also removed these installed "
-                    "apps as a side effect. You may want to reinstall "
-                    "them:"
-                ) + "\n\n" + "\n".join(sorted(missing_apps)),
-            )
-            dialog.add_response("ok", _("OK"))
-            dialog.present(self)
-        elif ok:
-            self._toast_overlay.add_toast(
-                Adw.Toast(title=_("Unused Flatpak data cleaned"))
-            )
-        else:
-            self._toast_overlay.add_toast(
-                Adw.Toast(title=_("Could not clean unused Flatpak data"))
-            )
-        return GLib.SOURCE_REMOVE
 
     # ---------------- Filtering & sorting ----------------
 
