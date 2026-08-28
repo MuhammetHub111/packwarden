@@ -213,12 +213,21 @@ TR = {
     "Error: archive is empty.": "Hata: arşiv boş çıktı.",
     "Unused apps": "Kullanılmayan uygulamalar",
     "Clean unused Flatpak data": "Kullanılmayan Flatpak verilerini temizle",
-    "No unused Flatpak data to clean": "Temizlenecek kullanılmayan Flatpak verisi yok",
     "Clean unused Flatpak data?": "Kullanılmayan Flatpak verileri temizlensin mi?",
     "The following will be removed — shared runtimes no "
     "longer needed by any installed app:":
         "Şunlar kaldırılacak — hiçbir kurulu uygulama tarafından artık "
         "ihtiyaç duyulmayan paylaşımlı çalışma zamanları:",
+    "Also reclaims leftover data from apps you've already "
+    "uninstalled (what Bazaar shows as \"Trash Data\") — no "
+    "preview available for this part, but it can only remove "
+    "data no installed app can still reference.":
+        "Ayrıca daha önce kaldırdığın uygulamalardan kalan verileri de "
+        "geri kazanır (Bazaar'ın \"Çöp Verisi\" dediği şey) — bu kısım "
+        "için önizleme yok, ama yalnızca hiçbir kurulu uygulamanın "
+        "artık erişemeyeceği veriyi silebilir.",
+    "No shared runtimes need removing right now.":
+        "Şu an kaldırılması gereken paylaşımlı çalışma zamanı yok.",
     "Clean": "Temizle",
     "Unused Flatpak data cleaned": "Kullanılmayan Flatpak verileri temizlendi",
     "Could not clean unused Flatpak data":

@@ -1441,22 +1441,38 @@ class MainWindow(Adw.ApplicationWindow):
         threading.Thread(target=worker, daemon=True).start()
 
     def _on_flatpak_unused_preview(self, output):
+        # "flatpak uninstall --unused" yalnızca tamamen artık yetim kalmış
+        # runtime REFERANSLARINI hedefliyor — halbuki Bazaar'ın "Çöp
+        # Verisi" dediği (doğrulandı: aynı bu sistemde canlı test edildi)
+        # farklı bir kategori: zaten kaldırılmış bir uygulamanın OSTree
+        # deposunda kalan, artık hiçbir referanstan erişilemeyen ham
+        # nesneler. Bunun için flatpak CLI'de önizleme/kuru-çalıştırma
+        # yok (Flatpak.Installation.prune_local_repo() API'sinin kendisi
+        # de vermiyor) — bu yüzden ikinci adım için liste gösteremiyoruz,
+        # ama OSTree'nin kendi tasarımı (içerik-adresli, erişilebilirlik
+        # sayımlı depolama — git gc ile ayni ilke) hâlâ referanslı bir
+        # nesneyi ASLA silmeyeceğini garanti ediyor.
         lines = [
             line.strip() for line in output.splitlines()
             if line.strip().lower().startswith("uninstalling")
         ]
-        if not lines:
-            self._toast_overlay.add_toast(
-                Adw.Toast(title=_("No unused Flatpak data to clean"))
-            )
-            return GLib.SOURCE_REMOVE
+        prune_note = _(
+            "Also reclaims leftover data from apps you've already "
+            "uninstalled (what Bazaar shows as \"Trash Data\") — no "
+            "preview available for this part, but it can only remove "
+            "data no installed app can still reference."
+        )
+        if lines:
+            body = _(
+                "The following will be removed — shared runtimes no "
+                "longer needed by any installed app:"
+            ) + "\n\n" + "\n".join(lines) + "\n\n" + prune_note
+        else:
+            body = _("No shared runtimes need removing right now.") + " " + prune_note
 
         dialog = Adw.AlertDialog(
             heading=_("Clean unused Flatpak data?"),
-            body=_(
-                "The following will be removed — shared runtimes no "
-                "longer needed by any installed app:"
-            ) + "\n\n" + "\n".join(lines),
+            body=body,
         )
         dialog.add_response("cancel", _("Cancel"))
         dialog.add_response("clean", _("Clean"))
@@ -1491,6 +1507,26 @@ class MainWindow(Adw.ApplicationWindow):
                 ok = proc.returncode == 0
             except Exception:
                 ok = False
+            # İkinci adım: zaten kaldırılmış uygulamaların depoda kalan
+            # yetim nesnelerini temizler (bkz. _on_flatpak_unused_preview
+            # yorumu). Bunun için CLI'de değil, doğrudan Flatpak GI
+            # kütüphanesinde bir API var; sistem ve kullanıcı kurulumlarını
+            # ayrı ayrı deniyoruz, biri yoksa/başarısız olsa da diğerini
+            # engellemesin diye ayrı ayrı yutuyoruz.
+            try:
+                import gi
+                gi.require_version("Flatpak", "1.0")
+                from gi.repository import Flatpak
+                for make_installation in (
+                    Flatpak.Installation.new_system,
+                    Flatpak.Installation.new_user,
+                ):
+                    try:
+                        make_installation().prune_local_repo()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
             after = self._installed_flatpak_ids()
             GLib.idle_add(self._on_flatpak_unused_done, ok, before - after)
 
