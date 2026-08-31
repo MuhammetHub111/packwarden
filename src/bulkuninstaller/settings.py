@@ -101,7 +101,7 @@ class SettingsDialog(Adw.PreferencesDialog):
             title=_("Detect app usage in the background"),
             subtitle=_(
                 "Without this, app usage isn't updated while PackWarden "
-                "is closed, so the Unused Apps list can be inaccurate"
+                "is closed, so the Unused Programs list can be inaccurate"
             ),
             active=bool(prefs.get("background_usage_detection")),
         )

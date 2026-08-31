@@ -76,9 +76,9 @@ TR = {
     "Detect app usage in the background":
         "Arkaplanda uygulama kullanımını algıla",
     "Without this, app usage isn't updated while PackWarden is closed, "
-    "so the Unused Apps list can be inaccurate":
+    "so the Unused Programs list can be inaccurate":
         "Bu kapalıyken, PackWarden kapalı olduğu sürece uygulama "
-        "kullanımı güncellenmez, bu da Kullanılmayan Uygulamalar "
+        "kullanımı güncellenmez, bu da Kullanılmayan Programlar "
         "listesinin yanlış sonuçlar vermesine yol açabilir",
     "Enable background detection for more accurate results":
         "Daha doğru sonuçlar için Ayarlar'dan arka plan algılamayı aç",
@@ -216,17 +216,17 @@ TR = {
     "Update cancelled.": "Güncelleme iptal edildi.",
     "Update failed: {error}": "Güncelleme başarısız: {error}",
     "Error: archive is empty.": "Hata: arşiv boş çıktı.",
-    "Unused apps": "Kullanılmayan uygulamalar",
+    "Unused programs": "Kullanılmayan programlar",
     "Not used for": "Şu süredir kullanılmayanlar",
     "3 months": "3 ay",
     "6 months": "6 ay",
     "1 year": "1 yıl",
     "Custom": "Özel",
     "Custom (days)": "Özel (gün)",
-    "Scanning applications…": "Uygulamalar taranıyor…",
-    "No unused applications found": "Kullanılmayan uygulama bulunamadı",
-    "Every scanned app was used within the threshold":
-        "Taranan tüm uygulamalar seçilen süre içinde kullanılmış",
+    "Scanning programs…": "Programlar taranıyor…",
+    "No unused programs found": "Kullanılmayan program bulunamadı",
+    "Every scanned program was used within the threshold":
+        "Taranan tüm programlar seçilen süre içinde kullanılmış",
     "No packages match": "Eşleşen paket yok",
     "Try a different search or source filter":
         "Farklı bir arama veya kaynak filtresi deneyin",

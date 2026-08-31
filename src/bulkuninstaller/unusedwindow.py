@@ -57,7 +57,7 @@ class UnusedAppsWindow(Adw.Window):
         super().__init__(
             transient_for=main_window,
             modal=True,
-            title=_("Unused apps"),
+            title=_("Unused programs"),
             default_width=640,
             default_height=560,
         )
@@ -115,14 +115,14 @@ class UnusedAppsWindow(Adw.Window):
             selection_mode=Gtk.SelectionMode.NONE,
             valign=Gtk.Align.START,
         )
-        self._scan_row = Adw.ActionRow(title=_("Scanning applications…"))
+        self._scan_row = Adw.ActionRow(title=_("Scanning programs…"))
         self._scan_row.add_prefix(Gtk.Spinner(spinning=True))
         self._list_box.append(self._scan_row)
 
         self._empty_status = Adw.StatusPage(
             icon_name="emblem-ok-symbolic",
-            title=_("No unused applications found"),
-            description=_("Every scanned app was used within the threshold"),
+            title=_("No unused programs found"),
+            description=_("Every scanned program was used within the threshold"),
             vexpand=True,
             visible=False,
         )

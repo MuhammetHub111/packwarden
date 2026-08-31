@@ -233,7 +233,7 @@ class MainWindow(Adw.ApplicationWindow):
         file_menu.append(_("Quit"), "app.quit")
 
         tools_menu = Gio.Menu()
-        tools_menu.append(_("Unused apps"), "win.unused-apps")
+        tools_menu.append(_("Unused programs"), "win.unused-apps")
         tools_menu.append(_("Settings"), "app.settings")
 
         help_menu = Gio.Menu()
