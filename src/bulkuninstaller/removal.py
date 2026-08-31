@@ -11,12 +11,50 @@ import threading
 
 from gi.repository import Adw, Gio, GLib, Gtk
 
-from . import prefs
+from . import host, prefs, usage
 from .backends.base import format_size
 from .backup import create_backup
 from .i18n import _
 from .leftovers import find_package_leftovers, remove_leftovers
 from .protected import is_protected
+
+
+def _installed_flatpak_ids() -> set:
+    try:
+        proc = host.run(
+            ["flatpak", "list", "--app", "--columns=application"], timeout=15
+        )
+        return {line.strip() for line in proc.stdout.splitlines() if line.strip()}
+    except Exception:
+        return set()
+
+
+def _clean_unused_flatpak_data() -> None:
+    """Kaldırılan Flatpak paketlerinin arkasında kalan paylaşımlı, artık
+    yetim runtime'ları ve OSTree depo nesnelerini temizler (Bazaar'ın
+    "Trash Data" dediği şey — bkz. 7050a23, 96dc5ee, e4c0366). Daha önce
+    ayrı bir Araçlar menü öğesiydi, kafa karıştırdığı için kaldırılıp
+    kaldırma akışının içine gömülmesi planlanmıştı: bir paket kaldırılırken
+    Flatpak kaynaklıysa bu adım otomatik ve sessizce çalışır, ayrı bir
+    onay istemez — çağıran taraf (worker) before/after kurulu-uygulama
+    listesini kıyaslayıp yan etki olursa kullanıcıyı ayrıca uyarır."""
+    try:
+        host.run(["flatpak", "uninstall", "--unused", "-y"], timeout=120)
+    except Exception:
+        pass
+    try:
+        import gi
+        gi.require_version("Flatpak", "1.0")
+        from gi.repository import Flatpak
+        for make_installation in (
+            Flatpak.Installation.new_system, Flatpak.Installation.new_user,
+        ):
+            try:
+                make_installation().prune_local_repo()
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 
 class RemovalWindow(Adw.Window):
@@ -146,7 +184,7 @@ class RemovalWindow(Adw.Window):
             )
             expander.set_expanded(True)
             for item in items:
-                check = Gtk.CheckButton(valign=Gtk.Align.CENTER)
+                check = Gtk.CheckButton(valign=Gtk.Align.CENTER, active=True)
                 check.connect("toggled", lambda *_a: self._update_selection())
                 row = Adw.ActionRow(
                     title=os.path.basename(item.path),
@@ -165,6 +203,7 @@ class RemovalWindow(Adw.Window):
             self._list_box.append(expander)
 
         self._select_all.set_sensitive(True)
+        self._select_all.set_active(True)
         self._update_selection()
         return GLib.SOURCE_REMOVE
 
@@ -256,7 +295,13 @@ class RemovalWindow(Adw.Window):
         for pkg in self._pkgs:
             groups.setdefault(pkg.source, []).append(pkg.id)
 
+        removes_flatpak = any(pkg.source == "flatpak" for pkg in self._pkgs)
+        removed_flatpak_ids = {
+            pkg.id for pkg in self._pkgs if pkg.source == "flatpak"
+        }
+
         def worker():
+            before_flatpak = _installed_flatpak_ids() if removes_flatpak else set()
             backup_path = None
             if backup_base:
                 try:
@@ -267,6 +312,15 @@ class RemovalWindow(Adw.Window):
                 except Exception as exc:
                     GLib.idle_add(self._on_backup_failed, str(exc))
                     return
+
+            # Kaldırma "hiç kurulmamış gibi" olmalı — paket dosyaları
+            # silinse bile uygulama arkada açık/kullanılabilir kalıyorsa
+            # bu amaca ulaşılmamış demektir. Silmeden önce çalışan
+            # süreçleri kapatmayı dene (reddetse bile kaldırma sürer).
+            closed_running = [
+                pkg.name for pkg in self._pkgs
+                if usage.close_running(pkg, self._main._launcher_map)
+            ]
 
             errors = []
             cancelled = False
@@ -285,9 +339,21 @@ class RemovalWindow(Adw.Window):
             if checked and not cancelled:
                 leftover_errors = remove_leftovers(checked)
 
+            affected_flatpak_apps = set()
+            if removes_flatpak and not cancelled and not errors:
+                _clean_unused_flatpak_data()
+                after_flatpak = _installed_flatpak_ids()
+                # Kendi kaldırdığımız paketler zaten "eksik" olacak — asıl
+                # aranan, --unused/prune'un YAN ETKİ olarak götürdüğü,
+                # kaldırma listemizde hiç olmayan uygulamalar.
+                affected_flatpak_apps = (
+                    before_flatpak - after_flatpak
+                ) - removed_flatpak_ids
+
             GLib.idle_add(
                 self._on_done,
                 errors, leftover_errors, cancelled, backup_path, len(checked),
+                closed_running, affected_flatpak_apps,
             )
 
         threading.Thread(target=worker, daemon=True).start()
@@ -302,7 +368,10 @@ class RemovalWindow(Adw.Window):
         dialog.present(self)
         return GLib.SOURCE_REMOVE
 
-    def _on_done(self, errors, leftover_errors, cancelled, backup_path, cleaned):
+    def _on_done(
+        self, errors, leftover_errors, cancelled, backup_path, cleaned,
+        closed_running=(), affected_flatpak_apps=(),
+    ):
         self._set_busy(False)
 
         if cancelled:
@@ -311,6 +380,12 @@ class RemovalWindow(Adw.Window):
             )
             return GLib.SOURCE_REMOVE
 
+        if closed_running:
+            self._main._toast_overlay.add_toast(Adw.Toast(
+                title=_("Closed {count} running app(s) before removal").format(
+                    count=len(closed_running)
+                )
+            ))
         if backup_path:
             self._main._toast_overlay.add_toast(
                 Adw.Toast(title=_("Backup saved: {path}").format(path=backup_path))
@@ -319,6 +394,17 @@ class RemovalWindow(Adw.Window):
             dialog = Adw.AlertDialog(
                 heading=_("Some packages could not be removed"),
                 body="\n\n".join(errors + leftover_errors),
+            )
+            dialog.add_response("ok", _("OK"))
+            dialog.present(self._main)
+        elif affected_flatpak_apps:
+            dialog = Adw.AlertDialog(
+                heading=_("Installed apps were affected"),
+                body=_(
+                    "Cleaning up unused Flatpak data also removed these "
+                    "installed apps as a side effect. You may want to "
+                    "reinstall them:"
+                ) + "\n\n" + "\n".join(sorted(affected_flatpak_apps)),
             )
             dialog.add_response("ok", _("OK"))
             dialog.present(self._main)

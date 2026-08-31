@@ -15,8 +15,9 @@ import time
 
 from gi.repository import Adw, GLib, Gtk
 
-from . import prefs
+from . import prefs, usage
 from .backends.base import format_size
+from .settings import SettingsDialog
 from .i18n import _
 from .removal import RemovalWindow
 from .unused import last_used
@@ -31,17 +32,28 @@ class _Item:
         self.pkg = pkg
 
 
+def _pkg_key(pkg) -> str:
+    return f"{pkg.source}:{pkg.id}"
+
+
 def _format_last_used(ts):
     if ts is None:
         return _("Unknown")
     days = max(0, int((time.time() - ts) // 86400))
     if days < 30:
-        return _("{days} days ago").format(days=days)
-    months = days // 30
-    if months < 12:
-        return _("{months} months ago").format(months=months)
+        key = "{days} day ago" if days == 1 else "{days} days ago"
+        return _(key).format(days=days)
+    # 12 ay (12*30=360 gün) tam bir yıla (365 gün) denk gelmiyor — bu
+    # boşlukta (360-364 gün) ay hesabına göre 12, yıl hesabına göre hâlâ
+    # 0 çıkıp "0 yıl önce" gibi anlamsız bir şey gösteriyordu. Sınırı ay
+    # sayısı yerine doğrudan gün sayısına (365) göre çizmek bunu önlüyor.
+    if days < 365:
+        months = days // 30
+        key = "{months} month ago" if months == 1 else "{months} months ago"
+        return _(key).format(months=months)
     years = days // 365
-    return _("{years} years ago").format(years=years)
+    key = "{years} year ago" if years == 1 else "{years} years ago"
+    return _(key).format(years=years)
 
 
 class UnusedAppsWindow(Adw.Window):
@@ -49,13 +61,25 @@ class UnusedAppsWindow(Adw.Window):
         super().__init__(
             transient_for=main_window,
             modal=True,
-            title=_("Unused apps"),
+            title=_("Unused programs"),
             default_width=640,
             default_height=560,
         )
         self._main = main_window
         self._data: list[tuple[object, float | None]] = []
         self._checks: list[tuple[Gtk.CheckButton, object]] = []
+        # Taramalar arasında hayatta kalan işaretleme durumu — periyodik
+        # yeniden tarama listeyi yeniden kurduğunda kullanıcının az önce
+        # işaretlediği kutucuklar sıfırlanmasın diye.
+        self._selected_keys: set[str] = set()
+        # Son kurulan listenin paket anahtarları — bu değişmediği sürece
+        # _rebuild_list() tekrar çağrılmaz (gereksiz yeniden kurma =
+        # üzerine gelince yanıp sönme, kaydırmanın sıfırlanması).
+        self._last_stale_keys: frozenset[str] | None = None
+        # Bir tarama hâlâ çalışırken 2sn'lik tık yenisini başlatmasın —
+        # aksi halde çok paketli sistemde thread'ler üst üste birikebilir
+        # ve sonuçlar sırasız uygulanabilirdi.
+        self._scan_in_progress = False
 
         # Kullanıcının en son seçtiği eşik hatırlanır — pencere her
         # açıldığında 6 aya sıfırlanması can sıkıcıydı.
@@ -95,14 +119,14 @@ class UnusedAppsWindow(Adw.Window):
             selection_mode=Gtk.SelectionMode.NONE,
             valign=Gtk.Align.START,
         )
-        self._scan_row = Adw.ActionRow(title=_("Scanning applications…"))
+        self._scan_row = Adw.ActionRow(title=_("Scanning programs…"))
         self._scan_row.add_prefix(Gtk.Spinner(spinning=True))
         self._list_box.append(self._scan_row)
 
         self._empty_status = Adw.StatusPage(
             icon_name="emblem-ok-symbolic",
-            title=_("No unused applications found"),
-            description=_("Every scanned app was used within the threshold"),
+            title=_("No unused programs found"),
+            description=_("Every scanned program was used within the threshold"),
             vexpand=True,
             visible=False,
         )
@@ -111,6 +135,48 @@ class UnusedAppsWindow(Adw.Window):
             orientation=Gtk.Orientation.VERTICAL, spacing=12,
             margin_top=12, margin_bottom=12, margin_start=12, margin_end=12,
         )
+
+        # Arka plan algılama kapalıyken sonuçlar eksik kalabilir — bunu
+        # engellemek yerine bilgilendiriyoruz, özelliği elinden almıyoruz.
+        # Adw.Banner'ın iç düğümleri kendi CSS'imizi geçersiz kılıyordu
+        # (sarı hiç görünmüyordu), bu yüzden tam kontrol için düz bir
+        # Gtk.Box kullanıyoruz. Görünürlüğü periyodik tarama tıkında da
+        # kontrol ediyoruz (bkz. _on_rescan_tick) — kullanıcı Ayarlar'dan
+        # açınca kendiliğinden kaybolsun diye.
+        # Yan boşluk margin olarak değil CSS padding olarak veriliyor —
+        # margin sarı arkaplanın DIŞINDA kalıyor ve alttaki satırlarla
+        # (content'in kendi 12px marginiyle hizalı) eşit görünmüyordu.
+        self._hint_banner = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL, spacing=10,
+            margin_top=10, margin_bottom=10,
+            css_classes=["pw-warning-banner"],
+        )
+        hint_icon = Gtk.Image.new_from_icon_name("dialog-warning-symbolic")
+        hint_icon.set_pixel_size(20)
+        hint_icon.set_valign(Gtk.Align.CENTER)
+        self._hint_banner.append(hint_icon)
+        self._hint_banner.append(Gtk.Label(
+            label=_("Enable background detection for more accurate results"),
+            wrap=True, xalign=0, hexpand=True, valign=Gtk.Align.CENTER,
+        ))
+        # Gtk.Button burada da kendi arkaplanını CSS'e rağmen gösterip
+        # duruyordu; tıklanabilir düz bir Label + tıklama hareketiyle
+        # arkaplan sorunu kökten ortadan kalkıyor.
+        hint_settings_label = Gtk.Label(
+            label=_("Open Settings"), css_classes=["pw-warning-btn"],
+            valign=Gtk.Align.CENTER,
+        )
+        hint_settings_click = Gtk.GestureClick()
+        hint_settings_click.connect(
+            "released", lambda *_a: self._on_open_settings()
+        )
+        hint_settings_label.add_controller(hint_settings_click)
+        self._hint_banner.append(hint_settings_label)
+        self._hint_banner.set_visible(
+            not prefs.get("background_usage_detection")
+        )
+        content.append(self._hint_banner)
+
         content.append(settings_group)
         content.append(self._list_box)
         content.append(self._empty_status)
@@ -143,10 +209,49 @@ class UnusedAppsWindow(Adw.Window):
         self.set_content(toolbar_view)
 
         self._scan()
+        # Pencere açık kaldığı sürece periyodik olarak yeniden tara —
+        # kullanıcı burayı açık bırakıp başka bir uygulamaya geçerse, o
+        # kullanım kapatıp yeniden açmaya gerek kalmadan yakalanır.
+        self._rescan_source = GLib.timeout_add_seconds(2, self._on_rescan_tick)
+        self.connect("close-request", self._on_close_request)
+
+    def _on_rescan_tick(self):
+        self._scan()
+        self._hint_banner.set_visible(
+            not prefs.get("background_usage_detection")
+        )
+        return GLib.SOURCE_CONTINUE
+
+    def _on_open_settings(self, *_args):
+        # Bu pencereyi (ve altındaki ana pencereyi) aynı anda görünür
+        # tutmak iç içe/karışık istiflemeye yol açıyordu. Bunun yerine bu
+        # pencereyi geçici olarak gizleyip Ayarlar'ı tek başına, ana
+        # pencerenin üzerinde açıyoruz; Ayarlar kapanınca geri geliyor.
+        # set_visible(False) kullanıyoruz (close() değil) — pencere ve
+        # içindeki durum (işaretli kutular, kaydırma konumu, periyodik
+        # tarama) korunuyor, sadece görünürlük değişiyor.
+        self.set_visible(False)
+        dialog = SettingsDialog(self._main.get_application())
+        dialog.connect("closed", lambda *_a: self.set_visible(True))
+        dialog.present(self._main)
+
+    def _on_close_request(self, *_args):
+        if self._rescan_source is not None:
+            GLib.source_remove(self._rescan_source)
+            self._rescan_source = None
+        return False
 
     # ---------------- Tarama ----------------
 
     def _scan(self):
+        # Önceki tarama hâlâ sürüyorsa yenisini başlatma — bir sonraki
+        # 2sn'lik tık zaten tekrar deneyecek. Bu olmadan çok paketli bir
+        # sistemde art arda thread'ler birikip sonuçlar sırasız
+        # uygulanabiliyordu.
+        if self._scan_in_progress:
+            return
+        self._scan_in_progress = True
+
         # DEV_BUILD açıkken oyunlar zaten ana listeye (self._main._items)
         # dahil ediliyor (bkz. window.py:refresh) — burada ayrıca
         # taranmıyor, yoksa iki kez sayılır.
@@ -154,16 +259,49 @@ class UnusedAppsWindow(Adw.Window):
             item.pkg for item in self._main._items
             if self._main._is_app(item.pkg)
         ]
+        launcher_map = self._main._launcher_map
 
         def worker():
-            data = [(pkg, last_used(pkg)) for pkg in packages]
-            GLib.idle_add(self._on_scanned, data)
+            # Pencere her açıldığında/tazelendiğinde şu an fiilen çalışan
+            # paketleri tespit et ve yerel kayda işle — kapanış/açılışta
+            # ayar klasörüne hiç yazmayan uygulamalar bile bu sayede
+            # "az önce kullanıldı" olarak doğru yakalanır (bkz. usage.py).
+            #
+            # try/finally: bu blokta beklenmeyen bir istisna oluşursa bile
+            # _on_scanned yine de (GLib.idle_add ile, ana thread'de)
+            # çağrılmalı — aksi halde _scan_in_progress hiç sıfırlanmaz ve
+            # sonraki tüm periyodik taramalar sessizce hiçbir şey yapmadan
+            # döner. data=None, taramanın başarısız olduğunu ve mevcut
+            # verinin korunması gerektiğini _on_scanned'e bildirir.
+            data = None
+            try:
+                usage.scan_and_record(packages, launcher_map)
+                # usage.json'ı paket başına değil, tarama başına bir kez
+                # yükle — N paket için N kez dosya okuyup ayrıştırmak yerine.
+                seen_map = usage.get_seen_map()
+                data = [(pkg, last_used(pkg, seen_map)) for pkg in packages]
+            except Exception:
+                pass  # pencereyi çökertme; mevcut veri korunur
+            finally:
+                GLib.idle_add(self._on_scanned, data)
 
         threading.Thread(target=worker, daemon=True).start()
 
     def _on_scanned(self, data):
+        self._scan_in_progress = False
+        if data is None:
+            return  # tarama başarısız oldu; mevcut veri/liste korunur
         self._data = data
-        self._rebuild_list()
+        # Liste üyeliği (hangi paketler eşiğin üzerinde) değişmediyse
+        # yeniden kurma — sadece metin/zaman damgası birkaç saniye
+        # ilerlemiş olabilir, bu görsel olarak önemli değil ve sürekli
+        # yeniden kurmak seçimleri/kaydırmayı bozuyordu.
+        new_stale_keys = frozenset(
+            _pkg_key(pkg) for pkg, ts in data
+            if ts is not None and ts <= time.time() - self._threshold_days * 86400
+        )
+        if new_stale_keys != self._last_stale_keys:
+            self._rebuild_list()
         return GLib.SOURCE_REMOVE
 
     # ---------------- Eşik ----------------
@@ -202,6 +340,11 @@ class UnusedAppsWindow(Adw.Window):
         ]
         stale.sort(key=lambda pair: pair[1])
 
+        self._last_stale_keys = frozenset(_pkg_key(pkg) for pkg, _ts in stale)
+        # Artık listede olmayan paketlerin işaretlerini biriktirmeye
+        # gerek yok — set büyümesin diye mevcut listeyle kesişimine indir.
+        self._selected_keys &= self._last_stale_keys
+
         if not stale:
             self._list_box.set_visible(False)
             self._empty_status.set_visible(True)
@@ -212,8 +355,11 @@ class UnusedAppsWindow(Adw.Window):
         self._list_box.set_visible(True)
         self._empty_status.set_visible(False)
         for pkg, ts in stale:
-            check = Gtk.CheckButton(valign=Gtk.Align.CENTER)
-            check.connect("toggled", lambda *_a: self._update_selection())
+            key = _pkg_key(pkg)
+            check = Gtk.CheckButton(
+                valign=Gtk.Align.CENTER, active=key in self._selected_keys,
+            )
+            check.connect("toggled", self._on_row_toggled, key)
             badge = f"{pkg.source} · {_format_last_used(ts)}"
             if pkg.source.startswith("heroic-"):
                 badge += " (" + _("approximate") + ")"
@@ -232,6 +378,13 @@ class UnusedAppsWindow(Adw.Window):
             self._checks.append((check, pkg))
 
         self._select_all.set_sensitive(True)
+        self._update_selection()
+
+    def _on_row_toggled(self, check, key):
+        if check.get_active():
+            self._selected_keys.add(key)
+        else:
+            self._selected_keys.discard(key)
         self._update_selection()
 
     def _icon_for(self, pkg) -> Gtk.Image:

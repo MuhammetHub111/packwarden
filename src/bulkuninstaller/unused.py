@@ -1,37 +1,65 @@
 """Uygulamaların son kullanım zamanını tahmin eder (yalnızca test/dev sürümü).
 
-Linux'ta 11 paket kaynağı genelinde güvenilir bir "gerçek son çalıştırma
-zamanı" API'si yok. Bunun yerine paketin ayarlar/önbellek/veri
-klasörlerinin en son değiştirilme zamanı sinyal olarak kullanılır — bu
-kesin değil, yalnızca yaklaşık bir tahmindir.
+Linux'ta 11 paket kaynağı genelinde güvenilir, sürekli işleyen bir
+"gerçek son çalıştırma zamanı" API'si yok. İki sinyal birleştirilir:
+
+1. usage.py: PackWarden açıkken yapılan taramalarda paketin fiilen
+   çalıştığı tespit edilmişse, o anın zaman damgası (kesin ama yalnızca
+   PackWarden'ın açık olduğu anları kapsar).
+2. Eski sezgi: paketin ayarlar/önbellek/veri klasörünün en son
+   değiştirilme zamanı (yaklaşık, uygulama o klasöre hiç yazmadan
+   kapanırsa güncellenmez).
+
+İkisinin en yenisi kullanılır — hangisi daha güncel bilgi taşıyorsa o
+kazanır.
 """
 
 import os
 
+from . import usage
 from .backends.base import Package
 from .leftovers import find_package_leftovers
 
 
-def last_used(pkg: Package) -> float | None:
-    """pkg'ye ait kalıntı klasörlerinin en son değişim zamanı (epoch).
+def last_used(pkg: Package, seen_map: dict | None = None) -> float | None:
+    """pkg için bilinen en güncel "son kullanım" zamanı (epoch).
 
-    Eşleşen klasör yoksa None döner — bu "bilinmiyor" demektir, asla
+    Eşleşen sinyal yoksa None döner — bu "bilinmiyor" demektir, asla
     "hiç kullanılmadı" diye yorumlanmamalı.
 
     Oyun kaynakları (Steam/Lutris/Heroic) kendi last_used değerini
-    doğrudan Package üzerinde taşır (bkz. games/) — burada leftover
-    sezgisine hiç düşülmez.
+    doğrudan Package üzerinde taşır (bkz. games/) — ama bu tek başına
+    yeterli değil: Steam'in "LastPlayed" kaydı oyun kapanana kadar
+    güncellenmiyor, Heroic/Lutris'te de kurulum klasörünün değişim
+    zamanı oyun AÇIKKEN illa değişmiyor. Yani bir oyun fiilen çalışırken
+    bu tek başına "az önce kullanıldı" demeye yetmiyor — usage.py'nin
+    canlı algılama sinyaliyle (usage.get_seen) birleştirilip ikisinin en
+    yenisi kullanılır, tıpkı oyun olmayan paketlerde olduğu gibi.
+
+    seen_map: birden çok paket için art arda çağrılıyorsa
+    usage.get_seen_map() ile önceden yüklenip geçilmeli — aksi halde her
+    çağrı usage.json'ı ayrıca okur/ayrıştırır.
     """
     if pkg.last_used is not None:
-        return pkg.last_used
+        tracked = usage.get_seen(pkg, seen_map)
+        return max(pkg.last_used, tracked) if tracked is not None else pkg.last_used
 
-    latest: float | None = None
+    candidates = []
+
+    tracked = usage.get_seen(pkg, seen_map)
+    if tracked is not None:
+        candidates.append(tracked)
+
+    latest_leftover: float | None = None
     for _category, items in find_package_leftovers([pkg]):
         for item in items:
             try:
                 mtime = os.path.getmtime(item.path)
             except OSError:
                 continue
-            if latest is None or mtime > latest:
-                latest = mtime
-    return latest
+            if latest_leftover is None or mtime > latest_leftover:
+                latest_leftover = mtime
+    if latest_leftover is not None:
+        candidates.append(latest_leftover)
+
+    return max(candidates) if candidates else None

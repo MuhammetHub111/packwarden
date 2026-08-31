@@ -2,7 +2,7 @@ import threading
 
 from gi.repository import Adw, GLib, Gtk
 
-from . import VERSION, prefs
+from . import VERSION, prefs, usage_service
 from .i18n import _
 from .updater import fetch_remote_version
 
@@ -83,6 +83,33 @@ class SettingsDialog(Adw.PreferencesDialog):
             self._on_leftover_delete_mode_changed,
         )
         safety_group.add(deletion_row)
+
+        # ---------------------------------------------------------
+        # Privacy
+        # ---------------------------------------------------------
+        privacy_group = Adw.PreferencesGroup(
+            title=_("Privacy"),
+            description=_(
+                "Off by default. Fully local, no network access. Only a "
+                "package id and a timestamp are stored, never process "
+                "names or window titles."
+            ),
+        )
+        page.add(privacy_group)
+
+        self._background_usage_row = Adw.SwitchRow(
+            title=_("Detect app usage in the background"),
+            subtitle=_(
+                "Without this, app usage isn't updated while PackWarden "
+                "is closed, so the Unused Programs list can be inaccurate"
+            ),
+            active=bool(prefs.get("background_usage_detection")),
+        )
+        self._background_usage_row.connect(
+            "notify::active",
+            self._on_background_usage_changed,
+        )
+        privacy_group.add(self._background_usage_row)
 
         # ---------------------------------------------------------
         # Language
@@ -208,6 +235,42 @@ class SettingsDialog(Adw.PreferencesDialog):
         theme = self._theme_values[index]
         prefs.set("theme", theme)
         self._app.apply_theme(theme)
+
+    # -------------------------------------------------------------
+    # Background usage detection
+    # -------------------------------------------------------------
+    def _on_background_usage_changed(self, row, _pspec):
+        wanted = row.get_active()
+        # systemctl senkron olarak birkaç saniye sürebilir (daemon-reload,
+        # servis başlatma) — ana thread'de çağrılırsa arayüz o süre boyunca
+        # tamamen kilitlenir. Diğer ayarlardaki güncelleme kontrolü gibi
+        # arka plan thread'ine alınıyor.
+        row.set_sensitive(False)
+
+        def worker():
+            ok, error = usage_service.set_enabled(wanted)
+            GLib.idle_add(self._on_background_usage_done, row, wanted, ok, error)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_background_usage_done(self, row, wanted, ok, error):
+        row.set_sensitive(True)
+        if not ok:
+            # Anahtarı gerçek duruma geri al — sinyali tekrar tetiklememek
+            # için handler'ı geçici olarak susturuyoruz.
+            row.handler_block_by_func(self._on_background_usage_changed)
+            row.set_active(not wanted)
+            row.handler_unblock_by_func(self._on_background_usage_changed)
+
+            dialog = Adw.AlertDialog(
+                heading=_("Could not change this setting"),
+                body=error,
+            )
+            dialog.add_response("ok", _("OK"))
+            dialog.present(self)
+            return GLib.SOURCE_REMOVE
+        prefs.set("background_usage_detection", wanted)
+        return GLib.SOURCE_REMOVE
 
     # -------------------------------------------------------------
     # Leftover deletion method

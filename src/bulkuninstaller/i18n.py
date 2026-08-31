@@ -218,6 +218,48 @@ TR = {
         "kurulu tüm uygulamaları tek pencerede gösterir ve artık ihtiyaç "
         "duymadıklarını her dağıtımda temiz ve güvenli şekilde kaldırmanı "
         "sağlar.",
+
+    # --- 0.14.1: arka plan kullanım tespiti + Flatpak artık temizliği ---
+    "Unused programs": "Kullanılmayan programlar",
+    "Scanning programs…": "Programlar taranıyor…",
+    "No unused programs found": "Kullanılmayan program bulunamadı",
+    "Every scanned program was used within the threshold":
+        "Taranan tüm programlar seçilen süre içinde kullanılmış",
+    "{days} day ago": "{days} gün önce",
+    "{months} month ago": "{months} ay önce",
+    "{years} year ago": "{years} yıl önce",
+    "Privacy": "Gizlilik",
+    "Off by default. Fully local, no network access. Only a "
+    "package id and a timestamp are stored, never process "
+    "names or window titles.":
+        "Varsayılan olarak kapalıdır. Her şey bu cihazda kalır, ağa erişim "
+        "olmaz, süreç adı ya da pencere başlığı saklanmaz, yalnızca bir "
+        "paket kimliği ve zaman damgası tutulur.",
+    "Detect app usage in the background":
+        "Arkaplanda uygulama kullanımını algıla",
+    "Without this, app usage isn't updated while PackWarden is closed, "
+    "so the Unused Programs list can be inaccurate":
+        "Bu kapalıyken, PackWarden kapalı olduğu sürece uygulama "
+        "kullanımı güncellenmez, bu da Kullanılmayan Programlar "
+        "listesinin yanlış sonuçlar vermesine yol açabilir",
+    "Enable background detection for more accurate results":
+        "Daha doğru sonuçlar için Ayarlar'dan arka plan algılamayı aç",
+    "Open Settings": "Ayarları Aç",
+    "Could not change this setting": "Bu ayar değiştirilemedi",
+    "Service unit not found — run install.sh to install PackWarden "
+    "properly before enabling this.":
+        "Servis birimi bulunamadı — bunu etkinleştirmeden önce "
+        "PackWarden'ı install.sh ile düzgün kurman gerekiyor.",
+    "Closed {count} running app(s) before removal":
+        "Kaldırmadan önce {count} çalışan uygulama kapatıldı",
+    "Installed apps were affected": "Kurulu uygulamalar etkilendi",
+    "Cleaning up unused Flatpak data also removed these "
+    "installed apps as a side effect. You may want to "
+    "reinstall them:":
+        "Kullanılmayan Flatpak verilerini temizlemek, yan etki olarak şu "
+        "kurulu uygulamaları da kaldırdı. Yeniden kurmak isteyebilirsin:",
+    "Bulk application manager (this app)":
+        "Toplu uygulama kaldırıcı (bu uygulama)",
 }
 
 

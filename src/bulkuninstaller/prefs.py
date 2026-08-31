@@ -41,6 +41,11 @@ DEFAULTS = {
 
     # Kalıntı silme yöntemi: "trash" veya "permanent"
     "leftover_delete_mode": "trash",
+
+    # PackWarden kapalıyken de uygulama kullanımını algılamak için
+    # arkaplanda systemd --user servisi çalıştır. Varsayılan kapalı —
+    # yalnızca kullanıcı Ayarlar'dan bilerek açarsa etkinleşir.
+    "background_usage_detection": False,
 }
 
 _cache: dict | None = None
