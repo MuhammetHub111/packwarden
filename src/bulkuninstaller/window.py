@@ -153,7 +153,12 @@ class MainWindow(Adw.ApplicationWindow):
         )
 
     def _icon_name_for(self, pkg) -> str:
-        """Paketin uygulama simgesini bul; yoksa genel paket simgesi."""
+        """Paketin uygulama simgesini bul; yoksa genel paket simgesi.
+
+        .desktop dosyasının Icon= değeri bazen aktif ikon temasında hiç
+        yok ama "-symbolic" hâli var (doğrulandı: bu sistemde "wine" yok,
+        "wine-symbolic" var) — o yüzden her aday için önce düz adı, sonra
+        "-symbolic" hâlini deniyoruz, sonra tamamen genele düşüyoruz."""
         if pkg.icon_path and os.path.isfile(pkg.icon_path):
             return pkg.icon_path
         if pkg.source.startswith(("steam", "lutris", "heroic-")):
@@ -166,9 +171,17 @@ class MainWindow(Adw.ApplicationWindow):
                 return mapped
             if self._icon_theme.has_icon(mapped):
                 return mapped
+            if self._icon_theme.has_icon(f"{mapped}-symbolic"):
+                return f"{mapped}-symbolic"
         for candidate in (pkg.id, pkg.name.lower(), pkg.name):
             if candidate and self._icon_theme.has_icon(candidate):
                 return candidate
+            if candidate and self._icon_theme.has_icon(f"{candidate}-symbolic"):
+                return f"{candidate}-symbolic"
+        if pkg.source == "wine":
+            for name in ("wine", "wine-symbolic"):
+                if self._icon_theme.has_icon(name):
+                    return name
         return "package-x-generic"
 
     def _category_for(self, pkg) -> str:
