@@ -95,7 +95,16 @@ class MainWindow(Adw.ApplicationWindow):
                 self._icon_theme.add_search_path(path)
 
     def _icon_name_for(self, pkg) -> str:
-        """Paketin uygulama simgesini bul; yoksa genel paket simgesi."""
+        """Paketin uygulama simgesini bul; yoksa genel paket simgesi.
+
+        .desktop dosyasının Icon= değeri bazen aktif ikon temasında hiç
+        yok ama "-symbolic" hâli var (doğrulandı: bu sistemde "wine" yok,
+        "wine-symbolic" var) — o yüzden her aday için önce düz adı, sonra
+        "-symbolic" hâlini deniyoruz, sonra tamamen genele düşüyoruz."""
+        if pkg.icon_path and os.path.isfile(pkg.icon_path):
+            return pkg.icon_path
+        if pkg.source.startswith(("steam", "lutris", "heroic-")):
+            return "applications-games"
         mapped = self._icon_map.get(pkg.id.lower()) or self._icon_map.get(
             pkg.name.lower()
         )
@@ -104,9 +113,17 @@ class MainWindow(Adw.ApplicationWindow):
                 return mapped
             if self._icon_theme.has_icon(mapped):
                 return mapped
+            if self._icon_theme.has_icon(f"{mapped}-symbolic"):
+                return f"{mapped}-symbolic"
         for candidate in (pkg.id, pkg.name.lower(), pkg.name):
             if candidate and self._icon_theme.has_icon(candidate):
                 return candidate
+            if candidate and self._icon_theme.has_icon(f"{candidate}-symbolic"):
+                return f"{candidate}-symbolic"
+        if pkg.source == "wine":
+            for name in ("wine", "wine-symbolic"):
+                if self._icon_theme.has_icon(name):
+                    return name
         return "package-x-generic"
 
     def _build_ui(self):
@@ -139,7 +156,7 @@ class MainWindow(Adw.ApplicationWindow):
             header.pack_start(logo)
 
         menu = Gio.Menu()
-        menu.append(_("Unused apps"), "win.unused-apps")
+        menu.append(_("Unused programs"), "win.unused-apps")
         menu.append(_("Settings"), "app.settings")
         menu.append(_("About PackWarden"), "app.about")
         menu.append(_("Quit"), "app.quit")
