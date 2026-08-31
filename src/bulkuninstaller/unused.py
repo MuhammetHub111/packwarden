@@ -28,15 +28,21 @@ def last_used(pkg: Package, seen_map: dict | None = None) -> float | None:
     "hiç kullanılmadı" diye yorumlanmamalı.
 
     Oyun kaynakları (Steam/Lutris/Heroic) kendi last_used değerini
-    doğrudan Package üzerinde taşır (bkz. games/) — burada diğer
-    sinyallere hiç düşülmez.
+    doğrudan Package üzerinde taşır (bkz. games/) — ama bu tek başına
+    yeterli değil: Steam'in "LastPlayed" kaydı oyun kapanana kadar
+    güncellenmiyor, Heroic/Lutris'te de kurulum klasörünün değişim
+    zamanı oyun AÇIKKEN illa değişmiyor. Yani bir oyun fiilen çalışırken
+    bu tek başına "az önce kullanıldı" demeye yetmiyor — usage.py'nin
+    canlı algılama sinyaliyle (usage.get_seen) birleştirilip ikisinin en
+    yenisi kullanılır, tıpkı oyun olmayan paketlerde olduğu gibi.
 
     seen_map: birden çok paket için art arda çağrılıyorsa
     usage.get_seen_map() ile önceden yüklenip geçilmeli — aksi halde her
     çağrı usage.json'ı ayrıca okur/ayrıştırır.
     """
     if pkg.last_used is not None:
-        return pkg.last_used
+        tracked = usage.get_seen(pkg, seen_map)
+        return max(pkg.last_used, tracked) if tracked is not None else pkg.last_used
 
     candidates = []
 

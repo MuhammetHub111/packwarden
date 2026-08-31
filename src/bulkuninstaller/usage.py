@@ -34,6 +34,14 @@ from .backends.wine import exec_basename as _wine_exec_basename
 
 USAGE_PATH = os.path.expanduser("~/.config/bulkuninstaller/usage.json")
 
+# Bu kaynaklarda kimlik bir dosya/dizin yolu (ya da onun bir parçası) —
+# eşleşme normal .desktop Exec= aramasıyla değil, doğrudan cmdline içinde
+# bu yolun geçip geçmediğine bakılarak yapılır (bkz. scan_and_record,
+# running_pids). Heroic/Lutris oyunları için kimlik install_path'tir.
+_PATH_MATCH_SOURCES = (
+    "appimage", "snap", "heroic-epic", "heroic-amazon", "heroic-gog", "lutris",
+)
+
 _EXTRA_DESKTOP_DIRS = (
     "/var/lib/flatpak/exports/share/applications",
     "~/.local/share/flatpak/exports/share/applications",
@@ -116,6 +124,68 @@ def _running_flatpak_ids() -> set:
     return {line.strip() for line in proc.stdout.splitlines() if line.strip()}
 
 
+def _steam_pids_by_appid() -> dict[str, list[tuple[int, str]]]:
+    """Çalışan her sürecin appid'sini /proc/<pid>/environ'daki SteamAppId
+    değişkeninden okur, (pid, cmdline) çiftleri olarak döner.
+
+    SteamAppId TEK BAŞINA güvenilir değil: canlı testte görüldü — Steam
+    istemcisinin kendi steamwebhelper/zygote yardımcı süreçleri de bu
+    değişkeni (büyük ihtimalle en son başlatılan/denenmiş oyundan miras
+    kalan, fork sırasında donmuş bir değer olarak) taşıyabiliyor ve bu da
+    hiç oynanmayan oyunları "az önce kullanıldı" gösteriyordu (birden
+    fazla appid aynı anda, aynı zaman damgasıyla işaretlenmişti).
+    Bu yüzden burada ham (appid, pid) eşleşmesi dönülür — gerçek eşleşme
+    kararı _steam_corroborates() ile, pkg.install_path cmdline'da geçiyor
+    mu diye ikinci bir doğrulamayla veriliyor (bkz. scan_and_record,
+    running_pids). install_path Steam istemcisinin kendi süreçlerinde
+    asla geçmez, bu yüzden onları elemeye yetiyor."""
+    result: dict[str, list[tuple[int, str]]] = {}
+    try:
+        pids = [p for p in os.listdir("/proc") if p.isdigit()]
+    except OSError:
+        return result
+    for pid in pids:
+        try:
+            with open(f"/proc/{pid}/environ", "rb") as f:
+                environ = f.read()
+        except OSError:
+            continue
+        appid = None
+        for entry in environ.split(b"\0"):
+            if entry.startswith(b"SteamAppId="):
+                appid = entry[len(b"SteamAppId="):].decode("ascii", "replace").strip()
+                break
+        if not appid:
+            continue
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as f:
+                cmdline = f.read().replace(b"\0", b" ").decode("utf-8", "replace").strip()
+        except OSError:
+            cmdline = ""
+        result.setdefault(appid, []).append((int(pid), cmdline))
+    return result
+
+
+def _steam_corroborates(pkg: Package, cmdline: str) -> bool:
+    """SteamAppId eşleşmesini pkg.install_path cmdline'da geçiyor mu
+    diye ikinci kez doğrular — bkz. _steam_pids_by_appid().
+
+    ~/.steam/steam, gerçek Steam kurulumuna (genelde
+    ~/.local/share/Steam) sembolik bağlantı olabiliyor; install_path
+    hangi takma addan hesaplandıysa hesaplansın, süreçlerin cmdline'ı
+    çözümlenmiş gerçek yolu kullanıyor (canlı testte doğrulandı: Half-
+    Life için install_path ~/.steam/steam/... idi, cmdline ise
+    ~/.local/share/Steam/... — ikisi de aynı dosyaya işaret ediyor ama
+    ham string olarak eşleşmiyorlardı). Bu yüzden hem ham hali hem
+    realpath()'i denenir."""
+    if not pkg.install_path:
+        return False
+    if pkg.install_path in cmdline:
+        return True
+    real = os.path.realpath(pkg.install_path)
+    return real != pkg.install_path and real in cmdline
+
+
 def _proc_snapshot() -> list:
     """Her çalışan süreç için (comm, cmdline) çiftlerinin listesi."""
     snapshot = []
@@ -164,6 +234,27 @@ def _exec_base_for(pkg: Package, launcher_map: dict) -> str | None:
     return None
 
 
+# Bir süreç en az bu kadar (saniye) kesintisiz görülmeden "kullanıldı"
+# diye kaydedilmez — hemen çöken/hata verip kapanan bir uygulamayı
+# yanlışlıkla "az önce kullanıldı" saymamak için (SCAN_SECONDS=2 ile en
+# az iki ardışık tarama gerektirir). Bu modülün yaşadığı süre boyunca
+# bellekte tutulur (_pending) — daemon yeniden başlarsa sıfırlanır, bu
+# sorun değil, sadece bir sonraki taramada yeniden sayılmaya başlar.
+MIN_CONFIRM_SECONDS = 4
+_pending: dict[str, float] = {}
+
+
+def _confirm_running(key: str, now: float, running: bool) -> bool:
+    if not running:
+        _pending.pop(key, None)
+        return False
+    first_seen = _pending.get(key)
+    if first_seen is None:
+        _pending[key] = now
+        return False
+    return now - first_seen >= MIN_CONFIRM_SECONDS
+
+
 def scan_and_record(packages: list, launcher_map: dict) -> None:
     """Şu an çalışan paketleri tespit edip yerel kayda "şimdi" yazar.
 
@@ -175,21 +266,36 @@ def scan_and_record(packages: list, launcher_map: dict) -> None:
     data = _load()
     changed = False
     flatpak_running = None
+    steam_running = None
     proc_snapshot = None
 
     for pkg in packages:
+        key = _key(pkg)
+
         if pkg.source == "flatpak":
             if flatpak_running is None:
                 flatpak_running = _running_flatpak_ids()
-            if pkg.id in flatpak_running:
-                data[_key(pkg)] = now
+            if _confirm_running(key, now, pkg.id in flatpak_running):
+                data[key] = now
                 changed = True
             continue
 
-        if pkg.source == "appimage":
-            needle = pkg.id  # kimlik = tam dosya yolu
-        elif pkg.source == "snap":
-            needle = f"/snap/{pkg.id}/"
+        if pkg.source == "steam":
+            if steam_running is None:
+                steam_running = _steam_pids_by_appid()
+            running = any(
+                _steam_corroborates(pkg, cmdline)
+                for _pid, cmdline in steam_running.get(pkg.id, [])
+            )
+            if _confirm_running(key, now, running):
+                data[key] = now
+                changed = True
+            continue
+
+        if pkg.source in _PATH_MATCH_SOURCES:
+            needle = pkg.id if pkg.source == "appimage" else pkg.install_path
+            if pkg.source == "snap":
+                needle = f"/snap/{pkg.id}/"
         elif pkg.source == "wine":
             # launch_argv() ile AYNI .exe çözümlemesi (bkz. backends/wine.py:
             # _resolve_exe) — needle her zaman o Wine paketinin SPESİFİK
@@ -197,19 +303,22 @@ def scan_and_record(packages: list, launcher_map: dict) -> None:
             # prefix'e ait paylaşılan süreçlerle asla eşleşmez. Proton/Steam
             # prefix'leri _prefixes()'in tarama kapsamına hiç girmediği için
             # (~/.wine ve $WINEPREFIX dışında hiçbir yeri taramıyor) burada
-            # ayrıca bir dışlama gerekmiyor.
+            # ayrıca bir dışlama gerekmiyor — Steam oyunları zaten yukarıda
+            # SteamAppId ile ayrıca ele alınıyor.
             needle = _wine_exec_basename(pkg.id)
         else:
             needle = _exec_base_for(pkg, launcher_map)
 
         if not needle:
+            _pending.pop(key, None)
             continue
 
         if proc_snapshot is None:
             proc_snapshot = _proc_snapshot()
 
+        running = False
         for comm, cmdline in proc_snapshot:
-            if pkg.source in ("appimage", "snap"):
+            if pkg.source in _PATH_MATCH_SOURCES:
                 match = needle in cmdline
             else:
                 first_token = cmdline.split()[0] if cmdline else ""
@@ -224,9 +333,12 @@ def scan_and_record(packages: list, launcher_map: dict) -> None:
                     or os.path.basename(first_token).lower() == needle
                 )
             if match:
-                data[_key(pkg)] = now
-                changed = True
+                running = True
                 break
+
+        if _confirm_running(key, now, running):
+            data[key] = now
+            changed = True
 
     if changed:
         _save(data)
@@ -234,11 +346,14 @@ def scan_and_record(packages: list, launcher_map: dict) -> None:
 
 def _needle_for(pkg: Package, launcher_map: dict) -> str | None:
     """scan_and_record()'un kaynak bazlı needle seçimiyle aynı — Flatpak
-    hariç (o, `flatpak ps` ile ayrıca ele alınıyor, bkz. running_pids)."""
+    ve Steam hariç (ikisi de PID listesi için ayrıca ele alınıyor, bkz.
+    running_pids)."""
     if pkg.source == "appimage":
         return pkg.id
     if pkg.source == "snap":
         return f"/snap/{pkg.id}/"
+    if pkg.source in ("heroic-epic", "heroic-amazon", "heroic-gog", "lutris"):
+        return pkg.install_path
     if pkg.source == "wine":
         return _wine_exec_basename(pkg.id)
     return _exec_base_for(pkg, launcher_map)
@@ -271,6 +386,12 @@ def running_pids(pkg: Package, launcher_map: dict) -> list[int]:
                     pass
         return pids
 
+    if pkg.source == "steam":
+        return [
+            pid for pid, cmdline in _steam_pids_by_appid().get(pkg.id, [])
+            if _steam_corroborates(pkg, cmdline)
+        ]
+
     needle = _needle_for(pkg, launcher_map)
     if not needle:
         return []
@@ -299,7 +420,7 @@ def running_pids(pkg: Package, launcher_map: dict) -> list[int]:
             pass
         if not comm and not cmdline:
             continue
-        if pkg.source in ("appimage", "snap"):
+        if pkg.source in _PATH_MATCH_SOURCES:
             match = needle in cmdline
         else:
             first_token = cmdline.split()[0] if cmdline else ""
