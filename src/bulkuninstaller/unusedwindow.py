@@ -43,8 +43,12 @@ def _format_last_used(ts):
     if days < 30:
         key = "{days} day ago" if days == 1 else "{days} days ago"
         return _(key).format(days=days)
-    months = days // 30
-    if months < 12:
+    # 12 ay (12*30=360 gün) tam bir yıla (365 gün) denk gelmiyor — bu
+    # boşlukta (360-364 gün) ay hesabına göre 12, yıl hesabına göre hâlâ
+    # 0 çıkıp "0 yıl önce" gibi anlamsız bir şey gösteriyordu. Sınırı ay
+    # sayısı yerine doğrudan gün sayısına (365) göre çizmek bunu önlüyor.
+    if days < 365:
+        months = days // 30
         key = "{months} month ago" if months == 1 else "{months} months ago"
         return _(key).format(months=months)
     years = days // 365
