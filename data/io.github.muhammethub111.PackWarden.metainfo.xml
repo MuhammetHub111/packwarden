@@ -41,6 +41,23 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.14.1" date="2026-08-31">
+      <description>
+        <p>New:</p>
+        <ul>
+          <li>Added optional background usage detection (Settings → Privacy) so the Unused Programs list stays accurate even while PackWarden is closed. Off by default, fully local — no network access.</li>
+          <li>Removing a Flatpak app now also cleans up the shared data Flatpak leaves behind after an app is uninstalled (shown as "Trash Data" in some other app stores) — automatic, part of the normal removal process.</li>
+        </ul>
+        <p>Fixed:</p>
+        <ul>
+          <li>Games installed through Steam, Heroic, or Lutris weren't covered by usage tracking at all — an actively played game could still be wrongly listed under Unused Programs.</li>
+          <li>Some Steam games installed to a second drive or library showed a generic icon instead of their real one.</li>
+          <li>Renamed "Unused Apps" to "Unused Programs", since the list already includes games alongside regular applications.</li>
+          <li>Time labels like "1 days ago" now correctly read "1 day ago".</li>
+          <li>A few interface texts stayed in English regardless of the selected language.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.12.0" date="2026-08-08">
       <description>
         <p>New:</p>
