@@ -240,7 +240,7 @@ def _exec_base_for(pkg: Package, launcher_map: dict) -> str | None:
 # az iki ardışık tarama gerektirir). Bu modülün yaşadığı süre boyunca
 # bellekte tutulur (_pending) — daemon yeniden başlarsa sıfırlanır, bu
 # sorun değil, sadece bir sonraki taramada yeniden sayılmaya başlar.
-MIN_CONFIRM_SECONDS = 4
+MIN_CONFIRM_SECONDS = 2
 _pending: dict[str, float] = {}
 
 
