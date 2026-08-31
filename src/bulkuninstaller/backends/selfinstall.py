@@ -2,6 +2,7 @@ import os
 import re
 
 from .. import host
+from ..i18n import _
 from .base import Backend, Package, RemoveResult
 
 INSTALL_DIR = "~/.local/share/packwarden"
@@ -54,7 +55,7 @@ class SelfInstallBackend(Backend):
             name="PackWarden",
             version=version,
             size=size,
-            description="Bulk application manager (this app)",
+            description=_("Bulk application manager (this app)"),
             source=self.id,
             publisher="MuhammetHub111",
             install_path=base,

@@ -25,10 +25,14 @@ TR = {
     "{count} selected": "{count} seçildi",
     "Selection mode (Esc to finish)": "Seçim modu (bitirmek için Esc)",
     "Uninstall {count} selected…": "Seçilen {count} uygulamayı kaldır…",
-    "Uninstall {count} packages?": "{count} paket kaldırılsın mı?",
     "Cancel": "Vazgeç",
-    "Uninstall": "Kaldır",
     "Some packages could not be removed": "Bazı paketler kaldırılamadı",
+    "Installed apps were affected": "Kurulu uygulamalar etkilendi",
+    "Cleaning up unused Flatpak data also removed these "
+    "installed apps as a side effect. You may want to "
+    "reinstall them:":
+        "Kullanılmayan Flatpak verilerini temizlemek, yan etki olarak şu "
+        "kurulu uygulamaları da kaldırdı. Yeniden kurmak isteyebilirsin:",
     "OK": "Tamam",
     "Authorization was cancelled": "Yetkilendirme iptal edildi",
     "Uninstalled {count} packages": "{count} paket kaldırıldı",
@@ -63,9 +67,9 @@ TR = {
         "yaptığından kesinlikle eminsen devam et.",
     "Remove anyway (I accept the risk)": "Yine de kaldır (riski kabul ediyorum)",
     "Privacy": "Gizlilik",
-    "Off by default. Everything stays on this device — no network access, "
-    "no process names or window titles are stored, only a package id and "
-    "a timestamp.":
+    "Off by default. Fully local, no network access. Only a "
+    "package id and a timestamp are stored, never process "
+    "names or window titles.":
         "Varsayılan olarak kapalıdır. Her şey bu cihazda kalır, ağa erişim "
         "olmaz, süreç adı ya da pencere başlığı saklanmaz, yalnızca bir "
         "paket kimliği ve zaman damgası tutulur.",
@@ -76,7 +80,7 @@ TR = {
         "Bu kapalıyken, PackWarden kapalı olduğu sürece uygulama "
         "kullanımı güncellenmez, bu da Kullanılmayan Uygulamalar "
         "listesinin yanlış sonuçlar vermesine yol açabilir",
-    "Enable background detection in Settings for more accurate results":
+    "Enable background detection for more accurate results":
         "Daha doğru sonuçlar için Ayarlar'dan arka plan algılamayı aç",
     "Open Settings": "Ayarları Aç",
     "Could not change this setting": "Bu ayar değiştirilemedi",
@@ -140,10 +144,7 @@ TR = {
     "Could not create shortcuts for selected apps":
         "Seçilen uygulamalar için kısayol oluşturulamadı",
     "Copied: {text}": "Kopyalandı: {text}",
-    "Sort by name": "Ada göre sırala",
-    "Sort by size": "Boyuta göre sırala",
     "No action taken": "Hiçbir işlem yapılmadı",
-    "Deleted {count} leftover items": "{count} kalıntı silindi",
     "Delete leftovers of {name}?": "{name} kalıntıları silinsin mi?",
     "Total: {size}": "Toplam: {size}",
     "Delete": "Sil",
@@ -177,6 +178,7 @@ TR = {
     "System": "Sistem",
     "Utility": "Araç",
     "Description": "Açıklama",
+    "Bulk application manager (this app)": "Toplu uygulama kaldırıcı (bu uygulama)",
     "Cache": "Önbellek",
     "App data": "Uygulama verileri",
     "State logs": "Durum kayıtları",
@@ -230,8 +232,11 @@ TR = {
         "Farklı bir arama veya kaynak filtresi deneyin",
     "Unknown": "Bilinmiyor",
     "approximate": "yaklaşık",
+    "{days} day ago": "{days} gün önce",
     "{days} days ago": "{days} gün önce",
+    "{months} month ago": "{months} ay önce",
     "{months} months ago": "{months} ay önce",
+    "{years} year ago": "{years} yıl önce",
     "{years} years ago": "{years} yıl önce",
     "Uninstall selected…": "Seçilenleri kaldır…",
     "Disk map": "Disk haritası",

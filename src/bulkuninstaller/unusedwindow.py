@@ -41,12 +41,15 @@ def _format_last_used(ts):
         return _("Unknown")
     days = max(0, int((time.time() - ts) // 86400))
     if days < 30:
-        return _("{days} days ago").format(days=days)
+        key = "{days} day ago" if days == 1 else "{days} days ago"
+        return _(key).format(days=days)
     months = days // 30
     if months < 12:
-        return _("{months} months ago").format(months=months)
+        key = "{months} month ago" if months == 1 else "{months} months ago"
+        return _(key).format(months=months)
     years = days // 365
-    return _("{years} years ago").format(years=years)
+    key = "{years} year ago" if years == 1 else "{years} years ago"
+    return _(key).format(years=years)
 
 
 class UnusedAppsWindow(Adw.Window):
@@ -146,19 +149,18 @@ class UnusedAppsWindow(Adw.Window):
         )
         hint_icon = Gtk.Image.new_from_icon_name("dialog-warning-symbolic")
         hint_icon.set_pixel_size(20)
+        hint_icon.set_valign(Gtk.Align.CENTER)
         self._hint_banner.append(hint_icon)
         self._hint_banner.append(Gtk.Label(
-            label=_(
-                "Enable background detection in Settings for more "
-                "accurate results"
-            ),
-            wrap=True, xalign=0, hexpand=True,
+            label=_("Enable background detection for more accurate results"),
+            wrap=True, xalign=0, hexpand=True, valign=Gtk.Align.CENTER,
         ))
         # Gtk.Button burada da kendi arkaplanını CSS'e rağmen gösterip
         # duruyordu; tıklanabilir düz bir Label + tıklama hareketiyle
         # arkaplan sorunu kökten ortadan kalkıyor.
         hint_settings_label = Gtk.Label(
             label=_("Open Settings"), css_classes=["pw-warning-btn"],
+            valign=Gtk.Align.CENTER,
         )
         hint_settings_click = Gtk.GestureClick()
         hint_settings_click.connect(

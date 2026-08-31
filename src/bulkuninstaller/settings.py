@@ -90,9 +90,9 @@ class SettingsDialog(Adw.PreferencesDialog):
         privacy_group = Adw.PreferencesGroup(
             title=_("Privacy"),
             description=_(
-                "Off by default. Everything stays on this device — no "
-                "network access, no process names or window titles are "
-                "stored, only a package id and a timestamp."
+                "Off by default. Fully local, no network access. Only a "
+                "package id and a timestamp are stored, never process "
+                "names or window titles."
             ),
         )
         page.add(privacy_group)
