@@ -73,16 +73,24 @@ def _field(text: str, key: str) -> str | None:
 _ICON_HASH_RE = re.compile(r"^[0-9a-f]{40}\.(jpg|png)$")
 
 
-def _icon_path(steamapps: str, appid: str) -> str:
+def _icon_path(appid: str) -> str:
     """Steam'in kendi kütüphane önbelleğindeki küçük kare simgeyi bul.
 
     appcache/librarycache/<appid>/ altında sabit adlı banner/logo
     dosyaları dışında, tek bir SHA1-hash.jpg dosyası gerçek küçük
     simgedir (doğrulandı: appcache/librarycache/730/<hash>.jpg CS2'nin
     ikonu). Bulunamazsa boş döner, çağıran genel simgeye düşer.
-    """
+
+    Bu önbellek HER ZAMAN birincil Steam kurulumunun altındadır — oyun
+    ikinci bir kütüphanede (ör. başka bir diskteki SteamLibrary) kurulu
+    olsa bile. Canlı testte doğrulandı: ikinci kütüphanedeki 3 oyun,
+    kendi steamapps'lerinin yanında hiç var olmayan bir appcache aranınca
+    ikon bulamıyor, genel oyun simgesine düşüyordu."""
+    primary = _steamapps_dir()
+    if not primary:
+        return ""
     cache_dir = os.path.join(
-        os.path.dirname(steamapps), "appcache", "librarycache", appid
+        os.path.dirname(primary), "appcache", "librarycache", appid
     )
     try:
         entries = os.listdir(cache_dir)
@@ -171,7 +179,7 @@ class SteamGameBackend(Backend):
                 source=self.id,
                 publisher=studios.get(appid, ""),
                 last_used=float(last_played) if last_played > 0 else None,
-                icon_path=_icon_path(steamapps, appid),
+                icon_path=_icon_path(appid),
                 install_path=install_path,
                 # Steam kurulum tarihini ayrı vermiyor; "LastUpdated" en
                 # yakın karşılığı (hiç güncellenmemiş bir oyunda kurulum
