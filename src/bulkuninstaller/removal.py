@@ -184,7 +184,7 @@ class RemovalWindow(Adw.Window):
             )
             expander.set_expanded(True)
             for item in items:
-                check = Gtk.CheckButton(valign=Gtk.Align.CENTER)
+                check = Gtk.CheckButton(valign=Gtk.Align.CENTER, active=True)
                 check.connect("toggled", lambda *_a: self._update_selection())
                 row = Adw.ActionRow(
                     title=os.path.basename(item.path),
@@ -203,6 +203,7 @@ class RemovalWindow(Adw.Window):
             self._list_box.append(expander)
 
         self._select_all.set_sensitive(True)
+        self._select_all.set_active(True)
         self._update_selection()
         return GLib.SOURCE_REMOVE
 
