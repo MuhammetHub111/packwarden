@@ -122,6 +122,10 @@ class UnusedAppsWindow(Adw.Window):
         # sağda boşlukta duran garip bir düğme yerine tam entegre görünüm.
         self._ignored_row = Adw.ExpanderRow(visible=False, expanded=False)
         self._ignored_rows: list = []
+        # Şu an gösterilen "bir daha gösterilmeyecek" toast'ı — art arda
+        # yoksama işlemlerinde öncekini kuyruğa girmeden hemen kapatabilmek
+        # için (bkz. _on_ignore_button_clicked).
+        self._active_ignore_toast = None
 
         settings_group = Adw.PreferencesGroup()
         settings_group.add(self._threshold_row)
@@ -463,12 +467,25 @@ class UnusedAppsWindow(Adw.Window):
         # Görünür, tek tıkla çalışan bir düğme yanlışlıkla da basılabilir —
         # geri alma toast'ı bunu ucuzlaştırıyor, ayrıca yönetim panelini
         # hiç bilmeyen biri için de "bunu geri getirebilirim" ipucu veriyor.
+        # Adw.ToastOverlay art arda eklenen toast'ları KUYRUĞA alıyor —
+        # art arda birkaç uygulamayı hızlıca işaretlersen öncekini bitmesini
+        # beklemek gecikmeli hissettiriyordu. Öncekini varsa hemen kapatıp
+        # yenisini anında gösteriyoruz, kuyruğa hiç girmeden.
+        if self._active_ignore_toast is not None:
+            self._active_ignore_toast.dismiss()
         toast = Adw.Toast(
             title=_("{name} won't be shown again").format(name=pkg.name),
             button_label=_("Undo"),
+            timeout=5,
         )
         toast.connect("button-clicked", self._on_ignore_undo, key)
+        toast.connect("dismissed", self._on_ignore_toast_dismissed)
+        self._active_ignore_toast = toast
         self._toast_overlay.add_toast(toast)
+
+    def _on_ignore_toast_dismissed(self, toast):
+        if self._active_ignore_toast is toast:
+            self._active_ignore_toast = None
 
     def _on_ignore_undo(self, _toast, key):
         self._unignore(key)
