@@ -246,10 +246,13 @@ class UnusedAppsWindow(Adw.Window):
 
     def _setup_toast_css(self):
         # Adw.Toast'un kendi bir "konum" ayarı yok, hep en alta yapışık
-        # çıkıyor — alt eylem çubuğuna (Vazgeç/Kaldır) fazla yakın
-        # duruyordu. CSS düğüm adı "toast"; alttan boşluk vererek biraz
-        # yukarı iteriz.
-        css = b"toast { margin-bottom: 24px; }"
+        # çıkıyor. ToastOverlay, alt eylem çubuğunu (Vazgeç/Kaldır) da
+        # İÇEREN toolbar_view'ı sarmalıyor — yani toast, pencerenin en alt
+        # kenarına göre konumlanıyor, eylem çubuğunun ÜSTÜNE göre değil.
+        # Eylem çubuğu kendi başına ~50-56px yükseklikte olduğundan, küçük
+        # bir margin (24px) toast'ı eylem çubuğunun içine/üstüne bindiriyordu.
+        # Eylem çubuğunun tüm yüksekliğini temizleyecek kadar boşluk veriyoruz.
+        css = b"toast { margin-bottom: 72px; }"
         provider = Gtk.CssProvider()
         provider.load_from_data(css)
         Gtk.StyleContext.add_provider_for_display(
