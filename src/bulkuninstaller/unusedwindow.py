@@ -116,12 +116,22 @@ class UnusedAppsWindow(Adw.Window):
 
         # Kullanıcının "bir daha gösterme" dediği paketleri yönetmek için
         # küçük bir bağlantı — hiç yoksayılan yoksa tamamen gizli, karışıklık
-        # çıkarmasın. Ayrı bir dev yönetim sayfası yerine bilerek küçük bir
-        # popover: bu liste genelde çok küçük kalır (birkaç uygulama).
+        # çıkarmasın. Ayrı bir pencere/dialog yerine AYNI pencerenin içinde
+        # aşağı açılan bir perde (Gtk.Revealer) — düğmeye her basışta
+        # açılıp kapanıyor, hiçbir yeni pencere hiç açılmıyor.
         self._ignored_button = Gtk.Button(
             css_classes=["flat"], halign=Gtk.Align.END,
         )
         self._ignored_button.connect("clicked", self._on_ignored_button_clicked)
+
+        self._ignored_listbox = Gtk.ListBox(
+            css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE,
+        )
+        self._ignored_revealer = Gtk.Revealer(
+            transition_type=Gtk.RevealerTransitionType.SLIDE_DOWN,
+            transition_duration=250,
+            child=self._ignored_listbox,
+        )
 
         self._list_box = Gtk.ListBox(
             css_classes=["boxed-list"],
@@ -188,6 +198,7 @@ class UnusedAppsWindow(Adw.Window):
 
         content.append(settings_group)
         content.append(self._ignored_button)
+        content.append(self._ignored_revealer)
         content.append(self._list_box)
         content.append(self._empty_status)
         clamp = Adw.Clamp(maximum_size=760, child=content)
@@ -441,63 +452,38 @@ class UnusedAppsWindow(Adw.Window):
         count = len(prefs.get("ignored_unused_programs") or {})
         self._ignored_button.set_visible(count > 0)
         self._ignored_button.set_label(_("Ignored ({count})").format(count=count))
+        if count == 0:
+            self._ignored_revealer.set_reveal_child(False)
+        elif self._ignored_revealer.get_reveal_child():
+            self._fill_ignored_listbox()
 
     def _on_ignored_button_clicked(self, _button):
-        # Küçük bir balon (Popover) yerine gerçek bir Adw.Dialog — dar
-        # pencerelerde alttan bir "perde" gibi kayarak açılıyor, geniş
-        # pencerelerde ortalanmış bir pencere olarak; ikisinde de küçük
-        # bir balondan çok daha görünür/rahat bir yönetim alanı.
-        dialog = Adw.Dialog(
-            title=_("Ignored ({count})").format(
-                count=len(prefs.get("ignored_unused_programs") or {})
-            ),
-            content_width=420, content_height=480,
-        )
-        listbox = Gtk.ListBox(
-            css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE,
-        )
-        self._fill_ignored_listbox(listbox, dialog)
+        # Ayrı bir pencere/dialog açmak yerine AYNI pencerenin içinde
+        # perde gibi aşağı kayan bir panel — düğme bunu açar/kapatır.
+        showing = self._ignored_revealer.get_reveal_child()
+        if not showing:
+            self._fill_ignored_listbox()
+        self._ignored_revealer.set_reveal_child(not showing)
 
-        scrolled = Gtk.ScrolledWindow(child=listbox, vexpand=True)
-        content = Gtk.Box(
-            orientation=Gtk.Orientation.VERTICAL,
-            margin_top=12, margin_bottom=12, margin_start=12, margin_end=12,
-        )
-        content.append(scrolled)
-
-        toolbar_view = Adw.ToolbarView(content=content)
-        toolbar_view.add_top_bar(Adw.HeaderBar())
-        dialog.set_child(toolbar_view)
-        dialog.present(self)
-
-    def _fill_ignored_listbox(self, listbox, dialog):
-        child = listbox.get_first_child()
+    def _fill_ignored_listbox(self):
+        child = self._ignored_listbox.get_first_child()
         while child is not None:
-            listbox.remove(child)
-            child = listbox.get_first_child()
+            self._ignored_listbox.remove(child)
+            child = self._ignored_listbox.get_first_child()
 
         ignored = prefs.get("ignored_unused_programs") or {}
-        if not ignored:
-            dialog.close()
-            return
         for key, name in sorted(ignored.items(), key=lambda kv: kv[1].lower()):
             row = Adw.ActionRow(title=name)
             remove_btn = Gtk.Button(
                 icon_name="edit-delete-symbolic", valign=Gtk.Align.CENTER,
                 css_classes=["flat"], tooltip_text=_("Show again"),
             )
-            remove_btn.connect(
-                "clicked", self._on_unignore_clicked, key, listbox, dialog,
-            )
+            remove_btn.connect("clicked", self._on_unignore_clicked, key)
             row.add_suffix(remove_btn)
-            listbox.append(row)
+            self._ignored_listbox.append(row)
 
-    def _on_unignore_clicked(self, _button, key, listbox, dialog):
+    def _on_unignore_clicked(self, _button, key):
         self._unignore(key)
-        dialog.set_title(_("Ignored ({count})").format(
-            count=len(prefs.get("ignored_unused_programs") or {})
-        ))
-        self._fill_ignored_listbox(listbox, dialog)
 
     def _unignore(self, key):
         ignored = dict(prefs.get("ignored_unused_programs") or {})
