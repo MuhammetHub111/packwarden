@@ -13,7 +13,7 @@ import os
 import threading
 import time
 
-from gi.repository import Adw, Gdk, GLib, Gtk
+from gi.repository import Adw, GLib, Gtk
 
 from . import prefs, usage
 from .backends.base import format_size
@@ -216,7 +216,9 @@ class UnusedAppsWindow(Adw.Window):
         toolbar_view = Adw.ToolbarView(content=scrolled)
         toolbar_view.add_top_bar(header)
         toolbar_view.add_bottom_bar(action_bar)
-        self.set_content(toolbar_view)
+
+        self._toast_overlay = Adw.ToastOverlay(child=toolbar_view)
+        self.set_content(self._toast_overlay)
 
         self._update_ignored_button()
         self._scan()
@@ -389,12 +391,16 @@ class UnusedAppsWindow(Adw.Window):
                 valign=Gtk.Align.CENTER,
             )
             row.add_suffix(size_label)
-            # Sağ tık: "bir daha gösterme" — kullanıcı ara sıra açtığı ama
+            # İlk bakışta fark edilsin diye sağ-tık'a gizlenmek yerine her
+            # satırda görünür bir düğme — kullanıcı ara sıra açtığı ama
             # yine de kalmasını istediği bir uygulamayı (ör. nadiren
             # kullandığı bir oyun) süresiz olarak listeden çıkarabilsin.
-            right_click = Gtk.GestureClick(button=Gdk.BUTTON_SECONDARY)
-            right_click.connect("released", self._on_row_right_click, pkg)
-            row.add_controller(right_click)
+            ignore_btn = Gtk.Button(
+                icon_name="window-close-symbolic", valign=Gtk.Align.CENTER,
+                css_classes=["flat"], tooltip_text=_("Don't show again"),
+            )
+            ignore_btn.connect("clicked", self._on_ignore_button_clicked, pkg)
+            row.add_suffix(ignore_btn)
             self._list_box.append(row)
             self._checks.append((check, pkg))
 
@@ -410,17 +416,7 @@ class UnusedAppsWindow(Adw.Window):
 
     # ---------------- Yoksayma ----------------
 
-    def _on_row_right_click(self, gesture, _n_press, x, y, pkg):
-        popover = Gtk.Popover()
-        popover.set_parent(gesture.get_widget())
-        popover.set_pointing_to(Gdk.Rectangle(x=int(x), y=int(y), width=1, height=1))
-        btn = Gtk.Button(label=_("Don't show again"), css_classes=["flat"])
-        btn.connect("clicked", lambda *_a: self._ignore_package(pkg, popover))
-        popover.set_child(btn)
-        popover.popup()
-
-    def _ignore_package(self, pkg, popover):
-        popover.popdown()
+    def _on_ignore_button_clicked(self, _button, pkg):
         key = _pkg_key(pkg)
         ignored = dict(prefs.get("ignored_unused_programs") or {})
         ignored[key] = pkg.name
@@ -428,6 +424,18 @@ class UnusedAppsWindow(Adw.Window):
         self._selected_keys.discard(key)
         self._update_ignored_button()
         self._rebuild_list()
+        # Görünür, tek tıkla çalışan bir düğme yanlışlıkla da basılabilir —
+        # geri alma toast'ı bunu ucuzlaştırıyor, ayrıca yönetim panelini
+        # hiç bilmeyen biri için de "bunu geri getirebilirim" ipucu veriyor.
+        toast = Adw.Toast(
+            title=_("{name} won't be shown again").format(name=pkg.name),
+            button_label=_("Undo"),
+        )
+        toast.connect("button-clicked", self._on_ignore_undo, key)
+        self._toast_overlay.add_toast(toast)
+
+    def _on_ignore_undo(self, _toast, key):
+        self._unignore(key)
 
     def _update_ignored_button(self):
         count = len(prefs.get("ignored_unused_programs") or {})
@@ -462,6 +470,9 @@ class UnusedAppsWindow(Adw.Window):
 
     def _on_unignore_clicked(self, _button, key, popover):
         popover.popdown()
+        self._unignore(key)
+
+    def _unignore(self, key):
         ignored = dict(prefs.get("ignored_unused_programs") or {})
         ignored.pop(key, None)
         prefs.set("ignored_unused_programs", ignored)

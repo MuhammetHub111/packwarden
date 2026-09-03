@@ -230,6 +230,8 @@ TR = {
     "Don't show again": "Bir daha gösterme",
     "Ignored ({count})": "Yoksayılanlar ({count})",
     "Show again": "Tekrar göster",
+    "{name} won't be shown again": "{name} bir daha gösterilmeyecek",
+    "Undo": "Geri al",
     "No packages match": "Eşleşen paket yok",
     "Try a different search or source filter":
         "Farklı bir arama veya kaynak filtresi deneyin",
