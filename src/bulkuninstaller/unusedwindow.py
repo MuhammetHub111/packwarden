@@ -607,7 +607,17 @@ class UnusedAppsWindow(Adw.Window):
             self._ignored_rows.append(row)
 
     def _on_unignore_clicked(self, _button, key):
+        ignored = prefs.get("ignored_unused_programs") or {}
+        name = ignored.get(key, "")
         self._unignore(key)
+        # "Ekle" tarafında (yoksay düğmesi) bildirim var, "çıkar" tarafında
+        # (buradaki eksi düğmesi) yoktu — kullanıcı simetrik olmasını istedi.
+        # Geri al eylemi burada yok: "Yoksay" düğmesine tekrar basmak zaten
+        # aynı işi görüyor.
+        self._show_toast(
+            _("{name} will be shown again").format(name=name),
+            timeout=5,
+        )
 
     def _unignore(self, key):
         ignored = dict(prefs.get("ignored_unused_programs") or {})

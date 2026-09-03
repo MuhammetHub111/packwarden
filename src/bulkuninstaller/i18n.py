@@ -231,6 +231,7 @@ TR = {
     "Ignored ({count})": "Yoksayılanlar ({count})",
     "Show again": "Tekrar göster",
     "{name} won't be shown again": "{name} bir daha gösterilmeyecek",
+    "{name} will be shown again": "{name} tekrar gösterilecek",
     "Undo": "Geri al",
     "No packages match": "Eşleşen paket yok",
     "Try a different search or source filter":
