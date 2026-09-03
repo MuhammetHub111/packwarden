@@ -308,7 +308,15 @@ class UnusedAppsWindow(Adw.Window):
         self._scan_in_progress = False
         if data is None:
             return  # tarama başarısız oldu; mevcut veri/liste korunur
+        # İlk gerçek tarama sonucu geldiğinde Yoksayılanlar panelini de
+        # tazele — __init__'te _update_ignored_button() ilk kez tarama
+        # bitmeden (self._data hâlâ boşken) çağrılıyor, o yüzden önceki
+        # oturumdan kalma yoksayılan öğeler ikonsuz kalıyordu ve bir daha
+        # hiç düzelmiyordu (bu metod başka hiçbir yerden tetiklenmiyordu).
+        had_data = bool(self._data)
         self._data = data
+        if not had_data and data:
+            self._update_ignored_button()
         # Liste üyeliği (hangi paketler eşiğin üzerinde) değişmediyse
         # yeniden kurma — sadece metin/zaman damgası birkaç saniye
         # ilerlemiş olabilir, bu görsel olarak önemli değil ve sürekli
