@@ -483,11 +483,12 @@ class UnusedAppsWindow(Adw.Window):
         self._ignored_rows = []
         for key, name in sorted(ignored.items(), key=lambda kv: kv[1].lower()):
             row = Adw.ActionRow(title=name)
-            # Çöp kutusu yerine kırmızı, yuvarlak bir "eksi" — birçok
-            # uygulamanın filtre/liste yönetiminde kullandığı, "artı yeşil
-            # / eksi kırmızı" kalıbına daha yakın bir görünüm.
+            # "list-remove-symbolic" bu temada (Breeze-dark) düz bir tire
+            # değil, X şeklinde çiziliyor — doğrulandı, kafa karıştırıyordu.
+            # Temadan bağımsız garanti bir görünüm için gerçek bir "−"
+            # (eksi) karakteri kullanıyoruz, ikon değil.
             remove_btn = Gtk.Button(
-                icon_name="list-remove-symbolic", valign=Gtk.Align.CENTER,
+                label="−", valign=Gtk.Align.CENTER,
                 css_classes=["flat", "circular", "destructive-action"],
                 tooltip_text=_("Show again"),
             )
