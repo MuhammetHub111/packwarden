@@ -110,28 +110,18 @@ class UnusedAppsWindow(Adw.Window):
         self._custom_row.set_visible(saved_preset == 3)
         self._custom_row.connect("notify::value", self._on_threshold_changed)
 
+        # Kullanıcının "bir daha gösterme" dediği paketleri yönetmek için —
+        # hiç yoksayılan yoksa tamamen gizli, karışıklık çıkarmasın. Ayrı
+        # bir düğme + perde yerine, diğer ayar satırlarıyla AYNI kartın
+        # içinde, kendi aç/kapa okunu taşıyan doğal bir Adw.ExpanderRow —
+        # sağda boşlukta duran garip bir düğme yerine tam entegre görünüm.
+        self._ignored_row = Adw.ExpanderRow(visible=False)
+        self._ignored_rows: list = []
+
         settings_group = Adw.PreferencesGroup()
         settings_group.add(self._threshold_row)
         settings_group.add(self._custom_row)
-
-        # Kullanıcının "bir daha gösterme" dediği paketleri yönetmek için
-        # küçük bir bağlantı — hiç yoksayılan yoksa tamamen gizli, karışıklık
-        # çıkarmasın. Ayrı bir pencere/dialog yerine AYNI pencerenin içinde
-        # aşağı açılan bir perde (Gtk.Revealer) — düğmeye her basışta
-        # açılıp kapanıyor, hiçbir yeni pencere hiç açılmıyor.
-        self._ignored_button = Gtk.Button(
-            css_classes=["flat"], halign=Gtk.Align.END,
-        )
-        self._ignored_button.connect("clicked", self._on_ignored_button_clicked)
-
-        self._ignored_listbox = Gtk.ListBox(
-            css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE,
-        )
-        self._ignored_revealer = Gtk.Revealer(
-            transition_type=Gtk.RevealerTransitionType.SLIDE_DOWN,
-            transition_duration=250,
-            child=self._ignored_listbox,
-        )
+        settings_group.add(self._ignored_row)
 
         self._list_box = Gtk.ListBox(
             css_classes=["boxed-list"],
@@ -197,8 +187,6 @@ class UnusedAppsWindow(Adw.Window):
         content.append(self._hint_banner)
 
         content.append(settings_group)
-        content.append(self._ignored_button)
-        content.append(self._ignored_revealer)
         content.append(self._list_box)
         content.append(self._empty_status)
         clamp = Adw.Clamp(maximum_size=760, child=content)
@@ -449,29 +437,13 @@ class UnusedAppsWindow(Adw.Window):
         self._unignore(key)
 
     def _update_ignored_button(self):
-        count = len(prefs.get("ignored_unused_programs") or {})
-        self._ignored_button.set_visible(count > 0)
-        self._ignored_button.set_label(_("Ignored ({count})").format(count=count))
-        if count == 0:
-            self._ignored_revealer.set_reveal_child(False)
-        elif self._ignored_revealer.get_reveal_child():
-            self._fill_ignored_listbox()
-
-    def _on_ignored_button_clicked(self, _button):
-        # Ayrı bir pencere/dialog açmak yerine AYNI pencerenin içinde
-        # perde gibi aşağı kayan bir panel — düğme bunu açar/kapatır.
-        showing = self._ignored_revealer.get_reveal_child()
-        if not showing:
-            self._fill_ignored_listbox()
-        self._ignored_revealer.set_reveal_child(not showing)
-
-    def _fill_ignored_listbox(self):
-        child = self._ignored_listbox.get_first_child()
-        while child is not None:
-            self._ignored_listbox.remove(child)
-            child = self._ignored_listbox.get_first_child()
-
         ignored = prefs.get("ignored_unused_programs") or {}
+        self._ignored_row.set_visible(bool(ignored))
+        self._ignored_row.set_title(_("Ignored ({count})").format(count=len(ignored)))
+
+        for child in list(self._ignored_rows):
+            self._ignored_row.remove(child)
+        self._ignored_rows = []
         for key, name in sorted(ignored.items(), key=lambda kv: kv[1].lower()):
             row = Adw.ActionRow(title=name)
             remove_btn = Gtk.Button(
@@ -480,7 +452,8 @@ class UnusedAppsWindow(Adw.Window):
             )
             remove_btn.connect("clicked", self._on_unignore_clicked, key)
             row.add_suffix(remove_btn)
-            self._ignored_listbox.append(row)
+            self._ignored_row.add_row(row)
+            self._ignored_rows.append(row)
 
     def _on_unignore_clicked(self, _button, key):
         self._unignore(key)
