@@ -610,12 +610,12 @@ class UnusedAppsWindow(Adw.Window):
         ignored = prefs.get("ignored_unused_programs") or {}
         name = ignored.get(key, "")
         self._unignore(key)
-        # "Ekle" tarafında (yoksay düğmesi) bildirim var, "çıkar" tarafında
-        # (buradaki eksi düğmesi) yoktu — kullanıcı simetrik olmasını istedi.
-        # Geri al eylemi burada yok: "Yoksay" düğmesine tekrar basmak zaten
-        # aynı işi görüyor.
+        # "Ekle" tarafındaki (yoksay düğmesi) bildirimde Geri al var —
+        # kullanıcı burada da aynı simetriyi istedi.
         self._show_toast(
             _("{name} will be shown again").format(name=name),
+            button_label=_("Undo"),
+            on_action=lambda k=key, n=name: self._reignore(k, n),
             timeout=5,
         )
 
@@ -625,6 +625,15 @@ class UnusedAppsWindow(Adw.Window):
         prefs.set("ignored_unused_programs", ignored)
         self._update_ignored_button()
         self._rebuild_list()
+
+    def _reignore(self, key, name):
+        """_on_unignore_clicked'in toast'ındaki Geri al eylemi."""
+        ignored = dict(prefs.get("ignored_unused_programs") or {})
+        ignored[key] = name
+        prefs.set("ignored_unused_programs", ignored)
+        self._selected_keys.discard(key)
+        self._update_ignored_button()
+        self._remove_row(key)
 
     def _icon_for(self, pkg) -> Gtk.Image:
         name = self._main._icon_name_for(pkg)
