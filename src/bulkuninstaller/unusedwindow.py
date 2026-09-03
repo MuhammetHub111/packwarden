@@ -267,7 +267,15 @@ class UnusedAppsWindow(Adw.Window):
             # Alt eylem çubuğu (Vazgeç/Kaldır) kendi başına ~50-56px
             # yükseklikte — bildirim onun üstünde net bir boşlukla dursun.
             margin_bottom=72,
-            visible=False,
+            # Kayma efekti YOK — kaymadan, olduğu yerde büyüyerek/sararak
+            # beliren bir "baloncuk" efekti isteniyor. GTK'nin CSS geçiş
+            # desteğiyle (transform + opacity) bunu kendimiz yönetiyoruz;
+            # widget hep "visible" kalır, görünürlük "pw-toast-shown"
+            # sınıfının eklenip çıkarılmasıyla animasyonlu değişir — bu
+            # yüzden set_visible(False) yerine can_target ile tıklamaları
+            # gizliyken devre dışı bırakıyoruz.
+            visible=True,
+            can_target=False,
         )
         self._toast.append(self._toast_label)
         self._toast.append(self._toast_action_button)
@@ -277,9 +285,6 @@ class UnusedAppsWindow(Adw.Window):
         self._toast_timeout_id = None
         self._toast_action_callback = None
 
-        # Adw.Toast'un kayma animasyonu private/iç bir efekt olduğu için
-        # kendi widget'ımızda hiç animasyon YOK — set_visible(True) ile
-        # doğrudan, aynı anda beliriyor, kullanıcının istediği gibi.
         css = b"""
         .pw-toast {
             background-color: rgba(46, 46, 50, 0.92);
@@ -287,6 +292,14 @@ class UnusedAppsWindow(Adw.Window):
             padding: 6px 6px 6px 16px;
             border-radius: 9999px;
             box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
+            opacity: 0;
+            transform: scale(0.6);
+            transition: opacity 180ms ease-out,
+                        transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        .pw-toast.pw-toast-shown {
+            opacity: 1;
+            transform: scale(1);
         }
         """
         provider = Gtk.CssProvider()
@@ -307,7 +320,8 @@ class UnusedAppsWindow(Adw.Window):
         else:
             self._toast_action_button.set_visible(False)
         self._toast_action_callback = on_action
-        self._toast.set_visible(True)
+        self._toast.set_can_target(True)
+        self._toast.add_css_class("pw-toast-shown")
         if timeout:
             self._toast_timeout_id = GLib.timeout_add_seconds(
                 timeout, self._on_toast_timeout
@@ -322,7 +336,8 @@ class UnusedAppsWindow(Adw.Window):
         if self._toast_timeout_id is not None:
             GLib.source_remove(self._toast_timeout_id)
             self._toast_timeout_id = None
-        self._toast.set_visible(False)
+        self._toast.remove_css_class("pw-toast-shown")
+        self._toast.set_can_target(False)
         self._toast_action_callback = None
 
     def _on_toast_action_clicked(self, _button):
