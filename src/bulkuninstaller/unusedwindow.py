@@ -400,9 +400,14 @@ class UnusedAppsWindow(Adw.Window):
             # satırda görünür bir düğme — kullanıcı ara sıra açtığı ama
             # yine de kalmasını istediği bir uygulamayı (ör. nadiren
             # kullandığı bir oyun) süresiz olarak listeden çıkarabilsin.
+            # Yoksayma listesine EKLEMEK bir "artı" eylemi (yeşil), oradan
+            # ÇIKARMAK ise bir "eksi" eylemi (kırmızı, bkz. _update_ignored_
+            # button) — yaygın filtre listesi kalıbı, bkz. kullanıcıyla
+            # konuşulan artı-yeşil/eksi-kırmızı sistemi.
             ignore_btn = Gtk.Button(
-                icon_name="window-close-symbolic", valign=Gtk.Align.CENTER,
-                css_classes=["flat"], tooltip_text=_("Don't show again"),
+                icon_name="list-add-symbolic", valign=Gtk.Align.CENTER,
+                css_classes=["flat", "circular", "success"],
+                tooltip_text=_("Don't show again"),
             )
             ignore_btn.connect("clicked", self._on_ignore_button_clicked, pkg)
             row.add_suffix(ignore_btn)
