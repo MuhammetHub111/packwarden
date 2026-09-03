@@ -227,6 +227,7 @@ class UnusedAppsWindow(Adw.Window):
 
         self._toast_overlay = Adw.ToastOverlay(child=toolbar_view)
         self.set_content(self._toast_overlay)
+        self._setup_toast_css()
 
         self._update_ignored_button()
         self._scan()
@@ -242,6 +243,19 @@ class UnusedAppsWindow(Adw.Window):
             not prefs.get("background_usage_detection")
         )
         return GLib.SOURCE_CONTINUE
+
+    def _setup_toast_css(self):
+        # Adw.Toast'un kendi bir "konum" ayarı yok, hep en alta yapışık
+        # çıkıyor — alt eylem çubuğuna (Vazgeç/Kaldır) fazla yakın
+        # duruyordu. CSS düğüm adı "toast"; alttan boşluk vererek biraz
+        # yukarı iteriz.
+        css = b"toast { margin-bottom: 24px; }"
+        provider = Gtk.CssProvider()
+        provider.load_from_data(css)
+        Gtk.StyleContext.add_provider_for_display(
+            self.get_display(), provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+        )
 
     def _on_open_settings(self, *_args):
         # Bu pencereyi (ve altındaki ana pencereyi) aynı anda görünür
