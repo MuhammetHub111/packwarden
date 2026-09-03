@@ -68,6 +68,11 @@ class UnusedAppsWindow(Adw.Window):
         self._main = main_window
         self._data: list[tuple[object, float | None]] = []
         self._checks: list[tuple[Gtk.CheckButton, object]] = []
+        # Anahtar -> satır widget'ı: bir uygulamayı yoksayınca tüm listeyi
+        # yeniden kurmak yerine sadece o satırı çıkarabilmek için — aksi
+        # halde her "X" tıklamasında kaydırma konumu sıfırlanıyor, kullanıcı
+        # her seferinde listede yeniden aşağı inmek zorunda kalıyordu.
+        self._rows: dict[str, Adw.ActionRow] = {}
         # Taramalar arasında hayatta kalan işaretleme durumu — periyodik
         # yeniden tarama listeyi yeniden kurduğunda kullanıcının az önce
         # işaretlediği kutucuklar sıfırlanmasın diye.
@@ -354,6 +359,7 @@ class UnusedAppsWindow(Adw.Window):
             self._list_box.remove(child)
             child = self._list_box.get_first_child()
         self._checks.clear()
+        self._rows.clear()
 
         stale = self._stale_packages()
 
@@ -402,8 +408,26 @@ class UnusedAppsWindow(Adw.Window):
             row.add_suffix(ignore_btn)
             self._list_box.append(row)
             self._checks.append((check, pkg))
+            self._rows[key] = row
 
         self._select_all.set_sensitive(True)
+        self._update_selection()
+
+    def _remove_row(self, key):
+        """Tüm listeyi yeniden kurmadan tek bir satırı çıkarır — bkz.
+        _on_ignore_button_clicked. Tam yeniden kurma kaydırma konumunu
+        sıfırlıyordu, kullanıcı her "X" tıklamasında listede yeniden
+        aşağı inmek zorunda kalıyordu."""
+        row = self._rows.pop(key, None)
+        if row is not None:
+            self._list_box.remove(row)
+        self._checks = [(c, pkg) for c, pkg in self._checks if _pkg_key(pkg) != key]
+        self._last_stale_keys = self._last_stale_keys - {key} if self._last_stale_keys else None
+
+        if not self._rows:
+            self._list_box.set_visible(False)
+            self._empty_status.set_visible(True)
+            self._select_all.set_sensitive(False)
         self._update_selection()
 
     def _on_row_toggled(self, check, key):
@@ -422,7 +446,7 @@ class UnusedAppsWindow(Adw.Window):
         prefs.set("ignored_unused_programs", ignored)
         self._selected_keys.discard(key)
         self._update_ignored_button()
-        self._rebuild_list()
+        self._remove_row(key)
         # Görünür, tek tıkla çalışan bir düğme yanlışlıkla da basılabilir —
         # geri alma toast'ı bunu ucuzlaştırıyor, ayrıca yönetim panelini
         # hiç bilmeyen biri için de "bunu geri getirebilirim" ipucu veriyor.
