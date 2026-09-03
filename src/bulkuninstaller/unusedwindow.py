@@ -13,7 +13,7 @@ import os
 import threading
 import time
 
-from gi.repository import Adw, GLib, Gtk
+from gi.repository import Adw, GLib, Gtk, Pango
 
 from . import prefs, usage
 from .backends.base import format_size
@@ -122,10 +122,6 @@ class UnusedAppsWindow(Adw.Window):
         # sağda boşlukta duran garip bir düğme yerine tam entegre görünüm.
         self._ignored_row = Adw.ExpanderRow(visible=False, expanded=False)
         self._ignored_rows: list = []
-        # Şu an gösterilen "bir daha gösterilmeyecek" toast'ı — art arda
-        # yoksama işlemlerinde öncekini kuyruğa girmeden hemen kapatabilmek
-        # için (bkz. _on_ignore_button_clicked).
-        self._active_ignore_toast = None
 
         settings_group = Adw.PreferencesGroup()
         settings_group.add(self._threshold_row)
@@ -225,9 +221,16 @@ class UnusedAppsWindow(Adw.Window):
         toolbar_view.add_top_bar(header)
         toolbar_view.add_bottom_bar(action_bar)
 
-        self._toast_overlay = Adw.ToastOverlay(child=toolbar_view)
-        self.set_content(self._toast_overlay)
-        self._setup_toast_css()
+        # "Bir daha gösterme" bildirimi için Adw.Toast/ToastOverlay
+        # KULLANILMIYOR — libadwaita'nın kendi kayma animasyonu private/iç
+        # bir efekt, dışarıdan sadece GTK'nin genel "animasyonları
+        # etkinleştir" ayarıyla (uygulamadaki HER animasyonu etkiler,
+        # ör. Yoksayılanlar perdesi) kapatılabiliyor. Kullanıcı sadece bu
+        # bildirimin kaymadan, anında belirmesini istedi; bunu garanti
+        # etmenin tek yolu kendi basit bildirim widget'ımızı yazmaktı.
+        self._overlay = Gtk.Overlay(child=toolbar_view)
+        self.set_content(self._overlay)
+        self._build_toast_widget()
 
         self._update_ignored_button()
         self._scan()
@@ -244,21 +247,89 @@ class UnusedAppsWindow(Adw.Window):
         )
         return GLib.SOURCE_CONTINUE
 
-    def _setup_toast_css(self):
-        # Adw.Toast'un kendi bir "konum" ayarı yok, hep en alta yapışık
-        # çıkıyor. ToastOverlay, alt eylem çubuğunu (Vazgeç/Kaldır) da
-        # İÇEREN toolbar_view'ı sarmalıyor — yani toast, pencerenin en alt
-        # kenarına göre konumlanıyor, eylem çubuğunun ÜSTÜNE göre değil.
-        # Eylem çubuğu kendi başına ~50-56px yükseklikte olduğundan, küçük
-        # bir margin (24px) toast'ı eylem çubuğunun içine/üstüne bindiriyordu.
-        # Eylem çubuğunun tüm yüksekliğini temizleyecek kadar boşluk veriyoruz.
-        css = b"toast { margin-bottom: 72px; }"
+    def _build_toast_widget(self):
+        self._toast_label = Gtk.Label(
+            xalign=0, hexpand=True, ellipsize=Pango.EllipsizeMode.END,
+        )
+        self._toast_action_button = Gtk.Button(css_classes=["flat"])
+        self._toast_action_button.connect("clicked", self._on_toast_action_clicked)
+        self._toast_close_button = Gtk.Button(
+            icon_name="window-close-symbolic",
+            css_classes=["flat", "circular"],
+            tooltip_text=_("Close"),
+        )
+        self._toast_close_button.connect("clicked", lambda *_a: self._hide_toast())
+
+        self._toast = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL, spacing=6,
+            css_classes=["pw-toast"],
+            halign=Gtk.Align.CENTER, valign=Gtk.Align.END,
+            # Alt eylem çubuğu (Vazgeç/Kaldır) kendi başına ~50-56px
+            # yükseklikte — bildirim onun üstünde net bir boşlukla dursun.
+            margin_bottom=72,
+            visible=False,
+        )
+        self._toast.append(self._toast_label)
+        self._toast.append(self._toast_action_button)
+        self._toast.append(self._toast_close_button)
+        self._overlay.add_overlay(self._toast)
+
+        self._toast_timeout_id = None
+        self._toast_action_callback = None
+
+        # Adw.Toast'un kayma animasyonu private/iç bir efekt olduğu için
+        # kendi widget'ımızda hiç animasyon YOK — set_visible(True) ile
+        # doğrudan, aynı anda beliriyor, kullanıcının istediği gibi.
+        css = b"""
+        .pw-toast {
+            background-color: rgba(0, 0, 0, 0.85);
+            color: white;
+            padding: 6px 6px 6px 16px;
+            border-radius: 9999px;
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
+        }
+        """
         provider = Gtk.CssProvider()
         provider.load_from_data(css)
         Gtk.StyleContext.add_provider_for_display(
             self.get_display(), provider,
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
         )
+
+    def _show_toast(self, title, button_label=None, on_action=None, timeout=5):
+        if self._toast_timeout_id is not None:
+            GLib.source_remove(self._toast_timeout_id)
+            self._toast_timeout_id = None
+        self._toast_label.set_label(title)
+        if button_label:
+            self._toast_action_button.set_label(button_label)
+            self._toast_action_button.set_visible(True)
+        else:
+            self._toast_action_button.set_visible(False)
+        self._toast_action_callback = on_action
+        self._toast.set_visible(True)
+        if timeout:
+            self._toast_timeout_id = GLib.timeout_add_seconds(
+                timeout, self._on_toast_timeout
+            )
+
+    def _on_toast_timeout(self):
+        self._toast_timeout_id = None
+        self._hide_toast()
+        return GLib.SOURCE_REMOVE
+
+    def _hide_toast(self):
+        if self._toast_timeout_id is not None:
+            GLib.source_remove(self._toast_timeout_id)
+            self._toast_timeout_id = None
+        self._toast.set_visible(False)
+        self._toast_action_callback = None
+
+    def _on_toast_action_clicked(self, _button):
+        callback = self._toast_action_callback
+        self._hide_toast()
+        if callback is not None:
+            callback()
 
     def _on_open_settings(self, *_args):
         # Bu pencereyi (ve altındaki ana pencereyi) aynı anda görünür
@@ -482,30 +553,17 @@ class UnusedAppsWindow(Adw.Window):
         self._update_ignored_button()
         self._remove_row(key)
         # Görünür, tek tıkla çalışan bir düğme yanlışlıkla da basılabilir —
-        # geri alma toast'ı bunu ucuzlaştırıyor, ayrıca yönetim panelini
+        # geri alma bildirimi bunu ucuzlaştırıyor, ayrıca yönetim panelini
         # hiç bilmeyen biri için de "bunu geri getirebilirim" ipucu veriyor.
-        # Adw.ToastOverlay art arda eklenen toast'ları KUYRUĞA alıyor —
-        # art arda birkaç uygulamayı hızlıca işaretlersen öncekini bitmesini
-        # beklemek gecikmeli hissettiriyordu. Öncekini varsa hemen kapatıp
-        # yenisini anında gösteriyoruz, kuyruğa hiç girmeden.
-        if self._active_ignore_toast is not None:
-            self._active_ignore_toast.dismiss()
-        toast = Adw.Toast(
-            title=_("{name} won't be shown again").format(name=pkg.name),
+        # _show_toast önceki bildirimi (varsa) anında değiştirir, kuyruğa
+        # almaz — art arda birkaç uygulamayı hızlıca işaretlemek gecikmeli
+        # hissettirmiyor.
+        self._show_toast(
+            _("{name} won't be shown again").format(name=pkg.name),
             button_label=_("Undo"),
+            on_action=lambda k=key: self._unignore(k),
             timeout=5,
         )
-        toast.connect("button-clicked", self._on_ignore_undo, key)
-        toast.connect("dismissed", self._on_ignore_toast_dismissed)
-        self._active_ignore_toast = toast
-        self._toast_overlay.add_toast(toast)
-
-    def _on_ignore_toast_dismissed(self, toast):
-        if self._active_ignore_toast is toast:
-            self._active_ignore_toast = None
-
-    def _on_ignore_undo(self, _toast, key):
-        self._unignore(key)
 
     def _update_ignored_button(self):
         ignored = prefs.get("ignored_unused_programs") or {}
