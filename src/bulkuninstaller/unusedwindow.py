@@ -120,7 +120,7 @@ class UnusedAppsWindow(Adw.Window):
         # bir düğme + perde yerine, diğer ayar satırlarıyla AYNI kartın
         # içinde, kendi aç/kapa okunu taşıyan doğal bir Adw.ExpanderRow —
         # sağda boşlukta duran garip bir düğme yerine tam entegre görünüm.
-        self._ignored_row = Adw.ExpanderRow(visible=False)
+        self._ignored_row = Adw.ExpanderRow(visible=False, expanded=False)
         self._ignored_rows: list = []
 
         settings_group = Adw.PreferencesGroup()
@@ -462,7 +462,15 @@ class UnusedAppsWindow(Adw.Window):
 
     def _update_ignored_button(self):
         ignored = prefs.get("ignored_unused_programs") or {}
+        # İlk kez görünür oluyorsa (0 -> 1) kapalı başlasın — kullanıcı
+        # "X"e bastığı an kendiliğinden açılıp içeriği göstermesin, önce
+        # sadece başlık/sayı görünsün, açmak isteyip istemediğine kendi
+        # karar versin. Zaten açıkken bir öğe daha eklenmesi bu davranışı
+        # etkilemiyor — kullanıcı bilerek açtıysa kapatılmıyor.
+        was_visible = self._ignored_row.get_visible()
         self._ignored_row.set_visible(bool(ignored))
+        if ignored and not was_visible:
+            self._ignored_row.set_expanded(False)
         self._ignored_row.set_title(_("Ignored ({count})").format(count=len(ignored)))
 
         for child in list(self._ignored_rows):
