@@ -478,9 +478,13 @@ class UnusedAppsWindow(Adw.Window):
         self._ignored_rows = []
         for key, name in sorted(ignored.items(), key=lambda kv: kv[1].lower()):
             row = Adw.ActionRow(title=name)
+            # Çöp kutusu yerine kırmızı, yuvarlak bir "eksi" — birçok
+            # uygulamanın filtre/liste yönetiminde kullandığı, "artı yeşil
+            # / eksi kırmızı" kalıbına daha yakın bir görünüm.
             remove_btn = Gtk.Button(
-                icon_name="edit-delete-symbolic", valign=Gtk.Align.CENTER,
-                css_classes=["flat"], tooltip_text=_("Show again"),
+                icon_name="list-remove-symbolic", valign=Gtk.Align.CENTER,
+                css_classes=["flat", "circular", "destructive-action"],
+                tooltip_text=_("Show again"),
             )
             remove_btn.connect("clicked", self._on_unignore_clicked, key)
             row.add_suffix(remove_btn)
