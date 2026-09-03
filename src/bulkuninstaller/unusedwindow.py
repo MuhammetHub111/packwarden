@@ -282,7 +282,7 @@ class UnusedAppsWindow(Adw.Window):
         # doğrudan, aynı anda beliriyor, kullanıcının istediği gibi.
         css = b"""
         .pw-toast {
-            background-color: rgba(0, 0, 0, 0.85);
+            background-color: rgba(46, 46, 50, 0.92);
             color: white;
             padding: 6px 6px 6px 16px;
             border-radius: 9999px;
