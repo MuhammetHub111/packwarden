@@ -13,7 +13,7 @@ import os
 import threading
 import time
 
-from gi.repository import Adw, GLib, Gtk
+from gi.repository import Adw, Gdk, GLib, Gtk
 
 from . import prefs, usage
 from .backends.base import format_size
@@ -114,6 +114,15 @@ class UnusedAppsWindow(Adw.Window):
         settings_group.add(self._threshold_row)
         settings_group.add(self._custom_row)
 
+        # Kullanıcının "bir daha gösterme" dediği paketleri yönetmek için
+        # küçük bir bağlantı — hiç yoksayılan yoksa tamamen gizli, karışıklık
+        # çıkarmasın. Ayrı bir dev yönetim sayfası yerine bilerek küçük bir
+        # popover: bu liste genelde çok küçük kalır (birkaç uygulama).
+        self._ignored_button = Gtk.Button(
+            css_classes=["flat"], halign=Gtk.Align.END,
+        )
+        self._ignored_button.connect("clicked", self._on_ignored_button_clicked)
+
         self._list_box = Gtk.ListBox(
             css_classes=["boxed-list"],
             selection_mode=Gtk.SelectionMode.NONE,
@@ -178,6 +187,7 @@ class UnusedAppsWindow(Adw.Window):
         content.append(self._hint_banner)
 
         content.append(settings_group)
+        content.append(self._ignored_button)
         content.append(self._list_box)
         content.append(self._empty_status)
         clamp = Adw.Clamp(maximum_size=760, child=content)
@@ -208,6 +218,7 @@ class UnusedAppsWindow(Adw.Window):
         toolbar_view.add_bottom_bar(action_bar)
         self.set_content(toolbar_view)
 
+        self._update_ignored_button()
         self._scan()
         # Pencere açık kaldığı sürece periyodik olarak yeniden tara —
         # kullanıcı burayı açık bırakıp başka bir uygulamaya geçerse, o
@@ -296,10 +307,7 @@ class UnusedAppsWindow(Adw.Window):
         # yeniden kurma — sadece metin/zaman damgası birkaç saniye
         # ilerlemiş olabilir, bu görsel olarak önemli değil ve sürekli
         # yeniden kurmak seçimleri/kaydırmayı bozuyordu.
-        new_stale_keys = frozenset(
-            _pkg_key(pkg) for pkg, ts in data
-            if ts is not None and ts <= time.time() - self._threshold_days * 86400
-        )
+        new_stale_keys = frozenset(pkg_key for pkg_key, _pkg, _ts in self._stale_packages())
         if new_stale_keys != self._last_stale_keys:
             self._rebuild_list()
         return GLib.SOURCE_REMOVE
@@ -321,6 +329,24 @@ class UnusedAppsWindow(Adw.Window):
 
     # ---------------- Liste ----------------
 
+    def _stale_packages(self):
+        """(anahtar, pkg, ts) üçlüleri — eşiği aşmış VE kullanıcının
+        "bir daha gösterme" demediği paketler, en eskiden yeniye sıralı.
+
+        "Bilinmiyor" (ts is None) burada asla listelenmez: yeni kurulmuş
+        ya da az önce güncellenmiş bir uygulamanın henüz hiç kalıntı
+        klasörü olmayabilir, bu da onu gerçekten eski/kullanılmayan bir
+        uygulamadan ayırt edilemez kılar. Sadece GERÇEKTEN eski olduğu
+        bilinen (kesin zaman damgalı) uygulamalar gösterilir."""
+        ignored = prefs.get("ignored_unused_programs") or {}
+        cutoff = time.time() - self._threshold_days * 86400
+        stale = [
+            (_pkg_key(pkg), pkg, ts) for pkg, ts in self._data
+            if ts is not None and ts <= cutoff and _pkg_key(pkg) not in ignored
+        ]
+        stale.sort(key=lambda triple: triple[2])
+        return stale
+
     def _rebuild_list(self):
         child = self._list_box.get_first_child()
         while child is not None:
@@ -328,19 +354,9 @@ class UnusedAppsWindow(Adw.Window):
             child = self._list_box.get_first_child()
         self._checks.clear()
 
-        # "Bilinmiyor" (ts is None) burada asla listelenmez: yeni kurulmuş
-        # ya da az önce güncellenmiş bir uygulamanın henüz hiç kalıntı
-        # klasörü olmayabilir, bu da onu gerçekten eski/kullanılmayan bir
-        # uygulamadan ayırt edilemez kılar. Sadece GERÇEKTEN eski olduğu
-        # bilinen (kesin zaman damgalı) uygulamalar gösterilir.
-        cutoff = time.time() - self._threshold_days * 86400
-        stale = [
-            (pkg, ts) for pkg, ts in self._data
-            if ts is not None and ts <= cutoff
-        ]
-        stale.sort(key=lambda pair: pair[1])
+        stale = self._stale_packages()
 
-        self._last_stale_keys = frozenset(_pkg_key(pkg) for pkg, _ts in stale)
+        self._last_stale_keys = frozenset(key for key, _pkg, _ts in stale)
         # Artık listede olmayan paketlerin işaretlerini biriktirmeye
         # gerek yok — set büyümesin diye mevcut listeyle kesişimine indir.
         self._selected_keys &= self._last_stale_keys
@@ -354,8 +370,7 @@ class UnusedAppsWindow(Adw.Window):
 
         self._list_box.set_visible(True)
         self._empty_status.set_visible(False)
-        for pkg, ts in stale:
-            key = _pkg_key(pkg)
+        for key, pkg, ts in stale:
             check = Gtk.CheckButton(
                 valign=Gtk.Align.CENTER, active=key in self._selected_keys,
             )
@@ -374,6 +389,12 @@ class UnusedAppsWindow(Adw.Window):
                 valign=Gtk.Align.CENTER,
             )
             row.add_suffix(size_label)
+            # Sağ tık: "bir daha gösterme" — kullanıcı ara sıra açtığı ama
+            # yine de kalmasını istediği bir uygulamayı (ör. nadiren
+            # kullandığı bir oyun) süresiz olarak listeden çıkarabilsin.
+            right_click = Gtk.GestureClick(button=Gdk.BUTTON_SECONDARY)
+            right_click.connect("released", self._on_row_right_click, pkg)
+            row.add_controller(right_click)
             self._list_box.append(row)
             self._checks.append((check, pkg))
 
@@ -386,6 +407,66 @@ class UnusedAppsWindow(Adw.Window):
         else:
             self._selected_keys.discard(key)
         self._update_selection()
+
+    # ---------------- Yoksayma ----------------
+
+    def _on_row_right_click(self, gesture, _n_press, x, y, pkg):
+        popover = Gtk.Popover()
+        popover.set_parent(gesture.get_widget())
+        popover.set_pointing_to(Gdk.Rectangle(x=int(x), y=int(y), width=1, height=1))
+        btn = Gtk.Button(label=_("Don't show again"), css_classes=["flat"])
+        btn.connect("clicked", lambda *_a: self._ignore_package(pkg, popover))
+        popover.set_child(btn)
+        popover.popup()
+
+    def _ignore_package(self, pkg, popover):
+        popover.popdown()
+        key = _pkg_key(pkg)
+        ignored = dict(prefs.get("ignored_unused_programs") or {})
+        ignored[key] = pkg.name
+        prefs.set("ignored_unused_programs", ignored)
+        self._selected_keys.discard(key)
+        self._update_ignored_button()
+        self._rebuild_list()
+
+    def _update_ignored_button(self):
+        count = len(prefs.get("ignored_unused_programs") or {})
+        self._ignored_button.set_visible(count > 0)
+        self._ignored_button.set_label(_("Ignored ({count})").format(count=count))
+
+    def _on_ignored_button_clicked(self, button):
+        popover = Gtk.Popover()
+        popover.set_parent(button)
+
+        ignored = prefs.get("ignored_unused_programs") or {}
+        listbox = Gtk.ListBox(
+            css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE,
+        )
+        for key, name in sorted(ignored.items(), key=lambda kv: kv[1].lower()):
+            row = Adw.ActionRow(title=name)
+            remove_btn = Gtk.Button(
+                icon_name="edit-delete-symbolic", valign=Gtk.Align.CENTER,
+                css_classes=["flat"], tooltip_text=_("Show again"),
+            )
+            remove_btn.connect(
+                "clicked", self._on_unignore_clicked, key, popover,
+            )
+            row.add_suffix(remove_btn)
+            listbox.append(row)
+        scrolled = Gtk.ScrolledWindow(
+            child=listbox, max_content_height=320,
+            propagate_natural_height=True, propagate_natural_width=True,
+        )
+        popover.set_child(scrolled)
+        popover.popup()
+
+    def _on_unignore_clicked(self, _button, key, popover):
+        popover.popdown()
+        ignored = dict(prefs.get("ignored_unused_programs") or {})
+        ignored.pop(key, None)
+        prefs.set("ignored_unused_programs", ignored)
+        self._update_ignored_button()
+        self._rebuild_list()
 
     def _icon_for(self, pkg) -> Gtk.Image:
         name = self._main._icon_name_for(pkg)

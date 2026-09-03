@@ -49,6 +49,12 @@ DEFAULTS = {
     # arkaplanda systemd --user servisi çalıştır. Varsayılan kapalı —
     # yalnızca kullanıcı Ayarlar'dan bilerek açarsa etkinleşir.
     "background_usage_detection": False,
+
+    # Kullanıcının Kullanılmayan Programlar listesinden bilerek çıkardığı
+    # paketler: {"kaynak:kimlik": "görünen ad"}. Ne kadar kullanılmasa da
+    # bir daha bu listede gösterilmez, kullanıcı yönetim panelinden geri
+    # alana kadar. Varsayılan boş — hiçbir şey hariç tutulmaz.
+    "ignored_unused_programs": {},
 }
 
 _cache: dict | None = None

@@ -227,6 +227,9 @@ TR = {
     "No unused programs found": "Kullanılmayan program bulunamadı",
     "Every scanned program was used within the threshold":
         "Taranan tüm programlar seçilen süre içinde kullanılmış",
+    "Don't show again": "Bir daha gösterme",
+    "Ignored ({count})": "Yoksayılanlar ({count})",
+    "Show again": "Tekrar göster",
     "No packages match": "Eşleşen paket yok",
     "Try a different search or source filter":
         "Farklı bir arama veya kaynak filtresi deneyin",
