@@ -481,8 +481,17 @@ class UnusedAppsWindow(Adw.Window):
         for child in list(self._ignored_rows):
             self._ignored_row.remove(child)
         self._ignored_rows = []
+        # Yoksayılanlar sadece {anahtar: ad} olarak saklanıyor, Package
+        # nesnesi değil — ikon için son taramadaki (self._data, TÜM
+        # yüklü uygulamalar, sadece eski olanlar değil) eşleşen paketi
+        # arıyoruz. Uygulama o zamandan beri kaldırıldıysa bulunamaz,
+        # o durumda ikonsuz kalır (ad hâlâ doğru gösterilir).
+        pkg_by_key = {_pkg_key(pkg): pkg for pkg, _ts in self._data}
         for key, name in sorted(ignored.items(), key=lambda kv: kv[1].lower()):
             row = Adw.ActionRow(title=name)
+            pkg = pkg_by_key.get(key)
+            if pkg is not None:
+                row.add_prefix(self._icon_for(pkg))
             # "list-remove-symbolic" bu temada (Breeze-dark) düz bir tire
             # değil, X şeklinde çiziliyor — doğrulandı, kafa karıştırıyordu.
             # Temadan bağımsız garanti bir görünüm için gerçek bir "−"
