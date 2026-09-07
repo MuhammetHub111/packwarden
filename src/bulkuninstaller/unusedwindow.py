@@ -120,7 +120,9 @@ class UnusedAppsWindow(Adw.Window):
         # bir düğme + perde yerine, diğer ayar satırlarıyla AYNI kartın
         # içinde, kendi aç/kapa okunu taşıyan doğal bir Adw.ExpanderRow —
         # sağda boşlukta duran garip bir düğme yerine tam entegre görünüm.
-        self._ignored_row = Adw.ExpanderRow(visible=False, expanded=False)
+        self._ignored_row = Adw.ExpanderRow(
+            visible=False, expanded=False, css_classes=["pw-ignored-expander"],
+        )
         self._ignored_rows: list = []
 
         settings_group = Adw.PreferencesGroup()
@@ -300,6 +302,18 @@ class UnusedAppsWindow(Adw.Window):
         .pw-toast.pw-toast-shown {
             opacity: 1;
             transform: scale(1);
+        }
+        /* Ignored panel: while visible=False the arrow indicator
+           (expander-row-arrow) can be left in a stale "expanded"
+           rotation. The moment the panel becomes visible, that stale
+           value animates toward the real target via the arrow's own
+           CSS transition, which reads as the arrow spinning even
+           though the panel itself never opened. Killing the
+           transition only for THIS panel's arrow, scoped through
+           .pw-ignored-expander, so other ExpanderRows (e.g. in the
+           removal window) keep their normal animation. */
+        .pw-ignored-expander .expander-row-arrow {
+            transition: none;
         }
         """
         provider = Gtk.CssProvider()
