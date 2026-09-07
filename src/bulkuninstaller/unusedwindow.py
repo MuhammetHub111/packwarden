@@ -315,6 +315,18 @@ class UnusedAppsWindow(Adw.Window):
         .pw-ignored-expander .expander-row-arrow {
             transition: none;
         }
+        /* libadwaita, expander icindeki (acilan) satirlari kasitli
+           olarak daha koyu/cukur bir "nested list" tonuyla ciziyor;
+           bu kullanicinin gozunde "tema degisti" gibi goruldu, cunku
+           panel ustundeki diger ayar satirlariyla tutarsiz kaliyordu.
+           Hem baslik satirini hem ic satirlari, geri kalan boxed-list
+           satirlariyla AYNI kart rengine (@card_bg_color) zorluyoruz.
+        */
+        .pw-ignored-expander,
+        .pw-ignored-expander .header,
+        .pw-ignored-expander .nested row {
+            background-color: @card_bg_color;
+        }
         """
         provider = Gtk.CssProvider()
         provider.load_from_data(css)
