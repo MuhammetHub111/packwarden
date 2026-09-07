@@ -582,15 +582,19 @@ class UnusedAppsWindow(Adw.Window):
 
     def _update_ignored_button(self):
         ignored = prefs.get("ignored_unused_programs") or {}
-        # İlk kez görünür oluyorsa (0 -> 1) kapalı başlasın — kullanıcı
-        # "X"e bastığı an kendiliğinden açılıp içeriği göstermesin, önce
-        # sadece başlık/sayı görünsün, açmak isteyip istemediğine kendi
-        # karar versin. Zaten açıkken bir öğe daha eklenmesi bu davranışı
-        # etkilemiyor — kullanıcı bilerek açtıysa kapatılmıyor.
-        was_visible = self._ignored_row.get_visible()
-        self._ignored_row.set_visible(bool(ignored))
-        if ignored and not was_visible:
+        # Panel boşalıp gizlenirken KAPALI duruma alınıyor (kullanıcı
+        # elle açmış olsa bile) — "expanded" görünürlükten bağımsız bir
+        # özellik, panel gizliyken bile eski (açık) değerini taşıyordu.
+        # Sırayla: önce gizliyken kapat, SONRA görünür yap — tersi
+        # sıralamada (önce görünür, sonra kapat) panel bir kare için eski
+        # "açık" haliyle çizilip aynı anda kapanma animasyonuna giriyordu;
+        # kullanıcı buna "artıya basınca sekme açılıp kapanıyor gibi" dedi.
+        # Kapanırken zaten kapatıldığı için yeniden açıldığında da hep
+        # kapalı başlıyor, elle açmak isteyip istemediğine kullanıcı karar
+        # veriyor.
+        if not ignored:
             self._ignored_row.set_expanded(False)
+        self._ignored_row.set_visible(bool(ignored))
         self._ignored_row.set_title(_("Ignored ({count})").format(count=len(ignored)))
 
         for child in list(self._ignored_rows):
