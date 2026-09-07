@@ -123,7 +123,15 @@ class UnusedAppsWindow(Adw.Window):
         self._ignored_row = Adw.ExpanderRow(
             visible=False, expanded=False, css_classes=["pw-ignored-expander"],
         )
-        self._ignored_rows: list = []
+        # Anahtar -> satır widget'ı: bir öğe eklenip çıkarılırken sadece
+        # o satırı ekleyip/kaldırmak için — tüm listeyi silip yeniden
+        # kurmak, panel açıkken satır sayısı bir an için sıfıra düşünce
+        # ExpanderRow'un kendini otomatik kapatmasına (ok animasyonuyla
+        # fark edilir şekilde) yol açıyordu.
+        self._ignored_rows: dict[str, Adw.ActionRow] = {}
+        # Bir satıra ikon eklendiyse bir daha eklenmesin diye (taramanın
+        # ilk bitişinde tüm satırlar için tek seferlik ikon tamamlama).
+        self._ignored_row_icons: set[str] = set()
 
         settings_group = Adw.PreferencesGroup()
         settings_group.add(self._threshold_row)
@@ -302,18 +310,6 @@ class UnusedAppsWindow(Adw.Window):
         .pw-toast.pw-toast-shown {
             opacity: 1;
             transform: scale(1);
-        }
-        /* Ignored panel: while visible=False the arrow indicator
-           (expander-row-arrow) can be left in a stale "expanded"
-           rotation. The moment the panel becomes visible, that stale
-           value animates toward the real target via the arrow's own
-           CSS transition, which reads as the arrow spinning even
-           though the panel itself never opened. Killing the
-           transition only for THIS panel's arrow, scoped through
-           .pw-ignored-expander, so other ExpanderRows (e.g. in the
-           removal window) keep their normal animation. */
-        .pw-ignored-expander .expander-row-arrow {
-            transition: none;
         }
         /* libadwaita, expander icindeki (acilan) satirlari kasitli
            olarak daha koyu/cukur bir "nested list" tonuyla ciziyor;
@@ -635,20 +631,43 @@ class UnusedAppsWindow(Adw.Window):
         self._ignored_row.set_visible(bool(ignored))
         self._ignored_row.set_title(_("Ignored ({count})").format(count=len(ignored)))
 
-        for child in list(self._ignored_rows):
-            self._ignored_row.remove(child)
-        self._ignored_rows = []
+        # ÖNEMLİ: tüm satırları silip yeniden kurmuyoruz. Bunu denedik —
+        # ExpanderRow'un satır sayısı silme ile yeniden ekleme arasında
+        # bir an için sıfıra düşüyor, ve panel AÇIKKEN bu, ExpanderRow'un
+        # kendini otomatik kapatmasına yol açıyordu (ok, kapanma
+        # animasyonuyla dönüyordu — kullanıcının "artıya basınca ok
+        # dönüyor" dediği tam olarak buydu). Sadece değişen satırı
+        # ekleyip/çıkararak diğer satırlara hiç dokunmuyoruz.
+        #
         # Yoksayılanlar sadece {anahtar: ad} olarak saklanıyor, Package
         # nesnesi değil — ikon için son taramadaki (self._data, TÜM
         # yüklü uygulamalar, sadece eski olanlar değil) eşleşen paketi
         # arıyoruz. Uygulama o zamandan beri kaldırıldıysa bulunamaz,
         # o durumda ikonsuz kalır (ad hâlâ doğru gösterilir).
         pkg_by_key = {_pkg_key(pkg): pkg for pkg, _ts in self._data}
-        for key, name in sorted(ignored.items(), key=lambda kv: kv[1].lower()):
+
+        for key in list(self._ignored_rows):
+            if key not in ignored:
+                row = self._ignored_rows.pop(key)
+                self._ignored_row.remove(row)
+                self._ignored_row_icons.discard(key)
+
+        for key, name in ignored.items():
+            if key in self._ignored_rows:
+                # Satır zaten var — sadece ikonu eksikse tamamla (tarama
+                # bu satır eklendikten SONRA bitmiş olabilir).
+                if key not in self._ignored_row_icons:
+                    pkg = pkg_by_key.get(key)
+                    if pkg is not None:
+                        self._ignored_rows[key].add_prefix(self._icon_for(pkg))
+                        self._ignored_row_icons.add(key)
+                continue
+
             row = Adw.ActionRow(title=name)
             pkg = pkg_by_key.get(key)
             if pkg is not None:
                 row.add_prefix(self._icon_for(pkg))
+                self._ignored_row_icons.add(key)
             # "list-remove-symbolic" bu temada (Breeze-dark) düz bir tire
             # değil, X şeklinde çiziliyor — doğrulandı, kafa karıştırıyordu.
             # Temadan bağımsız garanti bir görünüm için gerçek bir "−"
@@ -661,7 +680,7 @@ class UnusedAppsWindow(Adw.Window):
             remove_btn.connect("clicked", self._on_unignore_clicked, key)
             row.add_suffix(remove_btn)
             self._ignored_row.add_row(row)
-            self._ignored_rows.append(row)
+            self._ignored_rows[key] = row
 
     def _on_unignore_clicked(self, _button, key):
         ignored = prefs.get("ignored_unused_programs") or {}
