@@ -361,6 +361,14 @@ class UnusedAppsWindow(Adw.Window):
         .pw-ignored-expander .expander-row-arrow {
             transform: translateX(-21px);
         }
+        /* Gorunmez onay kutusu ikon ile baslik arasina gercek onay
+           kutusuyla AYNI genislikte bosluk koyacakti, ama "nested"
+           liste bunu gercek listeden daha genis uyguluyor (olculdu:
+           14px fazla). Kapatiyoruz.
+        */
+        .pw-ignore-title-spacer {
+            margin-right: -14px;
+        }
         """
         provider = Gtk.CssProvider()
         provider.load_from_data(css)
@@ -690,6 +698,14 @@ class UnusedAppsWindow(Adw.Window):
                 continue
 
             row = Adw.ActionRow(title=name)
+            # Asıl listedeki satırlarda ikondan sonra bir onay kutusu var,
+            # burada yok — bu yüzden başlık metni ("Counter-Strike 2" vb.)
+            # asıl listedeki başlıklardan ("Frostpunk" vb.) daha soldan
+            # başlıyordu. Aynı boyutta ama görünmez bir onay kutusu
+            # ekleyerek başlıkları aynı x konumuna hizalıyoruz.
+            spacer = Gtk.CheckButton(sensitive=False, can_target=False, opacity=0)
+            spacer.add_css_class("pw-ignore-title-spacer")
+            row.add_prefix(spacer)
             pkg = pkg_by_key.get(key)
             if pkg is not None:
                 row.add_prefix(self._icon_for(pkg))
