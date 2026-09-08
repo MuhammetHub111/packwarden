@@ -348,12 +348,18 @@ class UnusedAppsWindow(Adw.Window):
            dugmelerinin hizasindan saga kayiyor. margin-end negatif
            degerle denendi ama bir noktadan sonra (~-33px) kilitleniyor
            (kucuk bir tiklama alani alt siniri var gibi); transform ise
-           boyle bir sinira carpmiyor. Ekran goruntusu + piksel
-           olcumuyle dogrulandi: ok ve alttaki "-" dugmesi artik AYNI
-           x konumunda (670=670).
+           boyle bir sinira carpmiyor.
+           AYRICA: "nested" liste (ExpanderRow'un ic satirlari) ile ana
+           listenin ("boxed-list") kendi sag bosluk payi farkli;
+           piksel olcumuyle dogrulandi: eksi dugmesi 670, arti dugmesi
+           658 (12px fark). Hem eksi dugmesini hem oku, arti dugmesiyle
+           AYNI x konumuna (658) gelecek sekilde kaydiriyoruz.
         */
+        .pw-ignored-expander .nested button.destructive-action {
+            transform: translateX(-12px);
+        }
         .pw-ignored-expander .expander-row-arrow {
-            transform: translateX(-9px);
+            transform: translateX(-21px);
         }
         """
         provider = Gtk.CssProvider()
