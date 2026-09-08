@@ -376,7 +376,7 @@ class UnusedAppsWindow(Adw.Window):
         */
         .pw-ignored-expander .header .title {
             margin-left: 6px;
-            transform: translateX(1.5px);
+            transform: translateX(1px);
         }
         """
         provider = Gtk.CssProvider()
