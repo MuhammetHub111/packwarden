@@ -370,13 +370,12 @@ class UnusedAppsWindow(Adw.Window):
             margin-right: -14px;
         }
         /* ExpanderRow'un basligi ("Yoksayilanlar"), ust satirlarin
-           ("Ozel (gun)" vb.) basligindan 12px sola kayik duruyordu
-           (compute_bounds ile olculdu: 57 vs 69) - ExpanderRow'un
-           kendi ic basligi diger satir turlerinden az farkli
-           konumlaniyor gibi. Ayni noktaya (69) getiriyoruz.
+           ("Ozel (gun)" vb.) basligindan ~11px sola kayik duruyordu
+           (gercek pencerede ekran goruntusu + piksel olcumuyle
+           dogrulandi: 85 vs 95-96). Ayni noktaya getiriyoruz.
         */
         .pw-ignored-expander .header .title {
-            margin-left: 12px;
+            margin-left: 5px;
         }
         """
         provider = Gtk.CssProvider()
