@@ -369,22 +369,6 @@ class UnusedAppsWindow(Adw.Window):
         .pw-ignore-title-spacer {
             margin-right: -14px;
         }
-        /* Kullanici, "Yoksayilanlar" panel basliginin "Ozel (gun)" gibi
-           ikonsuz satirlarla degil, ikonlu satirlarin (Counter-Strike 2,
-           alacritty...) BASLIK metniyle ayni noktadan baslamasini istedi;
-           yani ikon+onay kutusu boslugu kadar saga kaymasini. "margin-
-           start" GTK CSS'te GECERSIZ bir ozellik adi (parser hatasi
-           verip sessizce yutuluyor) - "margin-left" kullanilmasi
-           gerekiyor. Ayrica bu ozel baglamda (title Box > Label,
-           ExpanderRow header'i icinde) margin degeri EKRANDA 2 KATINA
-           cikiyor gibi olculdu (43px -> 91px'lik gorunen kaymaya
-           denk geliyor) - piksel olcumuyle ampirik olarak ayarlandi:
-           43px, "alacritty" satirinin basligiyla (x=171) BIREBIR
-           eslesiyor.
-        */
-        .pw-ignored-expander .header .title {
-            margin-left: 43px;
-        }
         """
         provider = Gtk.CssProvider()
         provider.load_from_data(css)
