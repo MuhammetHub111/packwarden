@@ -311,33 +311,32 @@ class UnusedAppsWindow(Adw.Window):
             opacity: 1;
             transform: scale(1);
         }
-        /* libadwaita, expander icindeki (acilan) satirlari kasitli
-           olarak daha koyu/cukur bir "nested list" tonuyla ciziyor;
-           bu kullanicinin gozunde "tema degisti" gibi goruldu, cunku
-           panel ustundeki diger ayar satirlariyla tutarsiz kaliyordu.
-           Hem baslik satirini hem ic satirlari, geri kalan boxed-list
-           satirlariyla AYNI kart rengine (@card_bg_color) zorluyoruz.
+        /* libadwaita bu satira farkli bir kart rengi, yuvarlak kose ve
+           ince bir kenarlik veriyor (acilan bir alt-kart gibi ayirt
+           etsin diye). Once @card_bg_color'i (yarim seffaf beyaz bir
+           katman, duz bir renk DEGIL) dogrudan background-color olarak
+           denedik: ekran goruntusu + piksel olcumuyle dogrulandi ki
+           normal satirlarin GERCEK rengi window_bg_color + %8 beyaz
+           karisimiymis (olcum: rgb(52,52,55)); @card_bg_color'i hem
+           bu satira hem ic satirlarina ayri ayri uygulamak bu karisimi
+           IKI KEZ ust uste bindiriyordu (olcum: rgb(64,64,66) -
+           belirgin sekilde daha acik/farkli). mix() ile TEK, DUZ/OPAK
+           bir sonuc renk hesaplayip HER katmana (kutu, liste, revealer,
+           satir) ayni sekilde uyguluyoruz - opak renk ust uste
+           bindirmede karismiyor, kenarlardaki ince farkli renkli
+           seritler de boylece kapaniyor.
         */
         .pw-ignored-expander,
-        .pw-ignored-expander .header,
-        .pw-ignored-expander .nested row {
-            background-color: @card_bg_color;
-        }
-        /* libadwaita ayrica bu satira kendi border-radius'unu VE ince
-           bir kenarlik/outline rengini veriyor (kart gibi ayirt etsin
-           diye); listenin ortasinda olsa bile koseleri yuvarlak
-           cikiyor, kenarlari da komsu satirlardan farkli tonda bir
-           cizgiyle cevriliyor. Duz, kesintisiz liste gorunumu icin
-           hepsini sifirliyoruz.
-        */
-        .pw-ignored-expander,
-        .pw-ignored-expander .header,
-        .pw-ignored-expander .nested,
-        .pw-ignored-expander .nested row {
+        .pw-ignored-expander box,
+        .pw-ignored-expander list,
+        .pw-ignored-expander revealer,
+        .pw-ignored-expander row {
+            background-color: mix(@window_bg_color, white, 0.08);
             border-radius: 0;
             box-shadow: none;
             border: none;
             outline: none;
+            margin: 0;
         }
         """
         provider = Gtk.CssProvider()
