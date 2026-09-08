@@ -13,7 +13,7 @@ import os
 import threading
 import time
 
-from gi.repository import Adw, Gdk, GdkPixbuf, GLib, Gtk, Pango
+from gi.repository import Adw, GLib, Gtk, Pango
 
 from . import prefs, usage
 from .backends.base import format_size
@@ -23,72 +23,6 @@ from .removal import RemovalWindow
 from .unused import last_used
 
 PRESETS_DAYS = (90, 180, 365)
-
-# İkon dosyalarının kendisi farklı miktarda saydam kenar boşluğu
-# bırakıyor (bazı uygulama ikonları kutuyu kenardan kenara dolduruyor,
-# bazıları kendi çiziminde boşluk bırakıyor) — aynı pixel_size'da bile
-# ikonlar farklı boyutta/hizada görünmesine yol açıyordu (kullanıcı
-# ekran görüntüsüyle doğruladı, bkz. _normalize_icon_file). Sonuç,
-# aynı süreç içinde tekrar tekrar açılan pencerelerde yeniden
-# hesaplanmasın diye ikon adına göre modül seviyesinde önbelleğe
-# alınıyor.
-_ICON_NORMALIZE_SIZE = 32
-_normalized_icon_cache: dict[str, "Gdk.Texture | None"] = {}
-
-
-def _icon_content_bbox(pixbuf):
-    """Pixbuf'ın saydam olmayan (gerçekten görünür) piksellerinin
-    sınır kutusu — (x, y, genişlik, yükseklik). Alfa kanalı yoksa
-    (tamamen opak) tüm görüntü zaten "içerik" sayılır."""
-    w, h = pixbuf.get_width(), pixbuf.get_height()
-    if not pixbuf.get_has_alpha():
-        return (0, 0, w, h)
-    n_ch = pixbuf.get_n_channels()
-    stride = pixbuf.get_rowstride()
-    data = pixbuf.get_pixels()
-    minx, miny, maxx, maxy = w, h, -1, -1
-    for y in range(h):
-        row = y * stride
-        for x in range(w):
-            if data[row + x * n_ch + 3] > 10:
-                if x < minx:
-                    minx = x
-                if x > maxx:
-                    maxx = x
-                if y < miny:
-                    miny = y
-                if y > maxy:
-                    maxy = y
-    if maxx < 0:
-        return (0, 0, w, h)
-    return (minx, miny, maxx + 1 - minx, maxy + 1 - miny)
-
-
-def _normalize_icon_file(path, size=_ICON_NORMALIZE_SIZE, content_frac=0.75):
-    """Dosyadaki ikonun GERÇEK görünür içeriğini bulup (saydam
-    kenarları atarak) aynı orana göre yeniden ortalanmış bir doku
-    döndürür — hangi ikonun kendi dosyasında ne kadar boşluk
-    bıraktığı artık önemli olmuyor, hepsi aynı görsel ağırlıkla
-    çiziliyor. Yüklenemeyen/bozuk bir dosya varsa None döner,
-    çağıran taraf normal ikon gösterimine geri döner."""
-    load_size = size * 2
-    src = GdkPixbuf.Pixbuf.new_from_file_at_size(path, load_size, load_size)
-    bx, by, bw, bh = _icon_content_bbox(src)
-    if bw <= 0 or bh <= 0:
-        return None
-    cropped = src.new_subpixbuf(bx, by, bw, bh)
-    content_target = size * content_frac
-    scale = min(content_target / bw, content_target / bh)
-    scaled_w, scaled_h = bw * scale, bh * scale
-    off_x = (size - scaled_w) / 2
-    off_y = (size - scaled_h) / 2
-    dest = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, True, 8, size, size)
-    dest.fill(0x00000000)
-    cropped.composite(
-        dest, 0, 0, size, size, off_x, off_y, scale, scale,
-        GdkPixbuf.InterpType.BILINEAR, 255,
-    )
-    return Gdk.Texture.new_for_pixbuf(dest)
 
 
 class _Item:
@@ -822,42 +756,11 @@ class UnusedAppsWindow(Adw.Window):
     def _icon_for(self, pkg) -> Gtk.Image:
         name = self._main._icon_name_for(pkg)
         icon = Gtk.Image(pixel_size=32, valign=Gtk.Align.CENTER)
-        texture = self._normalized_texture_for(name)
-        if texture is not None:
-            icon.set_from_paintable(texture)
-        elif os.path.isabs(name):
+        if os.path.isabs(name):
             icon.set_from_file(name)
         else:
             icon.set_from_icon_name(name)
         return icon
-
-    def _normalized_texture_for(self, name):
-        if name in _normalized_icon_cache:
-            return _normalized_icon_cache[name]
-        texture = None
-        try:
-            if os.path.isabs(name):
-                path = name
-            else:
-                theme = Gtk.IconTheme.get_for_display(self.get_display())
-                if not theme.has_icon(name):
-                    path = None
-                else:
-                    paintable = theme.lookup_icon(
-                        name, None, _ICON_NORMALIZE_SIZE * 2, 1,
-                        Gtk.TextDirection.NONE, 0,
-                    )
-                    icon_file = paintable.get_file() if paintable else None
-                    path = icon_file.get_path() if icon_file else None
-            if path:
-                texture = _normalize_icon_file(path)
-        except Exception:
-            # İkon normalizasyonu tamamen görsel bir iyileştirme —
-            # bozuk/beklenmedik bir dosyada patlayıp ikonun hiç
-            # görünmemesine yol açmak yerine normal gösterime düşüyoruz.
-            texture = None
-        _normalized_icon_cache[name] = texture
-        return texture
 
     def _selected_packages(self):
         return [pkg for check, pkg in self._checks if check.get_active()]
