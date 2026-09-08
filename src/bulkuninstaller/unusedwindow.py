@@ -120,9 +120,15 @@ class UnusedAppsWindow(Adw.Window):
         # bir düğme + perde yerine, diğer ayar satırlarıyla AYNI kartın
         # içinde, kendi aç/kapa okunu taşıyan doğal bir Adw.ExpanderRow —
         # sağda boşlukta duran garip bir düğme yerine tam entegre görünüm.
-        self._ignored_row = Adw.ExpanderRow(
-            visible=False, expanded=False, css_classes=["pw-ignored-expander"],
-        )
+        self._ignored_row = Adw.ExpanderRow(visible=False, expanded=False)
+        # css_classes CONSTRUCTOR'da verilirse (yukarıdaki gibi kwarg
+        # olarak) ok göstergesinin aç/kapa animasyonu donup kalıyor —
+        # eşleşen bir CSS kuralı olmasa BİLE. Canlı bir testle
+        # doğrulandı: aynı satır add_css_class() ile SONRADAN
+        # etiketlenirse ok normal çalışıyor. Sebep muhtemelen
+        # ExpanderRow'un iç kurulumunun (ok animasyon bağlantısı)
+        # css_classes constructor kwarg'ından SONRA çalışması.
+        self._ignored_row.add_css_class("pw-ignored-expander")
         # Anahtar -> satır widget'ı: bir öğe eklenip çıkarılırken sadece
         # o satırı ekleyip/kaldırmak için — tüm listeyi silip yeniden
         # kurmak, panel açıkken satır sayısı bir an için sıfıra düşünce
@@ -337,6 +343,17 @@ class UnusedAppsWindow(Adw.Window):
             border: none;
             outline: none;
             margin: 0;
+        }
+        /* Ok gostergesi kendi ayri "hit area" boslugu yuzunden +/-
+           dugmelerinin hizasindan saga kayiyor. margin-end negatif
+           degerle denendi ama bir noktadan sonra (~-33px) kilitleniyor
+           (kucuk bir tiklama alani alt siniri var gibi); transform ise
+           boyle bir sinira carpmiyor. Ekran goruntusu + piksel
+           olcumuyle dogrulandi: ok ve alttaki "-" dugmesi artik AYNI
+           x konumunda (670=670).
+        */
+        .pw-ignored-expander .expander-row-arrow {
+            transform: translateX(-9px);
         }
         """
         provider = Gtk.CssProvider()
