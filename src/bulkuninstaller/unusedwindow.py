@@ -323,10 +323,12 @@ class UnusedAppsWindow(Adw.Window):
         .pw-ignored-expander .nested row {
             background-color: @card_bg_color;
         }
-        /* libadwaita ayrica bu satira kendi border-radius'unu veriyor,
-           listenin ortasinda olsa bile koseleri yuvarlak cikiyor ve
-           komsu satirlardan kopuk, ayri bir kart gibi goruntu veriyor.
-           Duz, kesintisiz liste gorunumu icin sifirliyoruz.
+        /* libadwaita ayrica bu satira kendi border-radius'unu VE ince
+           bir kenarlik/outline rengini veriyor (kart gibi ayirt etsin
+           diye); listenin ortasinda olsa bile koseleri yuvarlak
+           cikiyor, kenarlari da komsu satirlardan farkli tonda bir
+           cizgiyle cevriliyor. Duz, kesintisiz liste gorunumu icin
+           hepsini sifirliyoruz.
         */
         .pw-ignored-expander,
         .pw-ignored-expander .header,
@@ -334,6 +336,8 @@ class UnusedAppsWindow(Adw.Window):
         .pw-ignored-expander .nested row {
             border-radius: 0;
             box-shadow: none;
+            border: none;
+            outline: none;
         }
         """
         provider = Gtk.CssProvider()
