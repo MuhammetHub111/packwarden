@@ -369,6 +369,15 @@ class UnusedAppsWindow(Adw.Window):
         .pw-ignore-title-spacer {
             margin-right: -14px;
         }
+        /* ExpanderRow'un basligi ("Yoksayilanlar"), ust satirlarin
+           ("Ozel (gun)" vb.) basligindan 12px sola kayik duruyordu
+           (compute_bounds ile olculdu: 57 vs 69) - ExpanderRow'un
+           kendi ic basligi diger satir turlerinden az farkli
+           konumlaniyor gibi. Ayni noktaya (69) getiriyoruz.
+        */
+        .pw-ignored-expander .header .title {
+            margin-left: 12px;
+        }
         """
         provider = Gtk.CssProvider()
         provider.load_from_data(css)
