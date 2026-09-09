@@ -393,6 +393,12 @@ class UnusedAppsWindow(Adw.Window):
         .pw-ignore-row-icon {
             transform: translateX(10px);
         }
+        /* Yoksayilanlar bolumundeki boyut yazisi biraz sola kaydirilsin
+           istendi.
+        */
+        .pw-ignore-row-size {
+            transform: translateX(-6px);
+        }
         """
         provider = Gtk.CssProvider()
         provider.load_from_data(css)
@@ -731,7 +737,7 @@ class UnusedAppsWindow(Adw.Window):
                             row.remove(remove_btn)
                         size_label = Gtk.Label(
                             label=format_size(pkg.size),
-                            css_classes=["numeric", "dim-label"],
+                            css_classes=["numeric", "dim-label", "pw-ignore-row-size"],
                             valign=Gtk.Align.CENTER,
                         )
                         row.add_suffix(size_label)
@@ -756,7 +762,7 @@ class UnusedAppsWindow(Adw.Window):
                 row.add_prefix(icon)
                 size_label = Gtk.Label(
                     label=format_size(pkg.size),
-                    css_classes=["numeric", "dim-label"],
+                    css_classes=["numeric", "dim-label", "pw-ignore-row-size"],
                     valign=Gtk.Align.CENTER,
                 )
                 row.add_suffix(size_label)
