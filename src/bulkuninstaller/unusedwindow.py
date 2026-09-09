@@ -387,7 +387,7 @@ class UnusedAppsWindow(Adw.Window):
            onunla hedefliyoruz.
         */
         .pw-ignore-row-icon {
-            transform: translateX(9px);
+            transform: translateX(10px);
         }
         """
         provider = Gtk.CssProvider()
