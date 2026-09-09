@@ -378,6 +378,17 @@ class UnusedAppsWindow(Adw.Window):
             margin-left: 6px;
             transform: translateX(0.8px);
         }
+        /* Yoksayilanlar panelindeki satirlarin ikonu (alacritty vb.)
+           biraz saga kaydirilsin istendi. Bu ikon add_prefix() ile
+           elle eklendigi icin ActionRow'un kendi ".icon" sinifini
+           TASIMIYOR (o sinif sadece set_icon_name() kullanildiginda
+           devreye giren, bizim kullanmadigimiz baska bir ic Image'a
+           ait) - kendi ozel sinifimizi (pw-ignore-row-icon) ekleyip
+           onunla hedefliyoruz.
+        */
+        .pw-ignore-row-icon {
+            transform: translateX(6px);
+        }
         """
         provider = Gtk.CssProvider()
         provider.load_from_data(css)
@@ -702,7 +713,9 @@ class UnusedAppsWindow(Adw.Window):
                 if key not in self._ignored_row_icons:
                     pkg = pkg_by_key.get(key)
                     if pkg is not None:
-                        self._ignored_rows[key].add_prefix(self._icon_for(pkg))
+                        icon = self._icon_for(pkg)
+                        icon.add_css_class("pw-ignore-row-icon")
+                        self._ignored_rows[key].add_prefix(icon)
                         self._ignored_row_icons.add(key)
                 continue
 
@@ -717,7 +730,9 @@ class UnusedAppsWindow(Adw.Window):
             row.add_prefix(spacer)
             pkg = pkg_by_key.get(key)
             if pkg is not None:
-                row.add_prefix(self._icon_for(pkg))
+                icon = self._icon_for(pkg)
+                icon.add_css_class("pw-ignore-row-icon")
+                row.add_prefix(icon)
                 self._ignored_row_icons.add(key)
             # "list-remove-symbolic" bu temada (Breeze-dark) düz bir tire
             # değil, X şeklinde çiziliyor — doğrulandı, kafa karıştırıyordu.
