@@ -376,7 +376,7 @@ class UnusedAppsWindow(Adw.Window):
         */
         .pw-ignored-expander .header .title {
             margin-left: 6px;
-            transform: translateX(0.8px);
+            transform: translateX(6px);
         }
         /* Yoksayilanlar panelindeki satirlarin ikonu (alacritty vb.)
            biraz saga kaydirilsin istendi. Bu ikon add_prefix() ile
