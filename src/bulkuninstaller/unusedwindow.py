@@ -138,6 +138,11 @@ class UnusedAppsWindow(Adw.Window):
         # Bir satıra ikon eklendiyse bir daha eklenmesin diye (taramanın
         # ilk bitişinde tüm satırlar için tek seferlik ikon tamamlama).
         self._ignored_row_icons: set[str] = set()
+        # "−" düğmesinin kendisi — ikon/boyut sonradan (tarama bitince)
+        # eklendiğinde düğmeyi çıkarıp boyuttan SONRA yeniden eklemek
+        # için (add_suffix hep sona ekler, boyut hep düğmenin solunda
+        # kalsın istiyoruz).
+        self._ignored_row_buttons: dict[str, Gtk.Button] = {}
 
         settings_group = Adw.PreferencesGroup()
         settings_group.add(self._threshold_row)
@@ -704,17 +709,34 @@ class UnusedAppsWindow(Adw.Window):
                 row = self._ignored_rows.pop(key)
                 self._ignored_row.remove(row)
                 self._ignored_row_icons.discard(key)
+                self._ignored_row_buttons.pop(key, None)
 
         for key, name in ignored.items():
             if key in self._ignored_rows:
-                # Satır zaten var — sadece ikonu eksikse tamamla (tarama
-                # bu satır eklendikten SONRA bitmiş olabilir).
+                # Satır zaten var — sadece ikon/boyut eksikse tamamla
+                # (tarama bu satır eklendikten SONRA bitmiş olabilir).
                 if key not in self._ignored_row_icons:
                     pkg = pkg_by_key.get(key)
                     if pkg is not None:
+                        row = self._ignored_rows[key]
                         icon = self._icon_for(pkg)
                         icon.add_css_class("pw-ignore-row-icon")
-                        self._ignored_rows[key].add_prefix(icon)
+                        row.add_prefix(icon)
+                        # Boyut, "−" düğmesinden SOLDA görünsün (asıl
+                        # listedeki gibi) — düğme zaten eklenmiş
+                        # olduğundan, önce çıkarıp boyuttan sonra
+                        # yeniden ekliyoruz (add_suffix hep sona ekler).
+                        remove_btn = self._ignored_row_buttons.get(key)
+                        if remove_btn is not None:
+                            row.remove(remove_btn)
+                        size_label = Gtk.Label(
+                            label=format_size(pkg.size),
+                            css_classes=["numeric", "dim-label"],
+                            valign=Gtk.Align.CENTER,
+                        )
+                        row.add_suffix(size_label)
+                        if remove_btn is not None:
+                            row.add_suffix(remove_btn)
                         self._ignored_row_icons.add(key)
                 continue
 
@@ -732,6 +754,12 @@ class UnusedAppsWindow(Adw.Window):
                 icon = self._icon_for(pkg)
                 icon.add_css_class("pw-ignore-row-icon")
                 row.add_prefix(icon)
+                size_label = Gtk.Label(
+                    label=format_size(pkg.size),
+                    css_classes=["numeric", "dim-label"],
+                    valign=Gtk.Align.CENTER,
+                )
+                row.add_suffix(size_label)
                 self._ignored_row_icons.add(key)
             # "list-remove-symbolic" bu temada (Breeze-dark) düz bir tire
             # değil, X şeklinde çiziliyor — doğrulandı, kafa karıştırıyordu.
@@ -746,6 +774,7 @@ class UnusedAppsWindow(Adw.Window):
             row.add_suffix(remove_btn)
             self._ignored_row.add_row(row)
             self._ignored_rows[key] = row
+            self._ignored_row_buttons[key] = remove_btn
 
     def _on_unignore_clicked(self, _button, key):
         ignored = prefs.get("ignored_unused_programs") or {}
