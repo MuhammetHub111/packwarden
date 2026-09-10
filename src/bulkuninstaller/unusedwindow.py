@@ -367,6 +367,19 @@ class UnusedAppsWindow(Adw.Window):
         .pw-ignored-expander .expander-row-arrow {
             transform: translateX(-21px);
         }
+        /* Panel ilk kez gizliden gorunure gectiginde (yok sayilan sayisi
+           0'dan 1'e ciktiginda) ok ikonu, hic tiklanmamis olsa bile bir
+           kere donuyordu. Sebebi: libadwaita'nin oku -gtk-icon-transform
+           ile 200ms'de donduren CSS transition'i, widget ilk realize
+           olurken bile (gercek bir :checked degisimi olmadan) bir kere
+           tetikleniyor. Bu sinif set_visible(True)'dan once eklenip
+           hemen sonra kaldirilarak SADECE o ilk kareyi (transition'siz)
+           gecistiriyor; sonraki gercek ac/kapa tiklamalarinda animasyon
+           normal kaliyor.
+        */
+        .pw-ignored-expander.pw-suppress-arrow-anim .expander-row-arrow {
+            transition: none;
+        }
         /* Gorunmez onay kutusu ikon ile baslik arasina gercek onay
            kutusuyla AYNI genislikte bosluk koyacakti, ama "nested"
            liste bunu gercek listeden daha genis uyguluyor (olculdu:
@@ -712,7 +725,16 @@ class UnusedAppsWindow(Adw.Window):
         # veriyor.
         if not ignored:
             self._ignored_row.set_expanded(False)
-        self._ignored_row.set_visible(bool(ignored))
+        now_visible = bool(ignored)
+        first_reveal = now_visible and not self._ignored_row.get_visible()
+        if first_reveal:
+            self._ignored_row.add_css_class("pw-suppress-arrow-anim")
+        self._ignored_row.set_visible(now_visible)
+        if first_reveal:
+            def _restore_arrow_anim():
+                self._ignored_row.remove_css_class("pw-suppress-arrow-anim")
+                return GLib.SOURCE_REMOVE
+            GLib.timeout_add(100, _restore_arrow_anim)
         self._ignored_row.set_title(_("Ignored ({count})").format(count=len(ignored)))
 
         # ÖNEMLİ: tüm satırları silip yeniden kurmuyoruz. Bunu denedik —
