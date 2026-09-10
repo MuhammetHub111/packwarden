@@ -275,17 +275,27 @@ class UnusedAppsWindow(Adw.Window):
 
     def _build_toast_widget(self):
         # Her bildirim kendi kutusuyla (_show_toast icinde olusturulur) bu
-        # DIKEY kutuya eklenir — en yeni en altta (ankor noktasina en
-        # yakin), eskiler ustune yigilir. Tek, sabit bir widget'i mutasyona
-        # ugratmak yerine (eski tasarim) boylece art arda gelen her eylem
-        # kendi bagimsiz "Geri al"ini tasiyan ayri bir bildirim olarak
-        # kalir, bir onceki tarafindan silinmez.
+        # DIKEY kutuya eklenir — en eski en USTTE (append: ilk eklenen ilk
+        # sirada kalir), yeniler altina eklenir. Tek, sabit bir widget'i
+        # mutasyona ugratmak yerine (eski tasarim) boylece art arda gelen
+        # her eylem kendi bagimsiz "Geri al"ini tasiyan ayri bir bildirim
+        # olarak kalir, bir onceki tarafindan silinmez.
+        #
+        # ANKOR USTTE (valign=START), ALTTA DEGIL: kullanici en USTTEKI
+        # (en eski) bildirimin Geri al/carpi'sina bastiginda, geri kalanlar
+        # o SABIT ust konuma dogru yukari kaysin istedi — fare hic
+        # hareket etmeden ust ust tiklanabilsin. Bu sadece USTTEN ankorlu
+        # bir kutuda olur: bir Gtk.Box'ta EN UST cocuk silinince, alttaki
+        # cocuklar kutunun (sabit) ust kenarina gore yukari kayar; alttan
+        # ankorlu olsaydi (eski tasarim) en ustu silmek digerlerini HIC
+        # KAYDIRMAZDI (bosluk sadece kutunun kendi ust kenari asagi inerek
+        # kapanirdi) — kullanicinin "geri al'a basinca fareyi asagi
+        # indirmem gerekiyor" diye tarif ettigi sorun tam olarak buydu.
         self._toast_stack_box = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL, spacing=8,
-            halign=Gtk.Align.CENTER, valign=Gtk.Align.END,
-            # Alt eylem çubuğu (Vazgeç/Kaldır) kendi başına ~50-56px
-            # yükseklikte — bildirim onun üstünde net bir boşlukla dursun.
-            margin_bottom=72,
+            halign=Gtk.Align.CENTER, valign=Gtk.Align.START,
+            # Baslik cubugunu (HeaderBar, ~46px) net bir boslukla gecsin.
+            margin_top=64,
         )
         self._overlay.add_overlay(self._toast_stack_box)
         self._toasts = []  # en eski once: [{"box","timeout_id","callback"}, ...]
