@@ -461,7 +461,16 @@ class UnusedAppsWindow(Adw.Window):
             "clicked", lambda _b, e=entry: self._remove_toast(e)
         )
 
-        self._toast_stack_box.append(box)
+        # Kutuya PREPEND (append DEGIL): en yeni her zaman en USTTE, en
+        # eski her zaman en ALTTA (kutunun sabit/ankor kenari, valign=END)
+        # durur. Kullanici hep o sabit alt konumdan "Geri al"/carpi'ya
+        # bastiginda, kapanan (en eski) bildirimin yerine ikinci en eski
+        # otomatik olarak o AYNI sabit konuma kayar — fare hic hareket
+        # ettirmeden art arda tiklanabilir. append olsaydi en yeni sabit
+        # altta kalir, en eskiyi (en USTTEKI'ni) kapatinca kalanlar
+        # ASAGI kayardi; kullanici bunu "geri al'a basinca fareyi asagi
+        # indirmem gerekiyor" diye tarif etti.
+        self._toast_stack_box.prepend(box)
         self._toasts.append(entry)
 
         # Widget bu satirin sonunda henuz gerceklenmemis (unrealized) —
