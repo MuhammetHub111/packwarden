@@ -108,6 +108,7 @@ class UnusedAppsWindow(Adw.Window):
             selected=saved_preset,
         )
         self._threshold_row.connect("notify::selected", self._on_threshold_changed)
+        self._threshold_row.add_css_class("pw-threshold-row")
 
         self._custom_row = Adw.SpinRow.new_with_range(1, 3650, 1)
         self._custom_row.set_title(_("Custom (days)"))
@@ -409,6 +410,14 @@ class UnusedAppsWindow(Adw.Window):
         */
         .pw-ignore-row-size {
             transform: translateX(-14px);
+        }
+        /* "Su suredir kullanilmayanlar" (S harfi), "Ozel (gun)" ve
+           "Yoksayilanlar" (O/Y harfleri) ile ayni x'te olcumustu ama
+           1px fark vardi - harf sekli. Kullanici gozle fark ediyor,
+           kapatiyoruz.
+        */
+        .pw-threshold-row .title {
+            transform: translateX(-0.5px);
         }
         """
         provider = Gtk.CssProvider()
