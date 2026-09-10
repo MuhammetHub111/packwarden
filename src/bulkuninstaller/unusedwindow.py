@@ -390,19 +390,19 @@ class UnusedAppsWindow(Adw.Window):
            ait) - kendi ozel sinifimizi (pw-ignore-row-icon) ekleyip
            onunla hedefliyoruz.
         */
-        /* Ikonun kutu konumu kodda ("prefixes" kutusunun ilk cocugu)
-           yoksayilanlar ve asil liste icin BIREBIR ayni - burada
-           duzeltilecek gercek bir yapisal kayma yok (basliktaki 4px
-           gibi). Kullanicinin art arda istedigi kucuk nudge'lar hatali
-           bir olcum yontemiyle (compute_bounds, transform'u gormuyor)
-           kalibre edildigi icin bilmeden 10px'e kadar birikmisti; asil
-           gercek kaydirma miktari ayni ikonu once/sonra ekran
-           goruntusuyle karsilastirarak dogrulandi. Yapisal bir sebep
-           olmadigi icin sifira geri aliyoruz - "dengeli deneyim" icin
-           en uygunu bu.
+        /* YANLIS TESHIS DUZELTMESI: "yapisal kayma yok" dedik ve sifira
+           aldik, ama kullanici bunun "en dibe kaymis" gibi kotu
+           gorundugunu bildirdi - dogruydu. Kesin kanit icin AYNI pkg'nin
+           AYNI ikonunu hem gercek nested (yoksayilan) satirda hem de
+           gecici bir boxed-list satirinda olusturup compute_bounds ile
+           (burada transform yok, guvenilir) karsilastirdik: nested
+           x=57, boxed-list x=69 - TAM 12px'lik gercek bir yapisal fark
+           var (basliktaki 4px, eksi dugmesindeki 12px ile ayni aile).
+           Dogru deger buydu; kullanicinin nudge'larinin toplami da
+           tesadufen buna yakinmis.
         */
         .pw-ignore-row-icon {
-            transform: translateX(0px);
+            transform: translateX(12px);
         }
         /* Yoksayilanlar bolumundeki boyut yazisi biraz sola kaydirilsin
            istendi.
