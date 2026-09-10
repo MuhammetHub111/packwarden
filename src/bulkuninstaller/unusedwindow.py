@@ -708,7 +708,7 @@ class UnusedAppsWindow(Adw.Window):
             _("{name} won't be shown in the Unused programs list again").format(name=pkg.name),
             button_label=_("Undo"),
             on_action=lambda k=key: self._unignore(k),
-            timeout=5,
+            timeout=7,
         )
 
     def _update_ignored_button(self):
@@ -834,7 +834,7 @@ class UnusedAppsWindow(Adw.Window):
             _("{name} will be shown in the Unused programs list again").format(name=name),
             button_label=_("Undo"),
             on_action=lambda k=key, n=name: self._reignore(k, n),
-            timeout=5,
+            timeout=7,
         )
 
     def _unignore(self, key):
