@@ -390,8 +390,19 @@ class UnusedAppsWindow(Adw.Window):
            ait) - kendi ozel sinifimizi (pw-ignore-row-icon) ekleyip
            onunla hedefliyoruz.
         */
+        /* Ikonun kutu konumu kodda ("prefixes" kutusunun ilk cocugu)
+           yoksayilanlar ve asil liste icin BIREBIR ayni - burada
+           duzeltilecek gercek bir yapisal kayma yok (basliktaki 4px
+           gibi). Kullanicinin art arda istedigi kucuk nudge'lar hatali
+           bir olcum yontemiyle (compute_bounds, transform'u gormuyor)
+           kalibre edildigi icin bilmeden 10px'e kadar birikmisti; asil
+           gercek kaydirma miktari ayni ikonu once/sonra ekran
+           goruntusuyle karsilastirarak dogrulandi. Yapisal bir sebep
+           olmadigi icin sifira geri aliyoruz - "dengeli deneyim" icin
+           en uygunu bu.
+        */
         .pw-ignore-row-icon {
-            transform: translateX(10px);
+            transform: translateX(0px);
         }
         /* Yoksayilanlar bolumundeki boyut yazisi biraz sola kaydirilsin
            istendi.
