@@ -269,43 +269,26 @@ class UnusedAppsWindow(Adw.Window):
         )
         return GLib.SOURCE_CONTINUE
 
-    def _build_toast_widget(self):
-        self._toast_label = Gtk.Label(
-            xalign=0, hexpand=True, ellipsize=Pango.EllipsizeMode.END,
-        )
-        self._toast_action_button = Gtk.Button(css_classes=["flat"])
-        self._toast_action_button.connect("clicked", self._on_toast_action_clicked)
-        self._toast_close_button = Gtk.Button(
-            icon_name="window-close-symbolic",
-            css_classes=["flat", "circular"],
-            tooltip_text=_("Close"),
-        )
-        self._toast_close_button.connect("clicked", lambda *_a: self._hide_toast())
+    # Ayni anda en fazla bu kadar bildirim ust uste yigilabilir — 4.'su
+    # gelince en eskisi (kullanicinin "Geri al" sansi olmadan) dusurulur.
+    _MAX_TOASTS = 3
 
-        self._toast = Gtk.Box(
-            orientation=Gtk.Orientation.HORIZONTAL, spacing=6,
-            css_classes=["pw-toast"],
+    def _build_toast_widget(self):
+        # Her bildirim kendi kutusuyla (_show_toast icinde olusturulur) bu
+        # DIKEY kutuya eklenir — en yeni en altta (ankor noktasina en
+        # yakin), eskiler ustune yigilir. Tek, sabit bir widget'i mutasyona
+        # ugratmak yerine (eski tasarim) boylece art arda gelen her eylem
+        # kendi bagimsiz "Geri al"ini tasiyan ayri bir bildirim olarak
+        # kalir, bir onceki tarafindan silinmez.
+        self._toast_stack_box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL, spacing=8,
             halign=Gtk.Align.CENTER, valign=Gtk.Align.END,
             # Alt eylem çubuğu (Vazgeç/Kaldır) kendi başına ~50-56px
             # yükseklikte — bildirim onun üstünde net bir boşlukla dursun.
             margin_bottom=72,
-            # Kayma efekti YOK — kaymadan, olduğu yerde büyüyerek/sararak
-            # beliren bir "baloncuk" efekti isteniyor. GTK'nin CSS geçiş
-            # desteğiyle (transform + opacity) bunu kendimiz yönetiyoruz;
-            # widget hep "visible" kalır, görünürlük "pw-toast-shown"
-            # sınıfının eklenip çıkarılmasıyla animasyonlu değişir — bu
-            # yüzden set_visible(False) yerine can_target ile tıklamaları
-            # gizliyken devre dışı bırakıyoruz.
-            visible=True,
-            can_target=False,
         )
-        self._toast.append(self._toast_label)
-        self._toast.append(self._toast_action_button)
-        self._toast.append(self._toast_close_button)
-        self._overlay.add_overlay(self._toast)
-
-        self._toast_timeout_id = None
-        self._toast_action_callback = None
+        self._overlay.add_overlay(self._toast_stack_box)
+        self._toasts = []  # en eski once: [{"box","timeout_id","callback"}, ...]
 
         css = b"""
         .pw-toast {
@@ -441,39 +424,94 @@ class UnusedAppsWindow(Adw.Window):
         )
 
     def _show_toast(self, title, button_label=None, on_action=None, timeout=5):
-        if self._toast_timeout_id is not None:
-            GLib.source_remove(self._toast_timeout_id)
-            self._toast_timeout_id = None
-        self._toast_label.set_label(title)
+        # Zaten 3 bildirim yigilmisken 4.'su gelirse, en eskisini (kullanici
+        # onu okuma/geri alma sansi olmadan) sessizce dusuruyoruz — sinirsiz
+        # yigilmasin.
+        if len(self._toasts) >= self._MAX_TOASTS:
+            self._remove_toast(self._toasts[0], animate=False)
+
+        label = Gtk.Label(
+            label=title, xalign=0, hexpand=True,
+            ellipsize=Pango.EllipsizeMode.END,
+        )
+        action_button = Gtk.Button(css_classes=["flat"])
+        close_button = Gtk.Button(
+            icon_name="window-close-symbolic",
+            css_classes=["flat", "circular"],
+            tooltip_text=_("Close"),
+        )
+        box = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL, spacing=6,
+            css_classes=["pw-toast"],
+        )
+        box.append(label)
+        box.append(action_button)
+        box.append(close_button)
+
+        entry = {"box": box, "timeout_id": None, "callback": on_action}
         if button_label:
-            self._toast_action_button.set_label(button_label)
-            self._toast_action_button.set_visible(True)
+            action_button.set_label(button_label)
+            action_button.set_visible(True)
         else:
-            self._toast_action_button.set_visible(False)
-        self._toast_action_callback = on_action
-        self._toast.set_can_target(True)
-        self._toast.add_css_class("pw-toast-shown")
+            action_button.set_visible(False)
+        action_button.connect(
+            "clicked", lambda _b, e=entry: self._on_toast_action_clicked(e)
+        )
+        close_button.connect(
+            "clicked", lambda _b, e=entry: self._remove_toast(e)
+        )
+
+        self._toast_stack_box.append(box)
+        self._toasts.append(entry)
+
+        # Widget bu satirin sonunda henuz gerceklenmemis (unrealized) —
+        # "pw-toast-shown" sinifini AYNI karede eklersek CSS gecisi
+        # (transition) tetiklenmeden direkt son haliyle belirir (bkz.
+        # expander oku ile ayni GTK tuhafligi, ama burada tam tersi:
+        # o zaman animasyonu BASTIRMAK istiyorduk, burda TETIKLENMESINI
+        # istiyoruz). Bir kare bekleyip sonra ekliyoruz ki gercek
+        # "baloncuk" animasyonu oynasin.
+        def _reveal(b=box):
+            b.add_css_class("pw-toast-shown")
+            return GLib.SOURCE_REMOVE
+        GLib.idle_add(_reveal)
+
         if timeout:
-            self._toast_timeout_id = GLib.timeout_add_seconds(
-                timeout, self._on_toast_timeout
+            entry["timeout_id"] = GLib.timeout_add_seconds(
+                timeout, lambda e=entry: self._on_toast_timeout(e)
             )
 
-    def _on_toast_timeout(self):
-        self._toast_timeout_id = None
-        self._hide_toast()
+    def _on_toast_timeout(self, entry):
+        entry["timeout_id"] = None
+        self._remove_toast(entry)
         return GLib.SOURCE_REMOVE
 
-    def _hide_toast(self):
-        if self._toast_timeout_id is not None:
-            GLib.source_remove(self._toast_timeout_id)
-            self._toast_timeout_id = None
-        self._toast.remove_css_class("pw-toast-shown")
-        self._toast.set_can_target(False)
-        self._toast_action_callback = None
+    def _remove_toast(self, entry, animate=True):
+        if entry not in self._toasts:
+            return
+        if entry["timeout_id"] is not None:
+            GLib.source_remove(entry["timeout_id"])
+            entry["timeout_id"] = None
+        self._toasts.remove(entry)
+        box = entry["box"]
+        if not animate:
+            self._toast_stack_box.remove(box)
+            return
+        box.remove_css_class("pw-toast-shown")
+        box.set_can_target(False)
 
-    def _on_toast_action_clicked(self, _button):
-        callback = self._toast_action_callback
-        self._hide_toast()
+        # Kapanma animasyonu (opacity/scale transition, ~220ms) bitene
+        # kadar widget'i kutuda birak, sonra gercekten cikar — aksi halde
+        # solma hic gorunmeden aninda kaybolur.
+        def _cleanup(b=box):
+            if b.get_parent() is self._toast_stack_box:
+                self._toast_stack_box.remove(b)
+            return GLib.SOURCE_REMOVE
+        GLib.timeout_add(220, _cleanup)
+
+    def _on_toast_action_clicked(self, entry):
+        callback = entry["callback"]
+        self._remove_toast(entry)
         if callback is not None:
             callback()
 
@@ -701,9 +739,10 @@ class UnusedAppsWindow(Adw.Window):
         # Görünür, tek tıkla çalışan bir düğme yanlışlıkla da basılabilir —
         # geri alma bildirimi bunu ucuzlaştırıyor, ayrıca yönetim panelini
         # hiç bilmeyen biri için de "bunu geri getirebilirim" ipucu veriyor.
-        # _show_toast önceki bildirimi (varsa) anında değiştirir, kuyruğa
-        # almaz — art arda birkaç uygulamayı hızlıca işaretlemek gecikmeli
-        # hissettirmiyor.
+        # _show_toast her çağrıda YENİ bir bildirim ekler, öncekini
+        # değiştirmez (bkz. _build_toast_widget) — art arda birkaç
+        # uygulamayı hızlıca işaretlerse her biri kendi "Geri al"ıyla
+        # üst üste yığılır, ilki kaybolmaz.
         self._show_toast(
             _("{name} won't be shown in the Unused programs list again").format(name=pkg.name),
             button_label=_("Undo"),
