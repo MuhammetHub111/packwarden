@@ -397,7 +397,7 @@ class UnusedAppsWindow(Adw.Window):
            istendi.
         */
         .pw-ignore-row-size {
-            transform: translateX(-10px);
+            transform: translateX(-14px);
         }
         """
         provider = Gtk.CssProvider()
