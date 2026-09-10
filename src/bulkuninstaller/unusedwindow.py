@@ -372,7 +372,7 @@ class UnusedAppsWindow(Adw.Window):
            14px fazla). Kapatiyoruz.
         */
         .pw-ignore-title-spacer {
-            margin-right: 4px;
+            margin-right: 8px;
         }
         /* ExpanderRow'un basligi ("Yoksayilanlar"), ust satirlarin
            ("Ozel (gun)" vb.) basligindan ~11px sola kayik duruyordu
