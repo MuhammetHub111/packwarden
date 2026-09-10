@@ -230,8 +230,10 @@ TR = {
     "Don't show again": "Bir daha gösterme",
     "Ignored ({count})": "Yoksayılanlar ({count})",
     "Show again": "Tekrar göster",
-    "{name} won't be shown again": "{name} bir daha gösterilmeyecek",
-    "{name} will be shown again": "{name} tekrar gösterilecek",
+    "{name} won't be shown in the Unused programs list again":
+        "{name} artık Kullanılmayan programlar listesinde gösterilmeyecek",
+    "{name} will be shown in the Unused programs list again":
+        "{name} tekrar Kullanılmayan programlar listesinde gösterilecek",
     "Undo": "Geri al",
     "No packages match": "Eşleşen paket yok",
     "Try a different search or source filter":

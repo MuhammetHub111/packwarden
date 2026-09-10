@@ -705,7 +705,7 @@ class UnusedAppsWindow(Adw.Window):
         # almaz — art arda birkaç uygulamayı hızlıca işaretlemek gecikmeli
         # hissettirmiyor.
         self._show_toast(
-            _("{name} won't be shown again").format(name=pkg.name),
+            _("{name} won't be shown in the Unused programs list again").format(name=pkg.name),
             button_label=_("Undo"),
             on_action=lambda k=key: self._unignore(k),
             timeout=5,
@@ -831,7 +831,7 @@ class UnusedAppsWindow(Adw.Window):
         # "Ekle" tarafındaki (yoksay düğmesi) bildirimde Geri al var —
         # kullanıcı burada da aynı simetriyi istedi.
         self._show_toast(
-            _("{name} will be shown again").format(name=name),
+            _("{name} will be shown in the Unused programs list again").format(name=name),
             button_label=_("Undo"),
             on_action=lambda k=key, n=name: self._reignore(k, n),
             timeout=5,
