@@ -409,7 +409,7 @@ class UnusedAppsWindow(Adw.Window):
            istendi.
         */
         .pw-ignore-row-size {
-            transform: translateX(-14px);
+            transform: translateX(-12px);
         }
         /* "Su suredir kullanilmayanlar" (S harfi), "Ozel (gun)" ve
            "Yoksayilanlar" (O/Y harfleri) ile ayni x'te olcumustu ama
