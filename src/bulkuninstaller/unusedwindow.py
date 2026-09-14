@@ -304,13 +304,21 @@ class UnusedAppsWindow(Adw.Window):
             border-radius: 9999px;
             box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
             opacity: 0;
-            transform: scale(0.6);
+            /* Gizli/gecis durumu hem ilk belirirken hem kapanirken kullanilir
+               (ayni CSS kurali) - bu yuzden translateY burada TEK basina
+               "kapanirken yukari kayma" ya da "belirirken yukaridan inme"
+               degil, ikisi birden: kapanirken oradan yukari uzaklasir,
+               belirirken de o noktadan asagi/yerine gelir. Kullanicinin
+               istegi (X/Geri al -> bir tik yukari) boylece saglaniyor,
+               konum (alt ankor) hic degismedi.
+            */
+            transform: scale(0.6) translateY(-10px);
             transition: opacity 180ms ease-out,
                         transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
         }
         .pw-toast.pw-toast-shown {
             opacity: 1;
-            transform: scale(1);
+            transform: scale(1) translateY(0);
         }
         /* libadwaita bu satira farkli bir kart rengi, yuvarlak kose ve
            ince bir kenarlik veriyor (acilan bir alt-kart gibi ayirt
