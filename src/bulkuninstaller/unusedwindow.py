@@ -585,14 +585,28 @@ class UnusedAppsWindow(Adw.Window):
             entry["timeout_id"] = None
         removed_rank = entry["rank"]
         self._toasts.remove(entry)
-        # SADECE bu kapananin ALTINDAKILER (rank'i daha kucuk olanlar,
-        # ekrandaki karsiligi: ankora daha yakin/daha asagida olanlar) bir
-        # basamak yukari kayar, o bosalan yeri doldurur. USTUNDEKILER
-        # (rank'i daha yuksek olanlar) zaten dogru yerdedir, dokunulmaz.
-        for other in self._toasts:
-            if other["rank"] < removed_rank:
-                other["rank"] += 1
-                self._apply_rank_css(other)
+        if removed_rank == 0:
+            # En ALTTAKI (ankor) kapandi - altinda kimse yok ki yukari
+            # kayip onun yerini doldursun. Bu yuzden bu tek durumda yon
+            # TERSINE cevriliyor: USTUNDEKILER asagi kayar (rank -= 1),
+            # bosluk en USTTE kalir. Kullanicinin ayri ayri istedigi iki
+            # simetrik davranis boylece ikisi de saglaniyor: en USTTEKI
+            # kapanirsa altindakiler yukari, en ALTTAKI kapanirsa
+            # ustundekiler asagi.
+            for other in self._toasts:
+                if other["rank"] > removed_rank:
+                    other["rank"] -= 1
+                    self._apply_rank_css(other)
+        else:
+            # SADECE bu kapananin ALTINDAKILER (rank'i daha kucuk olanlar,
+            # ekrandaki karsiligi: ankora daha yakin/daha asagida olanlar)
+            # bir basamak yukari kayar, o bosalan yeri doldurur.
+            # USTUNDEKILER (rank'i daha yuksek olanlar) zaten dogru
+            # yerdedir, dokunulmaz.
+            for other in self._toasts:
+                if other["rank"] < removed_rank:
+                    other["rank"] += 1
+                    self._apply_rank_css(other)
         box = entry["box"]
         if not animate:
             self._overlay.remove_overlay(box)
