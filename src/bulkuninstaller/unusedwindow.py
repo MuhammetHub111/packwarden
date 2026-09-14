@@ -281,21 +281,17 @@ class UnusedAppsWindow(Adw.Window):
         # her eylem kendi bagimsiz "Geri al"ini tasiyan ayri bir bildirim
         # olarak kalir, bir onceki tarafindan silinmez.
         #
-        # ANKOR USTTE (valign=START), ALTTA DEGIL: kullanici en USTTEKI
-        # (en eski) bildirimin Geri al/carpi'sina bastiginda, geri kalanlar
-        # o SABIT ust konuma dogru yukari kaysin istedi — fare hic
-        # hareket etmeden ust ust tiklanabilsin. Bu sadece USTTEN ankorlu
-        # bir kutuda olur: bir Gtk.Box'ta EN UST cocuk silinince, alttaki
-        # cocuklar kutunun (sabit) ust kenarina gore yukari kayar; alttan
-        # ankorlu olsaydi (eski tasarim) en ustu silmek digerlerini HIC
-        # KAYDIRMAZDI (bosluk sadece kutunun kendi ust kenari asagi inerek
-        # kapanirdi) — kullanicinin "geri al'a basinca fareyi asagi
-        # indirmem gerekiyor" diye tarif ettigi sorun tam olarak buydu.
+        # Ust ankor (valign=START) denendi (bkz. git log) — dismiss'te
+        # yukari kayma saglıyordu ama bildirim baslik cubugunun altinda,
+        # yani ekranin USTUNDE cikiyordu; kullanici bunu "cikan yer
+        # yanlis" diye reddetti ve eski (alt) konuma donulmesini istedi,
+        # baska bir sey degistirilmeden. Alt eylem çubuğu (Vazgeç/Kaldır)
+        # kendi başına ~50-56px yükseklikte — bildirim onun üstünde net
+        # bir boşlukla dursun.
         self._toast_stack_box = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL, spacing=8,
-            halign=Gtk.Align.CENTER, valign=Gtk.Align.START,
-            # Baslik cubugunu (HeaderBar, ~46px) net bir boslukla gecsin.
-            margin_top=64,
+            halign=Gtk.Align.CENTER, valign=Gtk.Align.END,
+            margin_bottom=72,
         )
         self._overlay.add_overlay(self._toast_stack_box)
         self._toasts = []  # en eski once: [{"box","timeout_id","callback"}, ...]
