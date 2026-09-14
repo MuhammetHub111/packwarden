@@ -456,11 +456,14 @@ class UnusedAppsWindow(Adw.Window):
     def _show_toast(self, title, button_label=None, on_action=None, timeout=5):
         # Zaten 3 bildirim yigilmisken 4.'su gelirse, en eskisini (rank'i en
         # yuksek olani, kullanici onu okuma/geri alma sansi olmadan) sessizce
-        # dusuruyoruz — sinirsiz yigilmasin. _remove_toast bunu dusururken
-        # geri kalanlarin rank'ini da otomatik "bir basamak yukari" kaydirir.
+        # dusuruyoruz — sinirsiz yigilmasin. _discard_toast (REFLOW YAPMAYAN
+        # hali, bkz. tanimi) kullaniliyor cunku birazdan asagidaki "digerlerini
+        # bir basamak yukari kaydir" dongusu ZATEN bunu yapacak — _remove_toast
+        # kullanilsaydi İKİ KEZ kaydirilip rank 0-2 araligini asardi (gercek
+        # bug buydu: hizli art arda +/- basinca bildirimler ust uste biniyordu).
         if len(self._toasts) >= self._MAX_TOASTS:
             oldest = max(self._toasts, key=lambda e: e["rank"])
-            self._remove_toast(oldest, animate=False)
+            self._discard_toast(oldest)
 
         label = Gtk.Label(
             label=title, xalign=0, hexpand=True,
@@ -554,6 +557,25 @@ class UnusedAppsWindow(Adw.Window):
             box.add_css_class("pw-toast-rank-1")
         elif entry["rank"] == 2:
             box.add_css_class("pw-toast-rank-2")
+
+    def _discard_toast(self, entry):
+        # _remove_toast'un REFLOW YAPMAYAN hali - sadece kaydi ve widget'i
+        # siler, kalanlarin rank'ine dokunmaz. SADECE _show_toast'un 4.
+        # bildirim gelince en eskiyi dusurdugu yerde kullanilir; orada
+        # dusurmenin hemen ardindan gelen "herkesi bir basamak yukari
+        # kaydir" dongusu geri kalanlari zaten dogru sekilde kaydiracak -
+        # burada AYRICA bir reflow yapılırsa iki kez kaymis olur (rank
+        # 0-2 araligini asar, bir bildirim yanlislikla baskasinin ustune
+        # biner). Bu tam olarak "hizli art arda +/- basinca bildirimler
+        # ust uste biniyor" diye bildirilen hatanin sebebiydi.
+        if entry["timeout_id"] is not None:
+            GLib.source_remove(entry["timeout_id"])
+            entry["timeout_id"] = None
+        if entry in self._toasts:
+            self._toasts.remove(entry)
+        box = entry["box"]
+        if box.get_parent() is self._overlay:
+            self._overlay.remove_overlay(box)
 
     def _remove_toast(self, entry, animate=True):
         if entry not in self._toasts:
