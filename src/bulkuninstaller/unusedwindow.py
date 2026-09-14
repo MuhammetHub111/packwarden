@@ -273,27 +273,26 @@ class UnusedAppsWindow(Adw.Window):
     # gelince en eskisi (kullanicinin "Geri al" sansi olmadan) dusurulur.
     _MAX_TOASTS = 3
 
+    # Yigindaki komsu bildirimler arasi mesafe (px) — rank tabanli
+    # translateY hesabinda kullanilir, bkz. _apply_rank_css.
+    _TOAST_STEP = 56
+
     def _build_toast_widget(self):
-        # Her bildirim kendi kutusuyla (_show_toast icinde olusturulur) bu
-        # DIKEY kutuya eklenir — en eski en USTTE (append: ilk eklenen ilk
-        # sirada kalir), yeniler altina eklenir. Tek, sabit bir widget'i
-        # mutasyona ugratmak yerine (eski tasarim) boylece art arda gelen
-        # her eylem kendi bagimsiz "Geri al"ini tasiyan ayri bir bildirim
-        # olarak kalir, bir onceki tarafindan silinmez.
-        #
-        # Ust ankor (valign=START) denendi (bkz. git log) — dismiss'te
-        # yukari kayma saglıyordu ama bildirim baslik cubugunun altinda,
-        # yani ekranin USTUNDE cikiyordu; kullanici bunu "cikan yer
-        # yanlis" diye reddetti ve eski (alt) konuma donulmesini istedi,
-        # baska bir sey degistirilmeden. Alt eylem çubuğu (Vazgeç/Kaldır)
-        # kendi başına ~50-56px yükseklikte — bildirim onun üstünde net
-        # bir boşlukla dursun.
-        self._toast_stack_box = Gtk.Box(
-            orientation=Gtk.Orientation.VERTICAL, spacing=8,
-            halign=Gtk.Align.CENTER, valign=Gtk.Align.END,
-            margin_bottom=72,
-        )
-        self._overlay.add_overlay(self._toast_stack_box)
+        # Her bildirim (_show_toast icinde olusturulur) DOGRUDAN overlay'e
+        # kendi kutusuyla eklenir — ortak bir Gtk.Box'a DEGIL. Sebep: konum
+        # (alt ankor, margin_bottom=72) HERKESTE SABIT kalsin isteniyor,
+        # ama en eskiyi kapatinca kalanlar yukari kaysin da isteniyor. Bir
+        # Gtk.Box otomatik yerlesiminde bu ikisi ayni anda olamiyor (box
+        # hangi kenardan ankorluysa, o kenara yakin cocugu silmek digerlerini
+        # O KENARA dogru kaydirir, asla ters yone) — bkz. git log, uzun
+        # tartisma. Cozum: her bildirimin margin_bottom'u HEP 72 (ortak
+        # ankor), ama her biri kendi "rank"ina (0=en yeni/alt, 1, 2=en
+        # eski/ust) gore ekstra bir translateY ile SANAL olarak o kadar
+        # yukari kaydiriliyor (bkz. CSS .pw-toast-rank-N). Boylece gercek
+        # margin/konum hic degismiyor (ayni yerde duruyor), sadece rank
+        # degistiginde (bir bildirim kalkinca digerleri "bir rank yukari"
+        # olunca) o translateY degeri degisip CSS transition ile yumusakca
+        # kayiyor — hem konum ayni, hem yukari kayma ayni anda saglaniyor.
         self._toasts = []  # en eski once: [{"box","timeout_id","callback"}, ...]
 
         css = b"""
@@ -319,6 +318,23 @@ class UnusedAppsWindow(Adw.Window):
         .pw-toast.pw-toast-shown {
             opacity: 1;
             transform: scale(1) translateY(0);
+        }
+        /* rank-1/rank-2: bkz. _apply_rank_css - her ikisi de AYNI margin_bottom
+           (72) ile konumlanir, sadece translateY ile "sanal" olarak bir
+           basamak daha yukarida GORUNURLER. Deger _TOAST_STEP (56px) ile
+           ayni olmali - orada degisirse burada da guncellenmeli.
+        */
+        .pw-toast.pw-toast-rank-1 {
+            transform: scale(0.6) translateY(-66px);
+        }
+        .pw-toast.pw-toast-rank-1.pw-toast-shown {
+            transform: scale(1) translateY(-56px);
+        }
+        .pw-toast.pw-toast-rank-2 {
+            transform: scale(0.6) translateY(-122px);
+        }
+        .pw-toast.pw-toast-rank-2.pw-toast-shown {
+            transform: scale(1) translateY(-112px);
         }
         /* libadwaita bu satira farkli bir kart rengi, yuvarlak kose ve
            ince bir kenarlik veriyor (acilan bir alt-kart gibi ayirt
@@ -438,11 +454,13 @@ class UnusedAppsWindow(Adw.Window):
         )
 
     def _show_toast(self, title, button_label=None, on_action=None, timeout=5):
-        # Zaten 3 bildirim yigilmisken 4.'su gelirse, en eskisini (kullanici
-        # onu okuma/geri alma sansi olmadan) sessizce dusuruyoruz — sinirsiz
-        # yigilmasin.
+        # Zaten 3 bildirim yigilmisken 4.'su gelirse, en eskisini (rank'i en
+        # yuksek olani, kullanici onu okuma/geri alma sansi olmadan) sessizce
+        # dusuruyoruz — sinirsiz yigilmasin. _remove_toast bunu dusururken
+        # geri kalanlarin rank'ini da otomatik "bir basamak yukari" kaydirir.
         if len(self._toasts) >= self._MAX_TOASTS:
-            self._remove_toast(self._toasts[0], animate=False)
+            oldest = max(self._toasts, key=lambda e: e["rank"])
+            self._remove_toast(oldest, animate=False)
 
         label = Gtk.Label(
             label=title, xalign=0, hexpand=True,
@@ -457,12 +475,26 @@ class UnusedAppsWindow(Adw.Window):
         box = Gtk.Box(
             orientation=Gtk.Orientation.HORIZONTAL, spacing=6,
             css_classes=["pw-toast"],
+            halign=Gtk.Align.CENTER, valign=Gtk.Align.END,
+            # Alt eylem çubuğu (Vazgeç/Kaldır) kendi başına ~50-56px
+            # yükseklikte — bildirim onun üstünde net bir boşlukla dursun.
+            # Bu deger HERKESTE ayni ve hic degismez - "rank"a gore yukari
+            # kayma translateY ile ayriyeten yapiliyor (bkz. _apply_rank_css).
+            margin_bottom=72,
         )
+        # Gtk.Overlay'e DOGRUDAN eklenen (paylasilan bir Gtk.Box'a degil)
+        # ve valign=END ile konumlanan bir widget, acik bir yukseklik
+        # istegi olmadan DOGAL yuksekligini 0 olcuyor - canli testle
+        # dogrulandi (icerik+CSS'in kendisi doguysa bile widget hic
+        # gorunmuyordu). Sabit bir min-yukseklik bunu duzeltiyor.
+        box.set_size_request(-1, 44)
         box.append(label)
         box.append(action_button)
         box.append(close_button)
 
-        entry = {"box": box, "timeout_id": None, "callback": on_action}
+        entry = {
+            "box": box, "timeout_id": None, "callback": on_action, "rank": 0,
+        }
         if button_label:
             action_button.set_label(button_label)
             action_button.set_visible(True)
@@ -475,8 +507,18 @@ class UnusedAppsWindow(Adw.Window):
             "clicked", lambda _b, e=entry: self._remove_toast(e)
         )
 
-        self._toast_stack_box.append(box)
+        # Yeni bildirim hep rank 0'da (alt ankor) girer — bunun icin
+        # oncekilerin HEPSI bir basamak yukari kayar (rank += 1), tipki
+        # eski Gtk.Box tasariminda "yeni gelince digerleri yukari kayiyor"
+        # davranisiyla ayni hissi verir; ama burda gercek konum degil,
+        # translateY degisiyor.
+        for existing in self._toasts:
+            existing["rank"] += 1
+            self._apply_rank_css(existing)
+
+        self._overlay.add_overlay(box)
         self._toasts.append(entry)
+        self._apply_rank_css(entry)
 
         # Widget bu satirin sonunda henuz gerceklenmemis (unrealized) —
         # "pw-toast-shown" sinifini AYNI karede eklersek CSS gecisi
@@ -500,16 +542,38 @@ class UnusedAppsWindow(Adw.Window):
         self._remove_toast(entry)
         return GLib.SOURCE_REMOVE
 
+    def _apply_rank_css(self, entry):
+        # rank 0 = alt ankora en yakin (ekstra translateY yok, temel
+        # .pw-toast/.pw-toast-shown kurali gecerli). rank 1/2 icin ekstra
+        # sinif ekleniyor (bkz. CSS) - bu, GERCEK konumu (margin_bottom)
+        # DEGIL, sadece boyanma anindaki translateY'yi degistirir.
+        box = entry["box"]
+        box.remove_css_class("pw-toast-rank-1")
+        box.remove_css_class("pw-toast-rank-2")
+        if entry["rank"] == 1:
+            box.add_css_class("pw-toast-rank-1")
+        elif entry["rank"] == 2:
+            box.add_css_class("pw-toast-rank-2")
+
     def _remove_toast(self, entry, animate=True):
         if entry not in self._toasts:
             return
         if entry["timeout_id"] is not None:
             GLib.source_remove(entry["timeout_id"])
             entry["timeout_id"] = None
+        removed_rank = entry["rank"]
         self._toasts.remove(entry)
+        # SADECE bu kapananin ALTINDAKILER (rank'i daha kucuk olanlar,
+        # ekrandaki karsiligi: ankora daha yakin/daha asagida olanlar) bir
+        # basamak yukari kayar, o bosalan yeri doldurur. USTUNDEKILER
+        # (rank'i daha yuksek olanlar) zaten dogru yerdedir, dokunulmaz.
+        for other in self._toasts:
+            if other["rank"] < removed_rank:
+                other["rank"] += 1
+                self._apply_rank_css(other)
         box = entry["box"]
         if not animate:
-            self._toast_stack_box.remove(box)
+            self._overlay.remove_overlay(box)
             return
         box.remove_css_class("pw-toast-shown")
         box.set_can_target(False)
@@ -518,8 +582,8 @@ class UnusedAppsWindow(Adw.Window):
         # kadar widget'i kutuda birak, sonra gercekten cikar — aksi halde
         # solma hic gorunmeden aninda kaybolur.
         def _cleanup(b=box):
-            if b.get_parent() is self._toast_stack_box:
-                self._toast_stack_box.remove(b)
+            if b.get_parent() is self._overlay:
+                self._overlay.remove_overlay(b)
             return GLib.SOURCE_REMOVE
         GLib.timeout_add(220, _cleanup)
 
