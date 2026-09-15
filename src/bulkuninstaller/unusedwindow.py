@@ -223,7 +223,8 @@ class UnusedAppsWindow(Adw.Window):
         # Pencereden acikca daha genis bir deger veriyoruz ki tekrar
         # aktif hale gelmesin.
         clamp = Adw.Clamp(maximum_size=900, child=content)
-        scrolled = Gtk.ScrolledWindow(child=clamp, vexpand=True)
+        self._scrolled = Gtk.ScrolledWindow(child=clamp, vexpand=True)
+        scrolled = self._scrolled
 
         cancel_button = Gtk.Button(label=_("Cancel"))
         cancel_button.connect("clicked", lambda *_a: self.close())
@@ -542,6 +543,7 @@ class UnusedAppsWindow(Adw.Window):
         self._overlay.add_overlay(box)
         self._toasts.append(entry)
         self._apply_rank_css(entry)
+        self._update_toast_reserve()
 
         # Widget bu satirin sonunda henuz gerceklenmemis (unrealized) —
         # "pw-toast-shown" sinifini AYNI karede eklersek CSS gecisi
@@ -587,6 +589,24 @@ class UnusedAppsWindow(Adw.Window):
         elif entry["rank"] == 2:
             box.add_css_class("pw-toast-rank-2")
 
+    def _update_toast_reserve(self):
+        # Bildirim(ler) listenin uzerinde OPAK bir sekilde durup altindaki
+        # satirlarin +/- dugmelerini hem gorsel hem tiklama olarak
+        # kapatiyordu (kullanici ekran goruntusuyle gosterdi - ozellikle
+        # "-" ya yanlislikla basma riski kotu). Cozum: bildirim(ler)
+        # gosterilirken kaydirilabilir listenin ALT KENARINA, tam
+        # bildirimlerin kapladigi kadar bosluk ekliyoruz - bu, hangi
+        # satira kaydirilmis olursan ol, o satirin bildirim bolgesine
+        # HIC girmemesini saglar (sadece "listenin sonuna bosluk ekleme"
+        # degil, kaydirilabilir alanin kendisini kisaltiyor). Hic
+        # bildirim yokken sifir - normal zamanda hicbir alan kaybedilmez.
+        if self._toasts:
+            max_rank = max(e["rank"] for e in self._toasts)
+            reserve = (max_rank + 1) * self._TOAST_STEP
+        else:
+            reserve = 0
+        self._scrolled.set_margin_bottom(reserve)
+
     def _discard_toast(self, entry):
         # _remove_toast'un REFLOW YAPMAYAN hali - sadece kaydi ve widget'i
         # siler, kalanlarin rank'ine dokunmaz. SADECE _show_toast'un 4.
@@ -602,6 +622,7 @@ class UnusedAppsWindow(Adw.Window):
             entry["timeout_id"] = None
         if entry in self._toasts:
             self._toasts.remove(entry)
+        self._update_toast_reserve()
         box = entry["box"]
         if box.get_parent() is self._overlay:
             self._overlay.remove_overlay(box)
@@ -639,6 +660,7 @@ class UnusedAppsWindow(Adw.Window):
                 if other["rank"] > removed_rank:
                     other["rank"] -= 1
                     self._apply_rank_css(other)
+        self._update_toast_reserve()
         box = entry["box"]
         if not animate:
             self._overlay.remove_overlay(box)
