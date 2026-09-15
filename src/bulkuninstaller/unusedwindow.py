@@ -216,7 +216,13 @@ class UnusedAppsWindow(Adw.Window):
         content.append(settings_group)
         content.append(self._list_box)
         content.append(self._empty_status)
-        clamp = Adw.Clamp(maximum_size=760, child=content)
+        # maximum_size onceden pencere genisliginden (720) daha buyuktu,
+        # o yuzden hicbir sey kisitlamiyordu. Pencereyi 780'e cikarinca
+        # (bkz. git log) bu sinir aktif hale geldi ve icerigin iki
+        # yanında bosluk birakti (kullanici ekran goruntusuyle gosterdi).
+        # Pencereden acikca daha genis bir deger veriyoruz ki tekrar
+        # aktif hale gelmesin.
+        clamp = Adw.Clamp(maximum_size=900, child=content)
         scrolled = Gtk.ScrolledWindow(child=clamp, vexpand=True)
 
         cancel_button = Gtk.Button(label=_("Cancel"))
