@@ -216,6 +216,14 @@ class UnusedAppsWindow(Adw.Window):
         content.append(settings_group)
         content.append(self._list_box)
         content.append(self._empty_status)
+        # Bildirim(ler) gosterilirken listenin SONUNA eklenen gercek bir
+        # bosluk widget'i - bkz. _update_toast_reserve. margin_bottom
+        # tek basina (ScrolledWindow uzerinde) kullanici ekran
+        # goruntusuyle "hala sikismis" gosterdi; bunun YANINA, ayni
+        # amaci farkli (belirsizlige daha az acik) bir mekanizmayla da
+        # saglayan bu duz Gtk.Box'u ekliyoruz.
+        self._toast_spacer = Gtk.Box()
+        content.append(self._toast_spacer)
         # maximum_size onceden pencere genisliginden (720) daha buyuktu,
         # o yuzden hicbir sey kisitlamiyordu. Pencereyi 780'e cikarinca
         # (bkz. git log) bu sinir aktif hale geldi ve icerigin iki
@@ -593,28 +601,30 @@ class UnusedAppsWindow(Adw.Window):
         # Bildirim(ler) listenin uzerinde OPAK bir sekilde durup altindaki
         # satirlarin +/- dugmelerini hem gorsel hem tiklama olarak
         # kapatiyordu (kullanici ekran goruntusuyle gosterdi - ozellikle
-        # "-" ya yanlislikla basma riski kotu). Cozum: bildirim(ler)
-        # gosterilirken kaydirilabilir listenin ALT KENARINA, tam
-        # bildirimlerin kapladigi kadar bosluk ekliyoruz - bu, hangi
-        # satira kaydirilmis olursan ol, o satirin bildirim bolgesine
-        # HIC girmemesini saglar (sadece "listenin sonuna bosluk ekleme"
-        # degil, kaydirilabilir alanin kendisini kisaltiyor). Hic
-        # bildirim yokken sifir - normal zamanda hicbir alan kaybedilmez.
+        # "-" ya yanlislikla basma riski kotu). Iki kucuk pay denemesi
+        # (once +0, sonra +20) kullanici tarafindan hala "sikismis"
+        # olarak bildirildi - ScrolledWindow'un margin_bottom'u tek
+        # basina yeterince guvenilir olmayabilir (Adw.ToolbarView ile
+        # tam nasil etkilesitigi kesin dogrulanamadi). Bu yuzden AYNI
+        # anda IKI farkli mekanizma kullaniyoruz:
+        #  1) self._scrolled.margin_bottom - kaydirilabilir GORUNUM
+        #     alaninin kendisini kisaltir (hangi kaydirma konumunda
+        #     olursan ol calismasi gereken, genel çözüm).
+        #  2) self._toast_spacer - listenin (clamp'in icindeki content
+        #     Box'inin) gercek SON COCUGU, duz bir yukseklik istegi.
+        #     Bu, sadece Gtk.Box'un normal cocuk-boyutlandirmasina
+        #     dayanir, hicbir belirsizlik yok - en azindan listenin
+        #     GERCEK sonuna kaydirildiginda kesin calisir.
+        # Pay da onceki 20px'ten cok daha bol (48px) - kullanici "hala
+        # sikisik" dedigi icin az kalmaktan cok, gozle net görülür bir
+        # bosluk birakmak daha onemli.
         if self._toasts:
-            # (max_rank+1)*ADIM tek basina az kaliyordu (kullanici ekran
-            # goruntusuyle gosterdi: en usttekine bitisik satir hafifce
-            # sikisiyordu) - bu hesap sadece rank basamaklari arasindaki
-            # mesafeyi sayiyor, bildirimin KENDI yuksekligini (44px) ve
-            # taban margin_bottom(72) ile alt eylem cubugunun kendi
-            # yuksekligi arasindaki farki icermiyordu. O fark tam olarak
-            # bilinmedigi icin (eylem cubugu ~50-56px, kesin degil) guvenli
-            # bir pay (20px) ekliyoruz - eksik kalmaktan iyi, biraz fazla
-            # bosluk kalmasi cok daha az sorun.
             max_rank = max(e["rank"] for e in self._toasts)
-            reserve = (max_rank + 1) * self._TOAST_STEP + 20
+            reserve = (max_rank + 1) * self._TOAST_STEP + 48
         else:
             reserve = 0
         self._scrolled.set_margin_bottom(reserve)
+        self._toast_spacer.set_size_request(-1, reserve)
 
     def _discard_toast(self, entry):
         # _remove_toast'un REFLOW YAPMAYAN hali - sadece kaydi ve widget'i
