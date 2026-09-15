@@ -292,6 +292,11 @@ class UnusedAppsWindow(Adw.Window):
     # translateY hesabinda kullanilir, bkz. _apply_rank_css.
     _TOAST_STEP = 56
 
+    # Listenin altinda HER ZAMAN (bildirim gosterilsin gosterilmesin)
+    # ayrilan sabit alan - bkz. _update_toast_reserve. En kotu durum
+    # olan 3 bildirimin (_MAX_TOASTS) kapladigi alan + kucuk bir pay.
+    _TOAST_RESERVE_FIXED = _MAX_TOASTS * _TOAST_STEP + 20
+
     def _build_toast_widget(self):
         # Her bildirim (_show_toast icinde olusturulur) DOGRUDAN overlay'e
         # kendi kutusuyla eklenir — ortak bir Gtk.Box'a DEGIL. Sebep: konum
@@ -468,6 +473,10 @@ class UnusedAppsWindow(Adw.Window):
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
         )
 
+        # Rezerv artik SABIT (bkz. _update_toast_reserve) - pencere
+        # kurulurken bir kere uygulanir, ilk bildirimi beklemez.
+        self._update_toast_reserve()
+
     def _show_toast(self, title, button_label=None, on_action=None, timeout=5):
         # Zaten 3 bildirim yigilmisken 4.'su gelirse, en eskisini (rank'i en
         # yuksek olani, kullanici onu okuma/geri alma sansi olmadan) sessizce
@@ -600,25 +609,19 @@ class UnusedAppsWindow(Adw.Window):
     def _update_toast_reserve(self):
         # Bildirim(ler) listenin uzerinde OPAK bir sekilde durup altindaki
         # satirlarin +/- dugmelerini hem gorsel hem tiklama olarak
-        # kapatiyordu. +100'u dogru test yontemiyle (rank CSS'i dahil
-        # ederek) dogruladiktan sonra kullanici bu sefer "bosluk cok
-        # buyuk, garip bos bir kutu gibi duruyor" dedi - haklı: +100,
-        # gercekte gereken (~60px) uzerine gereksiz ~96px fazladan
-        # ekliyordu. Ayni dogru test yontemiyle (gercek rank CSS'i dahil)
-        # kucuk degerler de denendi: +20, hem 1 hem 3 bildirimde ust uste
-        # binmeden ama asiri bosluk da birakmadan temiz bir sonuc verdi -
-        # asil ihtiyac buymus, +100 asiri tedbirliydi.
-        #  1) self._scrolled.margin_bottom - kaydirilabilir GORUNUM
-        #     alaninin kendisini kisaltir (hangi kaydirma konumunda
-        #     olursan ol calismasi gereken, genel çözüm).
-        #  2) self._toast_spacer - listenin (clamp'in icindeki content
-        #     Box'inin) gercek SON COCUGU, duz bir yukseklik istegi -
-        #     sadece Gtk.Box'un normal cocuk-boyutlandirmasina dayanir.
-        if self._toasts:
-            max_rank = max(e["rank"] for e in self._toasts)
-            reserve = (max_rank + 1) * self._TOAST_STEP + 20
-        else:
-            reserve = 0
+        # kapatiyordu. Bunu bildirim sayisina gore DINAMIK hesaplayan
+        # onceki tasarim (rank'e gore +20/+48/+100 denendi, her defasinda
+        # izole test ortamimda dogrulandi) kullanicinin GERCEK
+        # uygulamasinda tekrar tekrar yetersiz/tutarsiz cikti - hangi
+        # zamanlama/etkilesim farkinin sebep oldugunu kesin tespit
+        # edemedim. Bu yuzden dinamik hesabi tamamen birakip SABIT,
+        # bildirim olsun olmasin HER ZAMAN ayni buyuklukte bir rezerv
+        # kullaniyoruz - boylece "_show_toast/_remove_toast tam zamaninda
+        # dogru cagriliyor mu" gibi bir zamanlama sorusuna hic bagli
+        # degil, pencere ilk kurulurken bir kere ayarlanip bir daha hic
+        # degismiyor. 3 bildirimin (en kotu durum) kapladigi alan +
+        # kucuk bir pay kadar - hep ayni, guvenilir.
+        reserve = self._TOAST_RESERVE_FIXED
         self._scrolled.set_margin_bottom(reserve)
         self._toast_spacer.set_size_request(-1, reserve)
 
