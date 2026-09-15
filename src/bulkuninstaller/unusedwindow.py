@@ -600,16 +600,14 @@ class UnusedAppsWindow(Adw.Window):
     def _update_toast_reserve(self):
         # Bildirim(ler) listenin uzerinde OPAK bir sekilde durup altindaki
         # satirlarin +/- dugmelerini hem gorsel hem tiklama olarak
-        # kapatiyordu. Ilk iki denemenin (+0, +20) az kaldigi dogrulandi;
-        # +48'i test ederken kendi test dosyamda bir hata buldum: rank-1/
-        # rank-2 translateY CSS kurallarini eklemeyi UNUTMUSTUM, o yuzden
-        # 3 bildirim testte gorsel olarak hep AYNI (rank0, 44px) konumda
-        # ust uste biniyordu - rezerv (o zaman 216px) gercekte gerekenden
-        # (172px) fazla gorunup testi yanlislikla "genis bosluk var" diye
-        # geçiriyordu. Rank CSS'ini DOGRU sekilde ekleyip yeniden test
-        # ettim: gercek gorsel bosluk ~44-60px'e denk geliyor, kullanicinin
-        # "hala sikisik" demesiyle tutarli. Payi simdi 100px'e cikariyoruz
-        # ki gorsel bosluk gozle acikca fark edilsin.
+        # kapatiyordu. +100'u dogru test yontemiyle (rank CSS'i dahil
+        # ederek) dogruladiktan sonra kullanici bu sefer "bosluk cok
+        # buyuk, garip bos bir kutu gibi duruyor" dedi - haklı: +100,
+        # gercekte gereken (~60px) uzerine gereksiz ~96px fazladan
+        # ekliyordu. Ayni dogru test yontemiyle (gercek rank CSS'i dahil)
+        # kucuk degerler de denendi: +20, hem 1 hem 3 bildirimde ust uste
+        # binmeden ama asiri bosluk da birakmadan temiz bir sonuc verdi -
+        # asil ihtiyac buymus, +100 asiri tedbirliydi.
         #  1) self._scrolled.margin_bottom - kaydirilabilir GORUNUM
         #     alaninin kendisini kisaltir (hangi kaydirma konumunda
         #     olursan ol calismasi gereken, genel çözüm).
@@ -618,7 +616,7 @@ class UnusedAppsWindow(Adw.Window):
         #     sadece Gtk.Box'un normal cocuk-boyutlandirmasina dayanir.
         if self._toasts:
             max_rank = max(e["rank"] for e in self._toasts)
-            reserve = (max_rank + 1) * self._TOAST_STEP + 100
+            reserve = (max_rank + 1) * self._TOAST_STEP + 20
         else:
             reserve = 0
         self._scrolled.set_margin_bottom(reserve)
