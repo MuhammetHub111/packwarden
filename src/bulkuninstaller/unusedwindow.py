@@ -478,12 +478,13 @@ class UnusedAppsWindow(Adw.Window):
         box = Gtk.Box(
             orientation=Gtk.Orientation.HORIZONTAL, spacing=6,
             css_classes=["pw-toast"],
-            halign=Gtk.Align.CENTER, valign=Gtk.Align.END,
+            halign=Gtk.Align.FILL, valign=Gtk.Align.END, hexpand=True,
             # Alt eylem çubuğu (Vazgeç/Kaldır) kendi başına ~50-56px
             # yükseklikte — bildirim onun üstünde net bir boşlukla dursun.
             # Bu deger HERKESTE ayni ve hic degismez - "rank"a gore yukari
             # kayma translateY ile ayriyeten yapiliyor (bkz. _apply_rank_css).
             margin_bottom=72,
+            margin_start=40, margin_end=40,
         )
         # Gtk.Overlay'e DOGRUDAN eklenen (paylasilan bir Gtk.Box'a degil)
         # ve valign=END ile konumlanan bir widget, acik bir yukseklik
@@ -491,15 +492,15 @@ class UnusedAppsWindow(Adw.Window):
         # dogrulandi (icerik+CSS'in kendisi doguysa bile widget hic
         # gorunmuyordu). Sabit bir min-yukseklik bunu duzeltiyor.
         #
-        # Genislik de artik SABIT (640px, dogal/icerige gore degil):
-        # uygulama/oyun ismi kisaysa bildirim kucuk, uzunsa buyuk
-        # cikiyordu - kullanici hepsinin AYNI (standart) boyutta olmasini
-        # istedi. 640px, pencere genisligi (720) icinde makul bir kenar
-        # boslugu birakip en uzun gerçekci isimleri bile (ör. "Grand Theft
-        # Auto V Enhanced") tek satirda tam gostermeye yetiyor; cok daha
-        # uzun bir isim gelirse label'daki ellipsize (yukarida) yine de
-        # guvenlik agi olarak duruyor.
-        box.set_size_request(640, 44)
+        # Genislik: SABIT bir piksel degeri (640) once denendi ama pencere
+        # o kadar genis olmayabiliyor - bildirim diyalogun kendi sinirini
+        # tasip arkadaki ana pencereye biniyordu (kullanici ekran
+        # goruntusuyle gosterdi). Bunun yerine halign=FILL + hexpand=True
+        # + sabit kenar boslugu (40px) kullaniyoruz: bildirim HER ZAMAN
+        # o an hangi pencerede/genislikte gosteriliyorsa onun genisligine
+        # (eksi kenar bosluklari) gore olculur - asla tasamaz, ama yine de
+        # her bildirim ayni (o pencereye gore standart) genislikte olur.
+        box.set_size_request(-1, 44)
         box.append(label)
         box.append(action_button)
         box.append(close_button)
