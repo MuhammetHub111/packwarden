@@ -545,8 +545,17 @@ class UnusedAppsWindow(Adw.Window):
             )
 
     def _on_toast_timeout(self, entry):
+        # Kendiliginden zaman asimi PASIF bir olay - kullanici o an baska
+        # bir seyle ilgileniyor olabilir, digerlerinin birden yer
+        # degistirmesi bunu fark ettirip sasirtabilir. Bu yuzden reflow
+        # YOK: sadece kendi basina soner, digerleri oldugu yerde kalir.
+        # (Ust uste eklenen bildirimler hep AYNI sureyle gosterildigi
+        # icin en eski her zaman ilk zaman asimina ugrar - yani bosluk
+        # hep en USTTE acilir, iki dolu yer arasinda asla sikismaz.)
+        # Carpi/Geri al ile aktif kapatmada (bkz. _on_toast_action_clicked)
+        # reflow hala var - o, dogrudan kullanicinin eylemine tepki.
         entry["timeout_id"] = None
-        self._remove_toast(entry)
+        self._remove_toast(entry, reflow=False)
         return GLib.SOURCE_REMOVE
 
     def _apply_rank_css(self, entry):
@@ -581,7 +590,7 @@ class UnusedAppsWindow(Adw.Window):
         if box.get_parent() is self._overlay:
             self._overlay.remove_overlay(box)
 
-    def _remove_toast(self, entry, animate=True):
+    def _remove_toast(self, entry, animate=True, reflow=True):
         if entry not in self._toasts:
             return
         if entry["timeout_id"] is not None:
@@ -589,7 +598,10 @@ class UnusedAppsWindow(Adw.Window):
             entry["timeout_id"] = None
         removed_rank = entry["rank"]
         self._toasts.remove(entry)
-        # TAM yeniden numaralandirma ("bosluk kadar zipla") fazla ileri
+        # reflow=False: kendiliginden zaman asimi icin (bkz. _on_toast_
+        # timeout) - kalanlarin rank'ine HIC dokunulmaz, sadece kendi
+        # basina soner. reflow=True (varsayilan, carpi/Geri al'da): TAM
+        # yeniden numaralandirma ("bosluk kadar zipla") fazla ileri
         # gidiyordu: ortayi kapat, sonra yeni-alttakini kapat dedigimizde
         # tek kalan bildirim dibe (rank 0) ATLIYORDU - kullanici bunun
         # "iki kademe" gibi hissettigini, sadece BIR kademe inmesi
@@ -601,13 +613,12 @@ class UnusedAppsWindow(Adw.Window):
         # kapatmasinda dogru sekilde birikerek ilerliyor (her adim kendi
         # tek basamagini kapatiyor), ama bir kapatma ARADA BIRIKMIS
         # birden fazla boslugu TEK basta atlamiyor.
-        has_lower = any(o["rank"] < removed_rank for o in self._toasts)
-        if has_lower:
+        if reflow and any(o["rank"] < removed_rank for o in self._toasts):
             for other in self._toasts:
                 if other["rank"] < removed_rank:
                     other["rank"] += 1
                     self._apply_rank_css(other)
-        else:
+        elif reflow:
             for other in self._toasts:
                 if other["rank"] > removed_rank:
                     other["rank"] -= 1
