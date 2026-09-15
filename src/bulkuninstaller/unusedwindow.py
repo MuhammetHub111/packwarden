@@ -601,8 +601,17 @@ class UnusedAppsWindow(Adw.Window):
         # degil, kaydirilabilir alanin kendisini kisaltiyor). Hic
         # bildirim yokken sifir - normal zamanda hicbir alan kaybedilmez.
         if self._toasts:
+            # (max_rank+1)*ADIM tek basina az kaliyordu (kullanici ekran
+            # goruntusuyle gosterdi: en usttekine bitisik satir hafifce
+            # sikisiyordu) - bu hesap sadece rank basamaklari arasindaki
+            # mesafeyi sayiyor, bildirimin KENDI yuksekligini (44px) ve
+            # taban margin_bottom(72) ile alt eylem cubugunun kendi
+            # yuksekligi arasindaki farki icermiyordu. O fark tam olarak
+            # bilinmedigi icin (eylem cubugu ~50-56px, kesin degil) guvenli
+            # bir pay (20px) ekliyoruz - eksik kalmaktan iyi, biraz fazla
+            # bosluk kalmasi cok daha az sorun.
             max_rank = max(e["rank"] for e in self._toasts)
-            reserve = (max_rank + 1) * self._TOAST_STEP
+            reserve = (max_rank + 1) * self._TOAST_STEP + 20
         else:
             reserve = 0
         self._scrolled.set_margin_bottom(reserve)
