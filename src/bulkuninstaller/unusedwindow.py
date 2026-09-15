@@ -1080,8 +1080,11 @@ class UnusedAppsWindow(Adw.Window):
         self._remove_row(key)
 
     def _icon_for(self, pkg) -> Gtk.Image:
+        # 32 -> 40: satirlar biraz daha buyuk/ferah gorunsun istendi -
+        # bu hem ana listede hem Yoksayilanlar panelinde kullanilan
+        # PAYLASILAN ikon fonksiyonu, tek yerden ikisini de buyutuyor.
         name = self._main._icon_name_for(pkg)
-        icon = Gtk.Image(pixel_size=32, valign=Gtk.Align.CENTER)
+        icon = Gtk.Image(pixel_size=40, valign=Gtk.Align.CENTER)
         if os.path.isabs(name):
             icon.set_from_file(name)
         else:
