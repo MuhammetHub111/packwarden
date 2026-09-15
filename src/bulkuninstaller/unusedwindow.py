@@ -490,7 +490,16 @@ class UnusedAppsWindow(Adw.Window):
         # istegi olmadan DOGAL yuksekligini 0 olcuyor - canli testle
         # dogrulandi (icerik+CSS'in kendisi doguysa bile widget hic
         # gorunmuyordu). Sabit bir min-yukseklik bunu duzeltiyor.
-        box.set_size_request(-1, 44)
+        #
+        # Genislik de artik SABIT (640px, dogal/icerige gore degil):
+        # uygulama/oyun ismi kisaysa bildirim kucuk, uzunsa buyuk
+        # cikiyordu - kullanici hepsinin AYNI (standart) boyutta olmasini
+        # istedi. 640px, pencere genisligi (720) icinde makul bir kenar
+        # boslugu birakip en uzun gerçekci isimleri bile (ör. "Grand Theft
+        # Auto V Enhanced") tek satirda tam gostermeye yetiyor; cok daha
+        # uzun bir isim gelirse label'daki ellipsize (yukarida) yine de
+        # guvenlik agi olarak duruyor.
+        box.set_size_request(640, 44)
         box.append(label)
         box.append(action_button)
         box.append(close_button)
