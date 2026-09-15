@@ -609,19 +609,20 @@ class UnusedAppsWindow(Adw.Window):
     def _update_toast_reserve(self):
         # Bildirim(ler) listenin uzerinde OPAK bir sekilde durup altindaki
         # satirlarin +/- dugmelerini hem gorsel hem tiklama olarak
-        # kapatiyordu. Bunu bildirim sayisina gore DINAMIK hesaplayan
-        # onceki tasarim (rank'e gore +20/+48/+100 denendi, her defasinda
-        # izole test ortamimda dogrulandi) kullanicinin GERCEK
-        # uygulamasinda tekrar tekrar yetersiz/tutarsiz cikti - hangi
-        # zamanlama/etkilesim farkinin sebep oldugunu kesin tespit
-        # edemedim. Bu yuzden dinamik hesabi tamamen birakip SABIT,
-        # bildirim olsun olmasin HER ZAMAN ayni buyuklukte bir rezerv
-        # kullaniyoruz - boylece "_show_toast/_remove_toast tam zamaninda
-        # dogru cagriliyor mu" gibi bir zamanlama sorusuna hic bagli
-        # degil, pencere ilk kurulurken bir kere ayarlanip bir daha hic
-        # degismiyor. 3 bildirimin (en kotu durum) kapladigi alan +
-        # kucuk bir pay kadar - hep ayni, guvenilir.
-        reserve = self._TOAST_RESERVE_FIXED
+        # kapatiyordu. Rank'e gore DEGISEN bir hesap (+20/+48/+100, her
+        # rank icin ayri deger) uc kez denendi, uc kez de kullanicinin
+        # GERCEK uygulamasinda yetersiz/tutarsiz cikti - hangi rank/zamanlama
+        # kombinasyonunun sorun cikardigini tespit edemedim. SONRA hep-sabit
+        # (bildirim olsun olmasin HER ZAMAN ayni) bir deneme yapildi - bu
+        # gorsel olarak dogru calisti (mekanizmanin kendisi saglam) AMA
+        # bildirim yokken bile kocaman bos bir alan gibi durup kotu
+        # gorunuyordu.
+        # Simdi ikisinin ortasi: rezerv hala 0/degil diye AC-KAPA yapiyor
+        # (bos alan sorunu yok), ama ACIK oldugunda HEP AYNI (rank'e gore
+        # DEGISMEYEN) sabit deger - boylece "hangi rank/zamanlama" turu bir
+        # hesap hatasi ihtimali ortadan kalkiyor, sadece "var mi yok mu"
+        # kaldi.
+        reserve = self._TOAST_RESERVE_FIXED if self._toasts else 0
         self._scrolled.set_margin_bottom(reserve)
         self._toast_spacer.set_size_request(-1, reserve)
 
