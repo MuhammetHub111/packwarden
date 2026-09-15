@@ -510,14 +510,18 @@ class UnusedAppsWindow(Adw.Window):
             "clicked", lambda _b, e=entry: self._remove_toast(e)
         )
 
-        # Yeni bildirim hep rank 0'da (alt ankor) girer — bunun icin
-        # oncekilerin HEPSI bir basamak yukari kayar (rank += 1), tipki
-        # eski Gtk.Box tasariminda "yeni gelince digerleri yukari kayiyor"
-        # davranisiyla ayni hissi verir; ama burda gercek konum degil,
-        # translateY degisiyor.
-        for existing in self._toasts:
-            existing["rank"] += 1
-            self._apply_rank_css(existing)
+        # Yeni bildirim hep rank 0'da (alt ankor) girer. Rank 0 onceki bir
+        # kapatmadan (bkz. _remove_toast, "asagi sikistirma") kalma bosluk
+        # yuzunden ZATEN bossa kimseyi itmeye gerek yok - direkt oraya
+        # girer. Doluysa (normal durum) herkes bir basamak yukari kayar,
+        # tipki eski Gtk.Box tasariminda "yeni gelince digerleri yukari
+        # kayiyor" hissiyle ayni; ama burda gercek konum degil, translateY
+        # degisiyor. (Bossa bile kaydirsaydik, ustteki bosluktan kaynakli
+        # rank MAX_TOASTS'u asabilirdi - once buydu.)
+        if any(e["rank"] == 0 for e in self._toasts):
+            for existing in self._toasts:
+                existing["rank"] += 1
+                self._apply_rank_css(existing)
 
         self._overlay.add_overlay(box)
         self._toasts.append(entry)
@@ -585,28 +589,29 @@ class UnusedAppsWindow(Adw.Window):
             entry["timeout_id"] = None
         removed_rank = entry["rank"]
         self._toasts.remove(entry)
-        if removed_rank == 0:
-            # En ALTTAKI (ankor) kapandi - altinda kimse yok ki yukari
-            # kayip onun yerini doldursun. Bu yuzden bu tek durumda yon
-            # TERSINE cevriliyor: USTUNDEKILER asagi kayar (rank -= 1),
-            # bosluk en USTTE kalir. Kullanicinin ayri ayri istedigi iki
-            # simetrik davranis boylece ikisi de saglaniyor: en USTTEKI
-            # kapanirsa altindakiler yukari, en ALTTAKI kapanirsa
-            # ustundekiler asagi.
-            for other in self._toasts:
-                if other["rank"] > removed_rank:
-                    other["rank"] -= 1
-                    self._apply_rank_css(other)
+        # TEK ADIMLIK (+1/-1) kaydirma yeterli degildi: art arda birkac
+        # kapatma olunca bosluklar birikiyor, bir sonraki kapatmada "bir
+        # basamak" kaymak o bosluklari tam kapatamiyordu - en son kalan
+        # bildirim tepede "asili" kaliyordu (kullanicinin bildirdigi hata).
+        # Bunun yerine her kapatmada TAM yeniden numaralandiriyoruz:
+        # kapananin ALTINDA hala dolu bir yer varsa kalanlar USTE dogru
+        # sikistirilir (bosluk en altta kalir); yoksa (kapanan zaten en
+        # alttaki DOLU yerdiyse - literal rank 0 olmasi gerekmez, altindaki
+        # yerler zaten bos olabilir) kalanlar ASAGI dogru sikistirilir
+        # (bosluk en ustte kalir). Boylece kac bosluk birikmis olursa olsun
+        # tek islemde tam kapaniyor.
+        has_lower = any(o["rank"] < removed_rank for o in self._toasts)
+        if has_lower:
+            ordered = sorted(self._toasts, key=lambda o: o["rank"], reverse=True)
+            top_rank = self._MAX_TOASTS - 1
+            for i, other in enumerate(ordered):
+                other["rank"] = top_rank - i
+                self._apply_rank_css(other)
         else:
-            # SADECE bu kapananin ALTINDAKILER (rank'i daha kucuk olanlar,
-            # ekrandaki karsiligi: ankora daha yakin/daha asagida olanlar)
-            # bir basamak yukari kayar, o bosalan yeri doldurur.
-            # USTUNDEKILER (rank'i daha yuksek olanlar) zaten dogru
-            # yerdedir, dokunulmaz.
-            for other in self._toasts:
-                if other["rank"] < removed_rank:
-                    other["rank"] += 1
-                    self._apply_rank_css(other)
+            ordered = sorted(self._toasts, key=lambda o: o["rank"])
+            for i, other in enumerate(ordered):
+                other["rank"] = i
+                self._apply_rank_css(other)
         box = entry["box"]
         if not animate:
             self._overlay.remove_overlay(box)
