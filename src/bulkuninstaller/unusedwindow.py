@@ -589,29 +589,29 @@ class UnusedAppsWindow(Adw.Window):
             entry["timeout_id"] = None
         removed_rank = entry["rank"]
         self._toasts.remove(entry)
-        # TEK ADIMLIK (+1/-1) kaydirma yeterli degildi: art arda birkac
-        # kapatma olunca bosluklar birikiyor, bir sonraki kapatmada "bir
-        # basamak" kaymak o bosluklari tam kapatamiyordu - en son kalan
-        # bildirim tepede "asili" kaliyordu (kullanicinin bildirdigi hata).
-        # Bunun yerine her kapatmada TAM yeniden numaralandiriyoruz:
-        # kapananin ALTINDA hala dolu bir yer varsa kalanlar USTE dogru
-        # sikistirilir (bosluk en altta kalir); yoksa (kapanan zaten en
-        # alttaki DOLU yerdiyse - literal rank 0 olmasi gerekmez, altindaki
-        # yerler zaten bos olabilir) kalanlar ASAGI dogru sikistirilir
-        # (bosluk en ustte kalir). Boylece kac bosluk birikmis olursa olsun
-        # tek islemde tam kapaniyor.
+        # TAM yeniden numaralandirma ("bosluk kadar zipla") fazla ileri
+        # gidiyordu: ortayi kapat, sonra yeni-alttakini kapat dedigimizde
+        # tek kalan bildirim dibe (rank 0) ATLIYORDU - kullanici bunun
+        # "iki kademe" gibi hissettigini, sadece BIR kademe inmesi
+        # gerektigini bildirdi (orta kisimda kalmali, dibe degil). Su an
+        # SADECE bir adim kayiyor - yon, "altinda/ustunde HALA dolu bir
+        # yer var mi" kontrolune gore seciliyor (literal rank 0 kontrolu
+        # DEGIL - o, boşluklar biriktiginde yanlis yon seçtiren asil
+        # hataydi). Bu, ust uste birden fazla "etkin en alt/en ust"
+        # kapatmasinda dogru sekilde birikerek ilerliyor (her adim kendi
+        # tek basamagini kapatiyor), ama bir kapatma ARADA BIRIKMIS
+        # birden fazla boslugu TEK basta atlamiyor.
         has_lower = any(o["rank"] < removed_rank for o in self._toasts)
         if has_lower:
-            ordered = sorted(self._toasts, key=lambda o: o["rank"], reverse=True)
-            top_rank = self._MAX_TOASTS - 1
-            for i, other in enumerate(ordered):
-                other["rank"] = top_rank - i
-                self._apply_rank_css(other)
+            for other in self._toasts:
+                if other["rank"] < removed_rank:
+                    other["rank"] += 1
+                    self._apply_rank_css(other)
         else:
-            ordered = sorted(self._toasts, key=lambda o: o["rank"])
-            for i, other in enumerate(ordered):
-                other["rank"] = i
-                self._apply_rank_css(other)
+            for other in self._toasts:
+                if other["rank"] > removed_rank:
+                    other["rank"] -= 1
+                    self._apply_rank_css(other)
         box = entry["box"]
         if not animate:
             self._overlay.remove_overlay(box)
