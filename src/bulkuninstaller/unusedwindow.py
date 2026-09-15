@@ -600,27 +600,25 @@ class UnusedAppsWindow(Adw.Window):
     def _update_toast_reserve(self):
         # Bildirim(ler) listenin uzerinde OPAK bir sekilde durup altindaki
         # satirlarin +/- dugmelerini hem gorsel hem tiklama olarak
-        # kapatiyordu (kullanici ekran goruntusuyle gosterdi - ozellikle
-        # "-" ya yanlislikla basma riski kotu). Iki kucuk pay denemesi
-        # (once +0, sonra +20) kullanici tarafindan hala "sikismis"
-        # olarak bildirildi - ScrolledWindow'un margin_bottom'u tek
-        # basina yeterince guvenilir olmayabilir (Adw.ToolbarView ile
-        # tam nasil etkilesitigi kesin dogrulanamadi). Bu yuzden AYNI
-        # anda IKI farkli mekanizma kullaniyoruz:
+        # kapatiyordu. Ilk iki denemenin (+0, +20) az kaldigi dogrulandi;
+        # +48'i test ederken kendi test dosyamda bir hata buldum: rank-1/
+        # rank-2 translateY CSS kurallarini eklemeyi UNUTMUSTUM, o yuzden
+        # 3 bildirim testte gorsel olarak hep AYNI (rank0, 44px) konumda
+        # ust uste biniyordu - rezerv (o zaman 216px) gercekte gerekenden
+        # (172px) fazla gorunup testi yanlislikla "genis bosluk var" diye
+        # geçiriyordu. Rank CSS'ini DOGRU sekilde ekleyip yeniden test
+        # ettim: gercek gorsel bosluk ~44-60px'e denk geliyor, kullanicinin
+        # "hala sikisik" demesiyle tutarli. Payi simdi 100px'e cikariyoruz
+        # ki gorsel bosluk gozle acikca fark edilsin.
         #  1) self._scrolled.margin_bottom - kaydirilabilir GORUNUM
         #     alaninin kendisini kisaltir (hangi kaydirma konumunda
         #     olursan ol calismasi gereken, genel çözüm).
         #  2) self._toast_spacer - listenin (clamp'in icindeki content
-        #     Box'inin) gercek SON COCUGU, duz bir yukseklik istegi.
-        #     Bu, sadece Gtk.Box'un normal cocuk-boyutlandirmasina
-        #     dayanir, hicbir belirsizlik yok - en azindan listenin
-        #     GERCEK sonuna kaydirildiginda kesin calisir.
-        # Pay da onceki 20px'ten cok daha bol (48px) - kullanici "hala
-        # sikisik" dedigi icin az kalmaktan cok, gozle net görülür bir
-        # bosluk birakmak daha onemli.
+        #     Box'inin) gercek SON COCUGU, duz bir yukseklik istegi -
+        #     sadece Gtk.Box'un normal cocuk-boyutlandirmasina dayanir.
         if self._toasts:
             max_rank = max(e["rank"] for e in self._toasts)
-            reserve = (max_rank + 1) * self._TOAST_STEP + 48
+            reserve = (max_rank + 1) * self._TOAST_STEP + 100
         else:
             reserve = 0
         self._scrolled.set_margin_bottom(reserve)
