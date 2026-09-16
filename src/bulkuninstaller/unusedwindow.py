@@ -298,10 +298,15 @@ class UnusedAppsWindow(Adw.Window):
     # translateY hesabinda kullanilir, bkz. _apply_rank_css.
     _TOAST_STEP = 56
 
-    # Listenin altinda HER ZAMAN (bildirim gosterilsin gosterilmesin)
-    # ayrilan sabit alan - bkz. _update_toast_reserve. En kotu durum
-    # olan 3 bildirimin (_MAX_TOASTS) kapladigi alan + kucuk bir pay.
-    _TOAST_RESERVE_FIXED = _MAX_TOASTS * _TOAST_STEP + 20
+    # Bildirimin alt ankoru (margin_bottom) ve kendi yuksekligi - bkz.
+    # _build_toast_widget/_show_toast, box.set_size_request(-1, 44) ve
+    # margin_bottom=72. Rezerv hesabinin (_update_toast_reserve) GERCEK
+    # geometriyle uyumlu kalmasi icin buraya da sabit olarak tasindi.
+    _TOAST_ANCHOR_MARGIN = 72
+    _TOAST_HEIGHT = 44
+
+    # Rezerv hesabina eklenen kucuk gorsel pay (px).
+    _TOAST_RESERVE_BUFFER = 20
 
     def _build_toast_widget(self):
         # Her bildirim (_show_toast icinde olusturulur) DOGRUDAN overlay'e
@@ -522,7 +527,7 @@ class UnusedAppsWindow(Adw.Window):
             # yükseklikte — bildirim onun üstünde net bir boşlukla dursun.
             # Bu deger HERKESTE ayni ve hic degismez - "rank"a gore yukari
             # kayma translateY ile ayriyeten yapiliyor (bkz. _apply_rank_css).
-            margin_bottom=72,
+            margin_bottom=self._TOAST_ANCHOR_MARGIN,
             margin_start=40, margin_end=40,
         )
         # Gtk.Overlay'e DOGRUDAN eklenen (paylasilan bir Gtk.Box'a degil)
@@ -539,7 +544,7 @@ class UnusedAppsWindow(Adw.Window):
         # o an hangi pencerede/genislikte gosteriliyorsa onun genisligine
         # (eksi kenar bosluklari) gore olculur - asla tasamaz, ama yine de
         # her bildirim ayni (o pencereye gore standart) genislikte olur.
-        box.set_size_request(-1, 44)
+        box.set_size_request(-1, self._TOAST_HEIGHT)
         box.append(label)
         box.append(action_button)
         box.append(close_button)
@@ -639,28 +644,34 @@ class UnusedAppsWindow(Adw.Window):
         # rank icin ayri deger) uc kez denendi, uc kez de kullanicinin
         # GERCEK uygulamasinda yetersiz/tutarsiz cikti - hangi rank/zamanlama
         # kombinasyonunun sorun cikardigini tespit edemedim. SONRA hep-sabit
-        # (bildirim olsun olmasin HER ZAMAN ayni) bir deneme yapildi - bu
-        # gorsel olarak dogru calisti (mekanizmanin kendisi saglam) AMA
-        # bildirim yokken bile kocaman bos bir alan gibi durup kotu
-        # gorunuyordu.
-        # Simdi ikisinin ortasi: rezerv hala 0/degil diye AC-KAPA yapiyor
-        # (bos alan sorunu yok), ama ACIK oldugunda HEP AYNI (rank'e gore
-        # DEGISMEYEN) sabit deger - boylece "hangi rank/zamanlama" turu bir
-        # hesap hatasi ihtimali ortadan kalkiyor, sadece "var mi yok mu"
-        # kaldi.
-        # Son bir sorun kaldi: bu sabit deger satir yuksekliginin tam
-        # kati DEGILDI, o yuzden kesme cizgisi bir satirin (ör. "gimp")
-        # ortasindan geciyordu. Duzeltme: rezervi, GERCEK satir
-        # yuksekliginin bir ustune (ceil) yuvarlayarak her zaman TAM
-        # satir sayisi kadar alan ayirtiyoruz - kesme cizgisi boylece her
-        # zaman iki satir arasindaki dogal sinira denk gelir.
+        # (bildirim olsun olmasin HER ZAMAN ayni, 3 bildirimlik en kotu
+        # durum) bir deneme yapildi - bu tasma sorununu kesin cozdu AMA
+        # kullanici SADECE 1 bildirim varken bile aynen 3'luk boslugun
+        # ayrildigini fark etti (ekran goruntusuyle gosterdi) - satirlarin
+        # altinda gereksiz kocaman bos bir alan kaliyordu, bildirimler tek
+        # tek kapandikca da bu alan hic degismiyordu.
+        # Simdi GERCEK anda gosterilen en yuksek rank'e gore hesaplaniyor
+        # (bildirim azaldikca rezerv de gercekten aciliyor), ama onceki
+        # rank-tabanli denemelerden farkli olarak degerler ARTIK tahmine
+        # dayanmiyor - _TOAST_ANCHOR_MARGIN/_TOAST_HEIGHT, bildirimin
+        # kendi CSS'inde kullanilan GERCEK sabitlerin ta kendisi - ve
+        # sonucta cikan deger, asagida satir yuksekliginin bir ustune
+        # (ceil) yuvarlaniyor. Bu yuvarlama sadece kesme cizgisini satir
+        # sinirina getirmiyor, ayni zamanda onceki denemelerde "yetersiz
+        # cikan" tur bir hesap hatasina karsi da kucuk bir emniyet payi
+        # ekliyor (yuvarlama hep YUKARI, asla asagi degil).
         if self._toasts:
+            max_rank = max(entry["rank"] for entry in self._toasts)
+            needed = (
+                self._TOAST_ANCHOR_MARGIN + self._TOAST_HEIGHT
+                + max_rank * self._TOAST_STEP + self._TOAST_RESERVE_BUFFER
+            )
             row_height = self._row_height()
             if row_height > 0:
-                rows_needed = -(-self._TOAST_RESERVE_FIXED // row_height)
+                rows_needed = -(-needed // row_height)
                 reserve = rows_needed * row_height
             else:
-                reserve = self._TOAST_RESERVE_FIXED
+                reserve = needed
         else:
             reserve = 0
         self._scrolled.set_margin_bottom(reserve)
