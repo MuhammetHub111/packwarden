@@ -308,6 +308,9 @@ class UnusedAppsWindow(Adw.Window):
         # olunca) o translateY degeri degisip CSS transition ile yumusakca
         # kayiyor — hem konum ayni, hem yukari kayma ayni anda saglaniyor.
         self._toasts = []  # en eski once: [{"box","timeout_id","callback"}, ...]
+        # bkz. _update_toast_scroll_compensation - o ana kadar bildirimler
+        # icin kaydirmaya UYGULANMIS toplam miktar (px).
+        self._toast_scroll_compensation = 0
 
         css = b"""
         .pw-toast {
@@ -562,6 +565,7 @@ class UnusedAppsWindow(Adw.Window):
         self._overlay.add_overlay(box)
         self._toasts.append(entry)
         self._apply_rank_css(entry)
+        self._update_toast_scroll_compensation()
 
         # Widget bu satirin sonunda henuz gerceklenmemis (unrealized) —
         # "pw-toast-shown" sinifini AYNI karede eklersek CSS gecisi
@@ -607,6 +611,42 @@ class UnusedAppsWindow(Adw.Window):
         elif entry["rank"] == 2:
             box.add_css_class("pw-toast-rank-2")
 
+    def _update_toast_scroll_compensation(self):
+        # Bildirim(ler) listenin ustunde durup en alttaki satir(lar)in
+        # +/- dugmelerini hem gorsel hem tiklama olarak kapatiyordu.
+        # Bunu sabit bir "rezerv" (goruntulenebilir alani kalici olarak
+        # kucultup listenin SONUNA bosluk ekleyen mekanizma - bkz. git
+        # log, o mekanizma tamamen kaldirildi) ile cozmustuk, ama kullanici
+        # bunun (satirlarla ayni renkte, satir sinirina hizali olsa bile)
+        # uzun listelerde (ör. 48'lik yoksayilanlar) gercekten daha az
+        # satirin ayni anda gorunmesine sebep oldugunu fark etti ve
+        # reddetti - "bildirim ustune binsin, bosluk hic ayrilmasin" dedi.
+        # Simdiki cozum farkli bir eksende calisiyor: goruntulenebilir
+        # ALAN hic kucultulmuyor (scrollable range/viewport ayni), sadece
+        # KAYDIRMA KONUMU, bildirim yigininin o anki yuksekligi kadar
+        # YUKARI itiliyor - yani bildirim gelince altta kalacak satir(lar)
+        # bildirimin UZERINE degil, bildirimin USTUNE kaydiriliyor (hala
+        # gorunur ve tiklanabilir kaliyor), bildirimler tek tek kapaninca
+        # da bu itme geri veriliyor (kaydirma asagi doner, "acilir"). Eger
+        # zaten listenin en dibindeysek (daha fazla yukari kaydirilacak
+        # icerik yoksa) GTK adjustment kendiliginden sinirda kalir - o
+        # durumda son satir(lar) gecici olarak kapanir, bu da normal
+        # toast/snackbar davranisidir (bkz. her yerde: kapanana kadar bekle
+        # veya Geri al'a bas).
+        if self._toasts:
+            max_rank = max(entry["rank"] for entry in self._toasts)
+            needed = (
+                self._TOAST_ANCHOR_MARGIN + self._TOAST_HEIGHT
+                + max_rank * self._TOAST_STEP + 20
+            )
+        else:
+            needed = 0
+        delta = needed - self._toast_scroll_compensation
+        if delta:
+            adjustment = self._scrolled.get_vadjustment()
+            adjustment.set_value(adjustment.get_value() + delta)
+        self._toast_scroll_compensation = needed
+
     def _discard_toast(self, entry):
         # _remove_toast'un REFLOW YAPMAYAN hali - sadece kaydi ve widget'i
         # siler, kalanlarin rank'ine dokunmaz. SADECE _show_toast'un 4.
@@ -622,6 +662,7 @@ class UnusedAppsWindow(Adw.Window):
             entry["timeout_id"] = None
         if entry in self._toasts:
             self._toasts.remove(entry)
+        self._update_toast_scroll_compensation()
         box = entry["box"]
         if box.get_parent() is self._overlay:
             self._overlay.remove_overlay(box)
@@ -659,6 +700,7 @@ class UnusedAppsWindow(Adw.Window):
                 if other["rank"] > removed_rank:
                     other["rank"] -= 1
                     self._apply_rank_css(other)
+        self._update_toast_scroll_compensation()
         box = entry["box"]
         if not animate:
             self._overlay.remove_overlay(box)
