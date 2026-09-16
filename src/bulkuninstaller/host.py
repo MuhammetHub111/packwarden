@@ -21,11 +21,18 @@ def host_argv(argv: list[str]) -> list[str]:
 
 
 def run(argv: list[str], timeout: int | None = 120) -> subprocess.CompletedProcess:
-    """Run a command on the host and capture its output."""
+    """Run a command on the host and capture its output.
+
+    errors="replace": Wine'ın konsol araçları (wine reg vb.) çıktıyı
+    kendi OEM kod sayfasında basıyor, UTF-8 değil - doğrulandı, "wine
+    reg delete" gerçekten başarılı olduğu halde çıktısını decode etmeye
+    çalışırken UnicodeDecodeError fırlatıyordu, komut sanki başarısız
+    olmuş gibi görünüyordu. Diğer tüm host komutları için zararsız."""
     return subprocess.run(
         host_argv(argv),
         capture_output=True,
         text=True,
+        errors="replace",
         timeout=timeout,
     )
 
