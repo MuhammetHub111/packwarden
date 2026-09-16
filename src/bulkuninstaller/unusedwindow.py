@@ -165,6 +165,7 @@ class UnusedAppsWindow(Adw.Window):
             description=_("Every scanned program was used within the threshold"),
             vexpand=True,
             visible=False,
+            css_classes=["pw-row-bg-fill"],
         )
 
         content = Gtk.Box(
@@ -228,7 +229,7 @@ class UnusedAppsWindow(Adw.Window):
         # batiyordu (kullanici ekran goruntusuyle gosterdi). Satirlarla
         # AYNI hesaplanmis rengi veriyoruz (bkz. asagidaki CSS) ki
         # bosluk, listenin dogal bir uzantisi gibi gorunsun.
-        self._toast_spacer = Gtk.Box(css_classes=["pw-toast-spacer"])
+        self._toast_spacer = Gtk.Box(css_classes=["pw-row-bg-fill"])
         content.append(self._toast_spacer)
         # maximum_size onceden pencere genisliginden (720) daha buyuktu,
         # o yuzden hicbir sey kisitlamiyordu. Pencereyi 780'e cikarinca
@@ -394,13 +395,17 @@ class UnusedAppsWindow(Adw.Window):
             outline: none;
             margin: 0;
         }
-        /* Bildirim rezerv boslugu (_toast_spacer) - satirlarla (boxed-list,
-           tek katman @card_bg_color) AYNI gorunen renk. @card_bg_color'in
-           tek katmani, olculen window_bg_color+%8 beyaz karisimiyla
+        /* Listenin duz/stilsiz DUZ arkaplani (pencerenin kendi rengi)
+           gosterip satirlarin (boxed-list, tek katman @card_bg_color)
+           arkaplanindan farkli durdugu, "ayri bir kutu" gibi goze
+           battigi butun yerlerde kullanilan ortak sinif - bkz.
+           _toast_spacer VE bos-durum sayfasi (_empty_status, hepsi
+           yoksayilinca "Kullanilmayan yok" karti). @card_bg_color'in tek
+           katmani, olculen window_bg_color+%8 beyaz karisimiyla
            matematiksel olarak esdeger (bkz. yukaridaki uzun aciklama) -
            o yuzden AYNI mix() formulunu kullanmak yeterli.
         */
-        .pw-toast-spacer {
+        .pw-row-bg-fill {
             background-color: mix(@window_bg_color, white, 0.08);
         }
         /* Ok gostergesi kendi ayri "hit area" boslugu yuzunden +/-
