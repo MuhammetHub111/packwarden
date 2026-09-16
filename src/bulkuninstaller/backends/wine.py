@@ -204,6 +204,24 @@ def _resolve_case_insensitive(path: str) -> str | None:
     return current if os.path.exists(current) else None
 
 
+def _resolve_install_path(prefix: str, entry: dict, exe_path: str | None) -> str:
+    """Paketin kurulu oldugu klasoru bulur.
+
+    InstallLocation cogu zaman bos (ozellikle VC++ Redistributable'in
+    bundle girdisinde, ya da hic yazilmamis) - bu durumda DisplayIcon'dan
+    zaten cikardigimiz exe'nin klasoru gercek kurulum yerine en yakin
+    bilgi (ornegin VC_redist.x64.exe'nin durdugu Package Cache klasoru,
+    UninstallString'in de kullandigi ayni klasordur)."""
+    location = entry.get("InstallLocation")
+    if location:
+        unix_path = _windows_path_to_unix(prefix, location)
+        if unix_path:
+            return _resolve_case_insensitive(unix_path) or unix_path
+    if exe_path:
+        return os.path.dirname(exe_path)
+    return ""
+
+
 _GROUP_ICON_RE = re.compile(r"--type=14\s+--name=(?:'([^']*)'|(\S+))")
 
 
@@ -377,6 +395,7 @@ class WineBackend(Backend):
                     continue
                 size_kb = entry.get("EstimatedSize")
                 icon_path = ""
+                exe_path = None
                 display_icon = entry.get("DisplayIcon")
                 if display_icon:
                     exe_path = _windows_path_to_unix(prefix, display_icon)
@@ -392,6 +411,7 @@ class WineBackend(Backend):
                     source=self.id,
                     publisher=entry.get("Publisher") or entry.get("publisher", ""),
                     origin="" if prefix == default_prefix else os.path.basename(prefix),
+                    install_path=_resolve_install_path(prefix, entry, exe_path),
                     # Cok yukleyici (foobar2000 gibi NSIS tabanlilar, VC++
                     # Redistributable'in ust duzey "bundle" girdisi) hic
                     # InstallDate yazmiyor; bu durumda .reg'in kendi anahtar
