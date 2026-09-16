@@ -224,7 +224,16 @@ class UnusedAppsWindow(Adw.Window):
         # Pencereden acikca daha genis bir deger veriyoruz ki tekrar
         # aktif hale gelmesin.
         clamp = Adw.Clamp(maximum_size=900, child=content)
-        self._scrolled = Gtk.ScrolledWindow(child=clamp, vexpand=True)
+        # pw-row-bg-fill: _snap_scrolled_bottom yarim satiri gizlemek icin
+        # bu widget'a margin_bottom veriyor - bu margin alani stilsizdi
+        # (duz pencere rengi), bildirimler acikken listenin son satiri ile
+        # bildirim alani arasinda ayri, koyu bir "bosluk" gibi goze
+        # batiyordu (kullanici ekran goruntusuyle gosterdi). Satirlarla
+        # AYNI rengi vererek (bkz. _toast_spacer/_empty_status/_toast_box
+        # icin ayni cozum) bu bosluk goze batmiyor.
+        self._scrolled = Gtk.ScrolledWindow(
+            child=clamp, vexpand=True, css_classes=["pw-row-bg-fill"],
+        )
         scrolled = self._scrolled
         # Satir sayisi (tarama/yoksayma ile) veya pencere boyutu degistiginde
         # gorunur listenin alt kenari bir satirin ORTASINDAN gecebiliyordu -
