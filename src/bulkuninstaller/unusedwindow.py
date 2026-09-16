@@ -217,20 +217,6 @@ class UnusedAppsWindow(Adw.Window):
         content.append(settings_group)
         content.append(self._list_box)
         content.append(self._empty_status)
-        # Bildirim(ler) gosterilirken listenin SONUNA eklenen gercek bir
-        # bosluk widget'i - bkz. _update_toast_reserve. margin_bottom
-        # tek basina (ScrolledWindow uzerinde) kullanici ekran
-        # goruntusuyle "hala sikismis" gosterdi; bunun YANINA, ayni
-        # amaci farkli (belirsizlige daha az acik) bir mekanizmayla da
-        # saglayan bu duz Gtk.Box'u ekliyoruz.
-        # Duz/stilsiz bir Gtk.Box, pencerenin DUZ arkaplanini gosteriyordu -
-        # satirlarin (boxed-list, @card_bg_color katmanli) arkaplanindan
-        # farkli oldugu icin acikca "ayri, gri bir kutu" gibi goze
-        # batiyordu (kullanici ekran goruntusuyle gosterdi). Satirlarla
-        # AYNI hesaplanmis rengi veriyoruz (bkz. asagidaki CSS) ki
-        # bosluk, listenin dogal bir uzantisi gibi gorunsun.
-        self._toast_spacer = Gtk.Box(css_classes=["pw-row-bg-fill"])
-        content.append(self._toast_spacer)
         # maximum_size onceden pencere genisliginden (720) daha buyuktu,
         # o yuzden hicbir sey kisitlamiyordu. Pencereyi 780'e cikarinca
         # (bkz. git log) bu sinir aktif hale geldi ve icerigin iki
@@ -301,13 +287,9 @@ class UnusedAppsWindow(Adw.Window):
 
     # Bildirimin alt ankoru (margin_bottom) ve kendi yuksekligi - bkz.
     # _build_toast_widget/_show_toast, box.set_size_request(-1, 44) ve
-    # margin_bottom=72. Rezerv hesabinin (_update_toast_reserve) GERCEK
-    # geometriyle uyumlu kalmasi icin buraya da sabit olarak tasindi.
+    # margin_bottom=72.
     _TOAST_ANCHOR_MARGIN = 72
     _TOAST_HEIGHT = 44
-
-    # Rezerv hesabina eklenen kucuk gorsel pay (px).
-    _TOAST_RESERVE_BUFFER = 20
 
     def _build_toast_widget(self):
         # Her bildirim (_show_toast icinde olusturulur) DOGRUDAN overlay'e
@@ -395,15 +377,14 @@ class UnusedAppsWindow(Adw.Window):
             outline: none;
             margin: 0;
         }
-        /* Listenin duz/stilsiz DUZ arkaplani (pencerenin kendi rengi)
-           gosterip satirlarin (boxed-list, tek katman @card_bg_color)
-           arkaplanindan farkli durdugu, "ayri bir kutu" gibi goze
-           battigi butun yerlerde kullanilan ortak sinif - bkz.
-           _toast_spacer VE bos-durum sayfasi (_empty_status, hepsi
-           yoksayilinca "Kullanilmayan yok" karti). @card_bg_color'in tek
-           katmani, olculen window_bg_color+%8 beyaz karisimiyla
-           matematiksel olarak esdeger (bkz. yukaridaki uzun aciklama) -
-           o yuzden AYNI mix() formulunu kullanmak yeterli.
+        /* Bos-durum sayfasinin (_empty_status, hepsi yoksayilinca
+           "Kullanilmayan yok" karti) duz/stilsiz DUZ arkaplani
+           (pencerenin kendi rengi) gosterip satirlarin (boxed-list, tek
+           katman @card_bg_color) arkaplanindan farkli durdugu, "ayri bir
+           kutu" gibi goze batiyordu. @card_bg_color'in tek katmani,
+           olculen window_bg_color+%8 beyaz karisimiyla matematiksel
+           olarak esdeger (bkz. yukaridaki uzun aciklama) - o yuzden AYNI
+           mix() formulunu kullanmak yeterli.
         */
         .pw-row-bg-fill {
             background-color: mix(@window_bg_color, white, 0.08);
@@ -498,10 +479,6 @@ class UnusedAppsWindow(Adw.Window):
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
         )
 
-        # Rezerv artik SABIT (bkz. _update_toast_reserve) - pencere
-        # kurulurken bir kere uygulanir, ilk bildirimi beklemez.
-        self._update_toast_reserve()
-
     def _show_toast(self, title, button_label=None, on_action=None, timeout=5):
         # Zaten 3 bildirim yigilmisken 4.'su gelirse, en eskisini (rank'i en
         # yuksek olani, kullanici onu okuma/geri alma sansi olmadan) sessizce
@@ -585,7 +562,6 @@ class UnusedAppsWindow(Adw.Window):
         self._overlay.add_overlay(box)
         self._toasts.append(entry)
         self._apply_rank_css(entry)
-        self._update_toast_reserve()
 
         # Widget bu satirin sonunda henuz gerceklenmemis (unrealized) —
         # "pw-toast-shown" sinifini AYNI karede eklersek CSS gecisi
@@ -631,57 +607,6 @@ class UnusedAppsWindow(Adw.Window):
         elif entry["rank"] == 2:
             box.add_css_class("pw-toast-rank-2")
 
-    def _row_height(self):
-        # Satir yuksekligi tema/yazi tipine bagli, sabit bir sayi degil -
-        # bu yuzden gercek deger, GERCEKTEN allocate edilmis ilk satirdan
-        # olculur (yoksa rezerv ile satir sinirlari ortusmez, kesme bir
-        # satirin ortasina denk gelir - "gimp" satirinin yarim kesilmesi
-        # buydu).
-        row = self._list_box.get_row_at_index(0)
-        if row is None:
-            return 0
-        return row.get_allocated_height()
-
-    def _update_toast_reserve(self):
-        # Bildirim(ler) listenin uzerinde OPAK bir sekilde durup altindaki
-        # satirlarin +/- dugmelerini hem gorsel hem tiklama olarak
-        # kapatiyordu. Rank'e gore DEGISEN bir hesap (+20/+48/+100, her
-        # rank icin ayri deger) uc kez denendi, uc kez de kullanicinin
-        # GERCEK uygulamasinda yetersiz/tutarsiz cikti - hangi rank/zamanlama
-        # kombinasyonunun sorun cikardigini tespit edemedim. SONRA hep-sabit
-        # (bildirim olsun olmasin HER ZAMAN ayni, 3 bildirimlik en kotu
-        # durum) bir deneme yapildi - bu tasma sorununu kesin cozdu AMA
-        # kullanici SADECE 1 bildirim varken bile aynen 3'luk boslugun
-        # ayrildigini fark etti (ekran goruntusuyle gosterdi) - satirlarin
-        # altinda gereksiz kocaman bos bir alan kaliyordu, bildirimler tek
-        # tek kapandikca da bu alan hic degismiyordu.
-        # Simdi GERCEK anda gosterilen en yuksek rank'e gore hesaplaniyor
-        # (bildirim azaldikca rezerv de gercekten aciliyor), ama onceki
-        # rank-tabanli denemelerden farkli olarak degerler ARTIK tahmine
-        # dayanmiyor - _TOAST_ANCHOR_MARGIN/_TOAST_HEIGHT, bildirimin
-        # kendi CSS'inde kullanilan GERCEK sabitlerin ta kendisi - ve
-        # sonucta cikan deger, asagida satir yuksekliginin bir ustune
-        # (ceil) yuvarlaniyor. Bu yuvarlama sadece kesme cizgisini satir
-        # sinirina getirmiyor, ayni zamanda onceki denemelerde "yetersiz
-        # cikan" tur bir hesap hatasina karsi da kucuk bir emniyet payi
-        # ekliyor (yuvarlama hep YUKARI, asla asagi degil).
-        if self._toasts:
-            max_rank = max(entry["rank"] for entry in self._toasts)
-            needed = (
-                self._TOAST_ANCHOR_MARGIN + self._TOAST_HEIGHT
-                + max_rank * self._TOAST_STEP + self._TOAST_RESERVE_BUFFER
-            )
-            row_height = self._row_height()
-            if row_height > 0:
-                rows_needed = -(-needed // row_height)
-                reserve = rows_needed * row_height
-            else:
-                reserve = needed
-        else:
-            reserve = 0
-        self._scrolled.set_margin_bottom(reserve)
-        self._toast_spacer.set_size_request(-1, reserve)
-
     def _discard_toast(self, entry):
         # _remove_toast'un REFLOW YAPMAYAN hali - sadece kaydi ve widget'i
         # siler, kalanlarin rank'ine dokunmaz. SADECE _show_toast'un 4.
@@ -697,7 +622,6 @@ class UnusedAppsWindow(Adw.Window):
             entry["timeout_id"] = None
         if entry in self._toasts:
             self._toasts.remove(entry)
-        self._update_toast_reserve()
         box = entry["box"]
         if box.get_parent() is self._overlay:
             self._overlay.remove_overlay(box)
@@ -735,7 +659,6 @@ class UnusedAppsWindow(Adw.Window):
                 if other["rank"] > removed_rank:
                     other["rank"] -= 1
                     self._apply_rank_css(other)
-        self._update_toast_reserve()
         box = entry["box"]
         if not animate:
             self._overlay.remove_overlay(box)
