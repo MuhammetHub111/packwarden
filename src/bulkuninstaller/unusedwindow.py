@@ -247,20 +247,25 @@ class UnusedAppsWindow(Adw.Window):
         action_bar.pack_start(self._selection_label)
         action_bar.pack_end(self._remove_button)
 
+        self._build_toast_widget()
+
+        # Bildirimler artik bir Gtk.Overlay ile listenin UZERINE binen
+        # yuzen kutular DEGIL - ToolbarView'in kendi "bottom bar" yigi-
+        # nina, icerik (scrolled) ile alt eylem cubugu (action_bar)
+        # ARASINA eklenen GERCEK, akis-ici bir satir (bkz. _build_toast_
+        # widget). Bu sayede varligi/yuksekligi GTK'nin kendi box
+        # duzeni tarafindan hesaplaniyor - "+" tikladiginda alttaki
+        # satirlarin +/- dugmelerini kapatan/erisilemez yapan bir yuzen-
+        # kutu-uzerinde-liste tasarimi tamamen ortadan kalkiyor, cunku
+        # bildirim artik listenin BİR PARCASI degil, ayri, kendi
+        # yerini alan bir alan. Bos oldugunda (hic bildirim yokken)
+        # dogal yuksekligi 0'a doner (bkz. Gtk.Revealer kullanimi,
+        # _show_toast/_remove_toast), yani bos alan da kalmiyor.
         toolbar_view = Adw.ToolbarView(content=scrolled)
         toolbar_view.add_top_bar(header)
+        toolbar_view.add_bottom_bar(self._toast_box)
         toolbar_view.add_bottom_bar(action_bar)
-
-        # "Bir daha gösterme" bildirimi için Adw.Toast/ToastOverlay
-        # KULLANILMIYOR — libadwaita'nın kendi kayma animasyonu private/iç
-        # bir efekt, dışarıdan sadece GTK'nin genel "animasyonları
-        # etkinleştir" ayarıyla (uygulamadaki HER animasyonu etkiler,
-        # ör. Yoksayılanlar perdesi) kapatılabiliyor. Kullanıcı sadece bu
-        # bildirimin kaymadan, anında belirmesini istedi; bunu garanti
-        # etmenin tek yolu kendi basit bildirim widget'ımızı yazmaktı.
-        self._overlay = Gtk.Overlay(child=toolbar_view)
-        self.set_content(self._overlay)
-        self._build_toast_widget()
+        self.set_content(toolbar_view)
 
         self._update_ignored_button()
         self._scan()
@@ -281,37 +286,42 @@ class UnusedAppsWindow(Adw.Window):
     # gelince en eskisi (kullanicinin "Geri al" sansi olmadan) dusurulur.
     _MAX_TOASTS = 3
 
-    # Yigindaki komsu bildirimler arasi mesafe (px) — rank tabanli
-    # translateY hesabinda kullanilir, bkz. _apply_rank_css.
-    _TOAST_STEP = 56
-
-    # Bildirimin alt ankoru (margin_bottom) ve kendi yuksekligi - bkz.
-    # _build_toast_widget/_show_toast, box.set_size_request(-1, 44) ve
-    # margin_bottom=72.
-    _TOAST_ANCHOR_MARGIN = 72
-    _TOAST_HEIGHT = 44
-
     def _build_toast_widget(self):
-        # Her bildirim (_show_toast icinde olusturulur) DOGRUDAN overlay'e
-        # kendi kutusuyla eklenir — ortak bir Gtk.Box'a DEGIL. Sebep: konum
-        # (alt ankor, margin_bottom=72) HERKESTE SABIT kalsin isteniyor,
-        # ama en eskiyi kapatinca kalanlar yukari kaysin da isteniyor. Bir
-        # Gtk.Box otomatik yerlesiminde bu ikisi ayni anda olamiyor (box
-        # hangi kenardan ankorluysa, o kenara yakin cocugu silmek digerlerini
-        # O KENARA dogru kaydirir, asla ters yone) — bkz. git log, uzun
-        # tartisma. Cozum: her bildirimin margin_bottom'u HEP 72 (ortak
-        # ankor), ama her biri kendi "rank"ina (0=en yeni/alt, 1, 2=en
-        # eski/ust) gore ekstra bir translateY ile SANAL olarak o kadar
-        # yukari kaydiriliyor (bkz. CSS .pw-toast-rank-N). Boylece gercek
-        # margin/konum hic degismiyor (ayni yerde duruyor), sadece rank
-        # degistiginde (bir bildirim kalkinca digerleri "bir rank yukari"
-        # olunca) o translateY degeri degisip CSS transition ile yumusakca
-        # kayiyor — hem konum ayni, hem yukari kayma ayni anda saglaniyor.
-        self._toasts = []  # en eski once: [{"box","timeout_id","callback"}, ...]
-        # bkz. _update_toast_scroll_compensation - o ana kadar bildirimler
-        # icin kaydirmaya UYGULANMIS toplam miktar (px).
-        self._toast_scroll_compensation = 0
-        self._toast_scroll_animation = None
+        # Bildirimler artik Gtk.Overlay uzerinde listenin USTUNE binen
+        # yuzen kutular DEGIL - ToolbarView'in bottom-bar yiginina
+        # (bkz. __init__) icerik (scrolled) ile alt eylem cubugu
+        # (action_bar) ARASINA eklenen GERCEK, akis-ici bir Gtk.Box
+        # (self._toast_box). Her bildirim kendi Gtk.Revealer'i icinde bu
+        # kutuya append/remove edilir - GTK'nin kendi box duzeni bildirim
+        # sayisina gore dogal olarak buyur/kucculur (hic bildirim yokken
+        # self._toast_box'un 0 cocugu var, dogal yuksekligi 0 - kalici
+        # bos alan yok), elle rank/translateY hesabina hic gerek yok.
+        #
+        # Eski tasarim (bkz. git log) Gtk.Overlay + rank tabanli CSS
+        # transform kullaniyordu: bildirim listenin UZERINE biniyor,
+        # +/- dugmelerini hem gorsel hem tiklama olarak erisilemez
+        # yapiyordu. Bunu once "rezerv" (listenin altina kalici bos
+        # alan ayirma) ile, sonra "kaydirma telafisi" (listeyi bildirim
+        # yuksekligi kadar yukari kaydirma) ile cozmeye calisildi - ikisi
+        # de bir sekilde calisti ama ikisi de temelde YANLIS katmanda
+        # (liste/scroll) bir "listenin UZERINE binen ayri bir katman"
+        # sorununu duzeltmeye calisiyordu. Kullanici defalarca ekran
+        # goruntusuyle "hala ust uste biniyor" bildirdi (uzun listelerde,
+        # art arda/coklu bildirimde, farkli senaryolarda) - kok neden HER
+        # ZAMAN ayniydi: bildirim, PENCERE DUZENININ bir parcasi degil,
+        # ondan bagimsiz yuzen bir katmandi. Simdi bildirim de dogrudan
+        # duzenin (ToolbarView) bir parcasi - liste onun icin GERCEKTEN
+        # yer aciyor, cakisma yapisal olarak imkansiz (bkz. GTK'nin kendi
+        # box/toolbarview yerlesim mantigi).
+        #
+        # Adw.Toast/ToastOverlay KULLANILMIYOR — libadwaita'nin kendi
+        # kayma animasyonu private/ic bir efekt, disaridan sadece GTK'nin
+        # genel "animasyonlari etkinlestir" ayariyla (uygulamadaki HER
+        # animasyonu etkiler, ör. Yoksayilanlar perdesi) kapatilabiliyor.
+        # Kendi basit bildirim widget'imizi yazmak, konum/davranis
+        # uzerinde tam kontrol sagliyor.
+        self._toasts = []  # en eski once: [{"revealer","timeout_id","callback"}, ...]
+        self._toast_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
 
         css = b"""
         .pw-toast {
@@ -320,39 +330,14 @@ class UnusedAppsWindow(Adw.Window):
             padding: 6px 6px 6px 16px;
             border-radius: 9999px;
             box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
-            opacity: 0;
-            /* Gizli/gecis durumu hem ilk belirirken hem kapanirken kullanilir
-               (ayni CSS kurali) - bu yuzden translateY burada TEK basina
-               "kapanirken yukari kayma" ya da "belirirken yukaridan inme"
-               degil, ikisi birden: kapanirken oradan yukari uzaklasir,
-               belirirken de o noktadan asagi/yerine gelir. Kullanicinin
-               istegi (X/Geri al -> bir tik yukari) boylece saglaniyor,
-               konum (alt ankor) hic degismedi.
+            /* Ust/alt bosluk (komsu bildirimler + icerik/eylem cubugu
+               arasi) VE yan bosluk (icerigin kendi 12px kenar payiyla
+               hizali) burada, PILL'in kendi CSS'inde - self._toast_box'un
+               UZERINDE degil. Boylece 0 bildirim varken kutunun 0 cocugu
+               = 0 gorunur yukseklik + 0 margin (bos alan kalmiyor); her
+               bildirim VARKEN kendi boslugunu kendi tasiyor.
             */
-            transform: scale(0.6) translateY(-10px);
-            transition: opacity 180ms ease-out,
-                        transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
-        }
-        .pw-toast.pw-toast-shown {
-            opacity: 1;
-            transform: scale(1) translateY(0);
-        }
-        /* rank-1/rank-2: bkz. _apply_rank_css - her ikisi de AYNI margin_bottom
-           (72) ile konumlanir, sadece translateY ile "sanal" olarak bir
-           basamak daha yukarida GORUNURLER. Deger _TOAST_STEP (56px) ile
-           ayni olmali - orada degisirse burada da guncellenmeli.
-        */
-        .pw-toast.pw-toast-rank-1 {
-            transform: scale(0.6) translateY(-66px);
-        }
-        .pw-toast.pw-toast-rank-1.pw-toast-shown {
-            transform: scale(1) translateY(-56px);
-        }
-        .pw-toast.pw-toast-rank-2 {
-            transform: scale(0.6) translateY(-122px);
-        }
-        .pw-toast.pw-toast-rank-2.pw-toast-shown {
-            transform: scale(1) translateY(-112px);
+            margin: 4px 12px;
         }
         /* libadwaita bu satira farkli bir kart rengi, yuvarlak kose ve
            ince bir kenarlik veriyor (acilan bir alt-kart gibi ayirt
@@ -484,16 +469,11 @@ class UnusedAppsWindow(Adw.Window):
         )
 
     def _show_toast(self, title, button_label=None, on_action=None, timeout=5):
-        # Zaten 3 bildirim yigilmisken 4.'su gelirse, en eskisini (rank'i en
-        # yuksek olani, kullanici onu okuma/geri alma sansi olmadan) sessizce
-        # dusuruyoruz — sinirsiz yigilmasin. _discard_toast (REFLOW YAPMAYAN
-        # hali, bkz. tanimi) kullaniliyor cunku birazdan asagidaki "digerlerini
-        # bir basamak yukari kaydir" dongusu ZATEN bunu yapacak — _remove_toast
-        # kullanilsaydi İKİ KEZ kaydirilip rank 0-2 araligini asardi (gercek
-        # bug buydu: hizli art arda +/- basinca bildirimler ust uste biniyordu).
+        # Zaten 3 bildirim yigilmisken 4.'su gelirse, en eskisini
+        # (listenin basindaki, kullanici onu okuma/geri alma sansi
+        # olmadan) sessizce dusuruyoruz — sinirsiz yigilmasin.
         if len(self._toasts) >= self._MAX_TOASTS:
-            oldest = max(self._toasts, key=lambda e: e["rank"])
-            self._discard_toast(oldest)
+            self._discard_toast(self._toasts[0])
 
         label = Gtk.Label(
             label=title, xalign=0, hexpand=True,
@@ -505,38 +485,34 @@ class UnusedAppsWindow(Adw.Window):
             css_classes=["flat", "circular"],
             tooltip_text=_("Close"),
         )
-        box = Gtk.Box(
-            orientation=Gtk.Orientation.HORIZONTAL, spacing=6,
-            css_classes=["pw-toast"],
-            halign=Gtk.Align.FILL, valign=Gtk.Align.END, hexpand=True,
-            # Alt eylem çubuğu (Vazgeç/Kaldır) kendi başına ~50-56px
-            # yükseklikte — bildirim onun üstünde net bir boşlukla dursun.
-            # Bu deger HERKESTE ayni ve hic degismez - "rank"a gore yukari
-            # kayma translateY ile ayriyeten yapiliyor (bkz. _apply_rank_css).
-            margin_bottom=self._TOAST_ANCHOR_MARGIN,
-            margin_start=40, margin_end=40,
-        )
-        # Gtk.Overlay'e DOGRUDAN eklenen (paylasilan bir Gtk.Box'a degil)
-        # ve valign=END ile konumlanan bir widget, acik bir yukseklik
-        # istegi olmadan DOGAL yuksekligini 0 olcuyor - canli testle
-        # dogrulandi (icerik+CSS'in kendisi doguysa bile widget hic
-        # gorunmuyordu). Sabit bir min-yukseklik bunu duzeltiyor.
-        #
         # Genislik: SABIT bir piksel degeri (640) once denendi ama pencere
         # o kadar genis olmayabiliyor - bildirim diyalogun kendi sinirini
         # tasip arkadaki ana pencereye biniyordu (kullanici ekran
-        # goruntusuyle gosterdi). Bunun yerine halign=FILL + hexpand=True
-        # + sabit kenar boslugu (40px) kullaniyoruz: bildirim HER ZAMAN
-        # o an hangi pencerede/genislikte gosteriliyorsa onun genisligine
-        # (eksi kenar bosluklari) gore olculur - asla tasamaz, ama yine de
-        # her bildirim ayni (o pencereye gore standart) genislikte olur.
-        box.set_size_request(-1, self._TOAST_HEIGHT)
+        # goruntusuyle gosterdi). hexpand=True kullaniyoruz: bildirim HER
+        # ZAMAN o an hangi pencerede/genislikte gosteriliyorsa onun
+        # genisligine gore olculur - asla tasamaz, ama yine de her
+        # bildirim ayni (o pencereye gore standart) genislikte olur,
+        # metnin uzunlugu genisligi degistirmez (bkz. ellipsize).
+        box = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL, spacing=6,
+            css_classes=["pw-toast"], hexpand=True,
+        )
         box.append(label)
         box.append(action_button)
         box.append(close_button)
 
+        # Her bildirim kendi Gtk.Revealer'inde - bkz. _build_toast_widget
+        # icin yukaridaki genel aciklama. reveal_child=False ile baslar,
+        # bir kare sonra True'ya cekilir ki gercek "acilma" gecisi oynasin
+        # (aninda True olsaydi hic gecis olmadan dogrudan acik belirirdi).
+        revealer = Gtk.Revealer(
+            transition_type=Gtk.RevealerTransitionType.SLIDE_DOWN,
+            transition_duration=200,
+            child=box,
+        )
+
         entry = {
-            "box": box, "timeout_id": None, "callback": on_action, "rank": 0,
+            "revealer": revealer, "timeout_id": None, "callback": on_action,
         }
         if button_label:
             action_button.set_label(button_label)
@@ -550,33 +526,14 @@ class UnusedAppsWindow(Adw.Window):
             "clicked", lambda _b, e=entry: self._remove_toast(e)
         )
 
-        # Yeni bildirim hep rank 0'da (alt ankor) girer. Rank 0 onceki bir
-        # kapatmadan (bkz. _remove_toast, "asagi sikistirma") kalma bosluk
-        # yuzunden ZATEN bossa kimseyi itmeye gerek yok - direkt oraya
-        # girer. Doluysa (normal durum) herkes bir basamak yukari kayar,
-        # tipki eski Gtk.Box tasariminda "yeni gelince digerleri yukari
-        # kayiyor" hissiyle ayni; ama burda gercek konum degil, translateY
-        # degisiyor. (Bossa bile kaydirsaydik, ustteki bosluktan kaynakli
-        # rank MAX_TOASTS'u asabilirdi - once buydu.)
-        if any(e["rank"] == 0 for e in self._toasts):
-            for existing in self._toasts:
-                existing["rank"] += 1
-                self._apply_rank_css(existing)
-
-        self._overlay.add_overlay(box)
+        # append(): yeni bildirim, dikey kutunun EN SONUNA (gorsel olarak
+        # en ALTTA, eylem cubuguna en yakin) eklenir - onceki bildirimler
+        # oldugu yerde kalir, elle bir konum/rank hesabina gerek yok.
+        self._toast_box.append(revealer)
         self._toasts.append(entry)
-        self._apply_rank_css(entry)
-        self._update_toast_scroll_compensation()
 
-        # Widget bu satirin sonunda henuz gerceklenmemis (unrealized) —
-        # "pw-toast-shown" sinifini AYNI karede eklersek CSS gecisi
-        # (transition) tetiklenmeden direkt son haliyle belirir (bkz.
-        # expander oku ile ayni GTK tuhafligi, ama burada tam tersi:
-        # o zaman animasyonu BASTIRMAK istiyorduk, burda TETIKLENMESINI
-        # istiyoruz). Bir kare bekleyip sonra ekliyoruz ki gercek
-        # "baloncuk" animasyonu oynasin.
-        def _reveal(b=box):
-            b.add_css_class("pw-toast-shown")
+        def _reveal(r=revealer):
+            r.set_reveal_child(True)
             return GLib.SOURCE_REMOVE
         GLib.idle_add(_reveal)
 
@@ -586,153 +543,47 @@ class UnusedAppsWindow(Adw.Window):
             )
 
     def _on_toast_timeout(self, entry):
-        # Kendiliginden zaman asimi PASIF bir olay - kullanici o an baska
-        # bir seyle ilgileniyor olabilir, digerlerinin birden yer
-        # degistirmesi bunu fark ettirip sasirtabilir. Bu yuzden reflow
-        # YOK: sadece kendi basina soner, digerleri oldugu yerde kalir.
-        # (Ust uste eklenen bildirimler hep AYNI sureyle gosterildigi
-        # icin en eski her zaman ilk zaman asimina ugrar - yani bosluk
-        # hep en USTTE acilir, iki dolu yer arasinda asla sikismaz.)
-        # Carpi/Geri al ile aktif kapatmada (bkz. _on_toast_action_clicked)
-        # reflow hala var - o, dogrudan kullanicinin eylemine tepki.
         entry["timeout_id"] = None
-        self._remove_toast(entry, reflow=False)
+        self._remove_toast(entry)
         return GLib.SOURCE_REMOVE
 
-    def _apply_rank_css(self, entry):
-        # rank 0 = alt ankora en yakin (ekstra translateY yok, temel
-        # .pw-toast/.pw-toast-shown kurali gecerli). rank 1/2 icin ekstra
-        # sinif ekleniyor (bkz. CSS) - bu, GERCEK konumu (margin_bottom)
-        # DEGIL, sadece boyanma anindaki translateY'yi degistirir.
-        box = entry["box"]
-        box.remove_css_class("pw-toast-rank-1")
-        box.remove_css_class("pw-toast-rank-2")
-        if entry["rank"] == 1:
-            box.add_css_class("pw-toast-rank-1")
-        elif entry["rank"] == 2:
-            box.add_css_class("pw-toast-rank-2")
-
-    def _update_toast_scroll_compensation(self):
-        # Bildirim(ler) listenin ustunde durup en alttaki satir(lar)in
-        # +/- dugmelerini hem gorsel hem tiklama olarak kapatiyordu.
-        # Bunu sabit bir "rezerv" (goruntulenebilir alani kalici olarak
-        # kucultup listenin SONUNA bosluk ekleyen mekanizma - bkz. git
-        # log, o mekanizma tamamen kaldirildi) ile cozmustuk, ama kullanici
-        # bunun (satirlarla ayni renkte, satir sinirina hizali olsa bile)
-        # uzun listelerde (ör. 48'lik yoksayilanlar) gercekten daha az
-        # satirin ayni anda gorunmesine sebep oldugunu fark etti ve
-        # reddetti - "bildirim ustune binsin, bosluk hic ayrilmasin" dedi.
-        # Simdiki cozum farkli bir eksende calisiyor: goruntulenebilir
-        # ALAN hic kucultulmuyor (scrollable range/viewport ayni), sadece
-        # KAYDIRMA KONUMU, bildirim yigininin o anki yuksekligi kadar
-        # YUKARI itiliyor - yani bildirim gelince altta kalacak satir(lar)
-        # bildirimin UZERINE degil, bildirimin USTUNE kaydiriliyor (hala
-        # gorunur ve tiklanabilir kaliyor), bildirimler tek tek kapaninca
-        # da bu itme geri veriliyor (kaydirma asagi doner, "acilir"). Eger
-        # zaten listenin en dibindeysek (daha fazla yukari kaydirilacak
-        # icerik yoksa) GTK adjustment kendiliginden sinirda kalir - o
-        # durumda son satir(lar) gecici olarak kapanir, bu da normal
-        # toast/snackbar davranisidir (bkz. her yerde: kapanana kadar bekle
-        # veya Geri al'a bas).
-        if self._toasts:
-            max_rank = max(entry["rank"] for entry in self._toasts)
-            needed = (
-                self._TOAST_ANCHOR_MARGIN + self._TOAST_HEIGHT
-                + max_rank * self._TOAST_STEP + 20
-            )
-        else:
-            needed = 0
-        delta = needed - self._toast_scroll_compensation
-        self._toast_scroll_compensation = needed
-        if not delta:
-            return
-        # Ani/anlik set_value ("zipla") kullanici tarafindan rahatsiz
-        # edici bulundu - "bir yere kaydiriyor" hissi kotu, ekran gorun-
-        # tusuyle gosterildi. Adw.TimedAnimation ile yumusak (200ms)
-        # bir gecise ceviriyoruz; devam eden bir animasyon varsa (art
-        # arda birden fazla bildirim gelirse) skip() ile hemen o anki
-        # hedefine tamamlaniyor, boylece yeni animasyon TUTARLI (yari
-        # yolda degil, tam yerlesmis) bir baslangic noktasindan basliyor.
-        adjustment = self._scrolled.get_vadjustment()
-        if self._toast_scroll_animation is not None:
-            self._toast_scroll_animation.skip()
-        start = adjustment.get_value()
-        target = start + delta
-        self._toast_scroll_animation = Adw.TimedAnimation.new(
-            self._scrolled, start, target, 200,
-            Adw.CallbackAnimationTarget.new(adjustment.set_value),
-        )
-        self._toast_scroll_animation.play()
-
     def _discard_toast(self, entry):
-        # _remove_toast'un REFLOW YAPMAYAN hali - sadece kaydi ve widget'i
-        # siler, kalanlarin rank'ine dokunmaz. SADECE _show_toast'un 4.
-        # bildirim gelince en eskiyi dusurdugu yerde kullanilir; orada
-        # dusurmenin hemen ardindan gelen "herkesi bir basamak yukari
-        # kaydir" dongusu geri kalanlari zaten dogru sekilde kaydiracak -
-        # burada AYRICA bir reflow yapılırsa iki kez kaymis olur (rank
-        # 0-2 araligini asar, bir bildirim yanlislikla baskasinin ustune
-        # biner). Bu tam olarak "hizli art arda +/- basinca bildirimler
-        # ust uste biniyor" diye bildirilen hatanin sebebiydi.
+        # _remove_toast'un ANIMASYONSUZ hali - sadece kaydi ve widget'i
+        # siler. SADECE _show_toast'un 4. bildirim gelince en eskiyi
+        # dusurdugu yerde kullanilir (kullaniciya gecis/kapanma
+        # animasyonu gostermeye deger bir eylem degil, arka planda
+        # sessizce kapaniyor).
         if entry["timeout_id"] is not None:
             GLib.source_remove(entry["timeout_id"])
             entry["timeout_id"] = None
         if entry in self._toasts:
             self._toasts.remove(entry)
-        self._update_toast_scroll_compensation()
-        box = entry["box"]
-        if box.get_parent() is self._overlay:
-            self._overlay.remove_overlay(box)
+        revealer = entry["revealer"]
+        if revealer.get_parent() is self._toast_box:
+            self._toast_box.remove(revealer)
 
-    def _remove_toast(self, entry, animate=True, reflow=True):
+    def _remove_toast(self, entry, animate=True):
         if entry not in self._toasts:
             return
         if entry["timeout_id"] is not None:
             GLib.source_remove(entry["timeout_id"])
             entry["timeout_id"] = None
-        removed_rank = entry["rank"]
         self._toasts.remove(entry)
-        # reflow=False: kendiliginden zaman asimi icin (bkz. _on_toast_
-        # timeout) - kalanlarin rank'ine HIC dokunulmaz, sadece kendi
-        # basina soner. reflow=True (varsayilan, carpi/Geri al'da): TAM
-        # yeniden numaralandirma ("bosluk kadar zipla") fazla ileri
-        # gidiyordu: ortayi kapat, sonra yeni-alttakini kapat dedigimizde
-        # tek kalan bildirim dibe (rank 0) ATLIYORDU - kullanici bunun
-        # "iki kademe" gibi hissettigini, sadece BIR kademe inmesi
-        # gerektigini bildirdi (orta kisimda kalmali, dibe degil). Su an
-        # SADECE bir adim kayiyor - yon, "altinda/ustunde HALA dolu bir
-        # yer var mi" kontrolune gore seciliyor (literal rank 0 kontrolu
-        # DEGIL - o, boşluklar biriktiginde yanlis yon seçtiren asil
-        # hataydi). Bu, ust uste birden fazla "etkin en alt/en ust"
-        # kapatmasinda dogru sekilde birikerek ilerliyor (her adim kendi
-        # tek basamagini kapatiyor), ama bir kapatma ARADA BIRIKMIS
-        # birden fazla boslugu TEK basta atlamiyor.
-        if reflow and any(o["rank"] < removed_rank for o in self._toasts):
-            for other in self._toasts:
-                if other["rank"] < removed_rank:
-                    other["rank"] += 1
-                    self._apply_rank_css(other)
-        elif reflow:
-            for other in self._toasts:
-                if other["rank"] > removed_rank:
-                    other["rank"] -= 1
-                    self._apply_rank_css(other)
-        self._update_toast_scroll_compensation()
-        box = entry["box"]
+        revealer = entry["revealer"]
         if not animate:
-            self._overlay.remove_overlay(box)
+            self._toast_box.remove(revealer)
             return
-        box.remove_css_class("pw-toast-shown")
-        box.set_can_target(False)
-
-        # Kapanma animasyonu (opacity/scale transition, ~220ms) bitene
-        # kadar widget'i kutuda birak, sonra gercekten cikar — aksi halde
-        # solma hic gorunmeden aninda kaybolur.
-        def _cleanup(b=box):
-            if b.get_parent() is self._overlay:
-                self._overlay.remove_overlay(b)
-            return GLib.SOURCE_REMOVE
-        GLib.timeout_add(220, _cleanup)
+        # Gtk.Revealer kapanma gecisini kendi yonetiyor (SLIDE_DOWN'i
+        # tersine oynatir, kutunun toplam yuksekligi de bununla birlikte
+        # dogal olarak kucculur - elle bir "digerlerini kaydir" hesabina
+        # hic gerek yok). Gecis bitince (child-revealed False olunca)
+        # widget'i GERCEKTEN kutudan cikariyoruz.
+        def _on_revealed(r, _pspec):
+            if not r.get_child_revealed():
+                if r.get_parent() is self._toast_box:
+                    self._toast_box.remove(r)
+        revealer.connect("notify::child-revealed", _on_revealed)
+        revealer.set_reveal_child(False)
 
     def _on_toast_action_clicked(self, entry):
         callback = entry["callback"]
