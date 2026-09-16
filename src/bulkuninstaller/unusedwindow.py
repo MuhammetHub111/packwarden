@@ -663,6 +663,18 @@ class UnusedAppsWindow(Adw.Window):
         return GLib.SOURCE_REMOVE
 
     def _measure_and_apply_snap(self):
+        # Bildirim(ler) aciksa satir hizalamasi hic uygulanmiyor - deneme
+        # gosterdi ki bu durumda hizalama, listenin son tam satiri ile
+        # bildirim alani arasinda (renk artik eslesse de) gozle gorulur
+        # bir BOSLUK birakiyordu; kullanici bunu ekran goruntusuyle
+        # gosterip bildirim alaninin son satira YAPISIK olmasini istedi.
+        # Bildirim(ler) acikken olasi bir yarim satir, hemen yanindaki
+        # aktif bir bildirimin yaninda, bu bosluktan daha az goze
+        # batiyor - margin_bottom zaten 0'a cekilmis durumda kaliyor
+        # (bkz. _snap_scrolled_bottom), sadece yeniden hesaplamiyoruz.
+        if self._toasts:
+            GLib.timeout_add(60, self._release_snap_guard)
+            return GLib.SOURCE_REMOVE
         row = self._list_box.get_row_at_index(0)
         row_height = row.get_allocated_height() if row is not None else 0
         if row_height > 0:
