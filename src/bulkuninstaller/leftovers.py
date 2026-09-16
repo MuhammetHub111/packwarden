@@ -130,6 +130,77 @@ def _find_installer_leftovers(packages: list[Package], safe) -> list[Leftover]:
     return items
 
 
+_DESKTOP_SHORTCUT_DIRS = ("~/Desktop", "~/Masaüstü")
+
+
+def _find_wine_shortcut_leftovers(packages: list[Package], safe) -> list[Leftover]:
+    """Kaldırılan Wine programlarının masaüstündeki (varsa) kısayolunu
+    bulur — kendi kurulumcusu (Wine'ın winemenubuilder'ı) ya da
+    PackWarden'ın "Masaüstü kısayolu oluştur" özelliği tarafından
+    yaratılmış olabilir; PackWarden şu ana kadar hiçbirini kaldırma
+    sırasında temizlemiyordu (canlı doğrulandı: kaldırılmış bir Wine
+    programının .desktop dosyası masaüstünde öylece kalıyor, çift
+    tıklayınca hiçbir tepki vermiyor).
+
+    YOL DEĞİL, .exe DOSYA ADI eşleştiriliyor: gerçek bir kısayolu
+    (Total Commander) inceleyince Exec= satırının çözümlenmiş Unix
+    yolunu DEĞİL, orijinal Windows yolunu ("C:\\\\Program
+    Files\\\\totalcmd\\\\totalcmd64.exe") içerdiği görüldü — winemenu-
+    builder'ın kendi ürettiği kısayollar hep böyle. O yüzden tam yol
+    (bkz. backends/wine.py: resolved_exe_path) yerine sadece dosya adı
+    (bkz. exec_basename, "totalcmd64.exe") aranıyor - format ne olursa
+    olsun (Windows'lu ya da Unix'li yol) aynı kalan tek parça bu.
+
+    AYRICA kurulum klasörünün adı da (ör. "totalcmd") aranıyor: TEK bir
+    kayıt defteri girdisi (DisplayIcon) birden fazla kısayol (32/64 bit
+    gibi kardeş .exe'ler) üretebilir, ama kayıt SADECE kendi DisplayIcon
+    .exe'sini bilir — gerçek Total Commander örneğinde bu, iki masaüstü
+    kısayolundan sadece "64 bit" olanını buluyordu, "totalcmd.exe"
+    (32-bit) kısayolu kaçıyordu. Klasör adı ikisini de kapsıyor.
+
+    Yanlış pozitif riski, aramayı SADECE "Exec=" satırıyla ve zaten dar
+    bir alanla (masaüstü, .desktop uzantısı) sınırlayarak azaltılıyor."""
+    from .backends.wine import exec_basename, resolved_exe_path
+
+    needles = set()
+    for pkg in packages:
+        if pkg.source != "wine":
+            continue
+        basename = exec_basename(pkg.id)
+        if basename:
+            needles.add(basename)
+        full_path = resolved_exe_path(pkg.id)
+        if full_path:
+            install_dir_name = os.path.basename(os.path.dirname(full_path))
+            if len(install_dir_name) >= 3:
+                needles.add(install_dir_name.lower())
+    if not needles:
+        return []
+
+    items = []
+    for base in _DESKTOP_SHORTCUT_DIRS:
+        base_dir = os.path.expanduser(base)
+        try:
+            entries = os.listdir(base_dir)
+        except OSError:
+            continue
+        for entry in entries:
+            if not entry.lower().endswith(".desktop"):
+                continue
+            path = os.path.join(base_dir, entry)
+            try:
+                with open(path, encoding="utf-8", errors="replace") as f:
+                    exec_lines = [
+                        line for line in f if line.startswith("Exec=")
+                    ]
+            except OSError:
+                continue
+            exec_text = "\n".join(exec_lines).lower()
+            if any(needle in exec_text for needle in needles) and safe(path):
+                items.append(Leftover(path=path, size=_tree_size(path)))
+    return items
+
+
 def find_package_leftovers(
     packages: list[Package],
 ) -> list[tuple[str, list[Leftover]]]:
@@ -201,6 +272,11 @@ def find_package_leftovers(
     if installer_items:
         installer_items.sort(key=lambda item: -item.size)
         result.append(("Installer file", installer_items))
+
+    shortcut_items = _find_wine_shortcut_leftovers(packages, safe)
+    if shortcut_items:
+        shortcut_items.sort(key=lambda item: -item.size)
+        result.append(("Desktop shortcut", shortcut_items))
 
     return result
 

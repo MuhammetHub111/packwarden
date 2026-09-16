@@ -307,6 +307,15 @@ def _resolve_exe(pkg_id: str) -> str | None:
     return _resolve_case_insensitive(exe_path)
 
 
+def resolved_exe_path(pkg_id: str) -> str | None:
+    """_resolve_exe()'nin genele acik hali - leftovers.py'nin, kaldirilan
+    bir Wine paketinin masaustundeki (varsa) kisayolunu bulabilmesi icin:
+    kisayolun Exec= satirinda bu TAM yol geciyorsa, o kisayolun GERCEKTEN
+    bu paket icin oldugu isim benzerligiyle degil dogrudan yol eslesmesiyle
+    kanitlanmis olur - yanlis pozitif riski yok."""
+    return _resolve_exe(pkg_id)
+
+
 def launch_argv(pkg_id: str) -> list[str] | None:
     """Bir Wine paketini başlatma komutu; bulunamazsa None.
 
