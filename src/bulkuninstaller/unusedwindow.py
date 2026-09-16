@@ -311,6 +311,7 @@ class UnusedAppsWindow(Adw.Window):
         # bkz. _update_toast_scroll_compensation - o ana kadar bildirimler
         # icin kaydirmaya UYGULANMIS toplam miktar (px).
         self._toast_scroll_compensation = 0
+        self._toast_scroll_animation = None
 
         css = b"""
         .pw-toast {
@@ -642,10 +643,26 @@ class UnusedAppsWindow(Adw.Window):
         else:
             needed = 0
         delta = needed - self._toast_scroll_compensation
-        if delta:
-            adjustment = self._scrolled.get_vadjustment()
-            adjustment.set_value(adjustment.get_value() + delta)
         self._toast_scroll_compensation = needed
+        if not delta:
+            return
+        # Ani/anlik set_value ("zipla") kullanici tarafindan rahatsiz
+        # edici bulundu - "bir yere kaydiriyor" hissi kotu, ekran gorun-
+        # tusuyle gosterildi. Adw.TimedAnimation ile yumusak (200ms)
+        # bir gecise ceviriyoruz; devam eden bir animasyon varsa (art
+        # arda birden fazla bildirim gelirse) skip() ile hemen o anki
+        # hedefine tamamlaniyor, boylece yeni animasyon TUTARLI (yari
+        # yolda degil, tam yerlesmis) bir baslangic noktasindan basliyor.
+        adjustment = self._scrolled.get_vadjustment()
+        if self._toast_scroll_animation is not None:
+            self._toast_scroll_animation.skip()
+        start = adjustment.get_value()
+        target = start + delta
+        self._toast_scroll_animation = Adw.TimedAnimation.new(
+            self._scrolled, start, target, 200,
+            Adw.CallbackAnimationTarget.new(adjustment.set_value),
+        )
+        self._toast_scroll_animation.play()
 
     def _discard_toast(self, entry):
         # _remove_toast'un REFLOW YAPMAYAN hali - sadece kaydi ve widget'i
