@@ -145,7 +145,7 @@ class UnusedAppsWindow(Adw.Window):
         # kalsın istiyoruz).
         self._ignored_row_buttons: dict[str, Gtk.Button] = {}
 
-        settings_group = Adw.PreferencesGroup()
+        settings_group = self._settings_group = Adw.PreferencesGroup()
         settings_group.add(self._threshold_row)
         settings_group.add(self._custom_row)
         settings_group.add(self._ignored_row)
@@ -168,7 +168,7 @@ class UnusedAppsWindow(Adw.Window):
             css_classes=["pw-row-bg-fill"],
         )
 
-        content = Gtk.Box(
+        content = self._content = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL, spacing=12,
             margin_top=12, margin_bottom=12, margin_start=12, margin_end=12,
         )
@@ -226,6 +226,22 @@ class UnusedAppsWindow(Adw.Window):
         clamp = Adw.Clamp(maximum_size=900, child=content)
         self._scrolled = Gtk.ScrolledWindow(child=clamp, vexpand=True)
         scrolled = self._scrolled
+        # Satir sayisi (tarama/yoksayma ile) veya pencere boyutu degistiginde
+        # gorunur listenin alt kenari bir satirin ORTASINDAN gecebiliyordu -
+        # "wine"/"Okular" gibi hangi satir en sonda kalirsa o yarim kesilmis
+        # gorunuyordu (kullanici birden fazla ekran goruntusuyle gosterdi).
+        # Sabit bir pencere yuksekligi bunu KALICI olarak cozemez - ust
+        # kisimdaki ayar satirlari (ozellikle Yoksayilanlar basligi) sayiya
+        # gore gorunur/gizli oldugundan sinir her an kayabiliyor. Bunun
+        # yerine DINAMIK olarak, her seferinde GERCEK satir yuksekligine
+        # gore alt kenari en yakin satir sinirina yuvarliyoruz (bkz.
+        # _snap_scrolled_bottom) - hem tarama/yoksayma sonrasi (upper
+        # degisince) hem pencere yeniden boyutlaninca (page_size degisince)
+        # tetiklenir, boylece yarim satir hic gorunmez: ya tam satir ya hic.
+        self._snap_in_progress = False
+        vadjustment = self._scrolled.get_vadjustment()
+        vadjustment.connect("notify::upper", self._on_scroll_area_changed)
+        vadjustment.connect("notify::page-size", self._on_scroll_area_changed)
 
         cancel_button = Gtk.Button(label=_("Cancel"))
         cancel_button.connect("clicked", lambda *_a: self.close())
@@ -603,6 +619,70 @@ class UnusedAppsWindow(Adw.Window):
         self._remove_toast(entry)
         if callback is not None:
             callback()
+
+    def _on_scroll_area_changed(self, *_args):
+        # "upper" (icerik degisti - tarama/yoksayma) veya "page_size"
+        # (pencere yeniden boyutlandi) degistiginde tetiklenir. Kendi
+        # margin_bottom degisikligimiz de page_size'i degistirdigi icin
+        # (bkz. _snap_scrolled_bottom) bu sinyali YENIDEN tetikler - guard
+        # bayragi bu geri-besleme dongusunu kesiyor.
+        if self._snap_in_progress:
+            return
+        GLib.idle_add(self._snap_scrolled_bottom)
+
+    def _snap_scrolled_bottom(self):
+        # Fikir: gorunur listenin alt kenarini, GERCEK satir yuksekligine
+        # yuvarlayarak her zaman iki satir arasindaki dogal sinira
+        # getirmek - hangi satir "en sonda" kalirsa kalsin (icerik/pencere
+        # boyutuna gore degisebilir) YARIM gorunmez, ya tam gorunur ya da
+        # hic.
+        #
+        # Canli testle (debug print ile) bulundu: get_allocated_height()
+        # set_margin_bottom() cagrisini SENKRON yansitmiyor - GTK'nin
+        # kendi yerlesim gecisi bir-iki kare geriden geliyor. "Simdiki
+        # margin'i geri ekleyip dogal yuksekligi yeniden elde et" seklinde
+        # TEK ADIMLIK bir hesap bu yuzden YANLIS deger uretip 0->17->34->17
+        # ->0 diye sonsuz salinima giriyordu (gercek bug, canli logla
+        # yakalandi). Duzeltme: ONCE margin'i 0'a cek, GTK'nin bunu
+        # gercekten islemesi icin bir kare bekle, SONRA (margin GERCEKTEN
+        # 0 iken) dogal yuksekligi guvenilir sekilde olc, ancak O ZAMAN
+        # dogru margin'i uygula. Guard bayragi, bu iki adimin kendi kendini
+        # tetiklemesini (page_size iki kez daha degisecek) engelliyor.
+        self._snap_in_progress = True
+        self._scrolled.set_margin_bottom(0)
+        GLib.timeout_add(60, self._measure_and_apply_snap)
+        return GLib.SOURCE_REMOVE
+
+    def _measure_and_apply_snap(self):
+        row = self._list_box.get_row_at_index(0)
+        row_height = row.get_allocated_height() if row is not None else 0
+        if row_height > 0:
+            # page_size, scrolled goruntulenen TUM icerigi (hint_banner +
+            # settings_group + list_box + empty_status) kapsar - satirlar
+            # SADECE bunun bir kismini kaplar, oncesinde ayar satirlari
+            # (bkz. settings_group) var. O yuzden dogrudan page_size'a
+            # modulo almak YANLIS cikti (canli testle bulundu: 15 tam
+            # satirlik yer varmis gibi hesaplandi ama gercekte ~3 satir
+            # zaten ayar bolumune gidiyordu). Once listenin BASLADIGI
+            # noktaya kadar olan "ust kisim" yuksekligini (spacing/margin
+            # dahil) cikarip GERI KALANI satir sayisina yuvarliyoruz.
+            spacing = self._content.get_spacing()
+            chrome = self._content.get_margin_top() + spacing
+            chrome += self._settings_group.get_allocated_height()
+            if self._hint_banner.get_visible():
+                chrome += self._hint_banner.get_allocated_height() + spacing
+            page_size = self._scrolled.get_vadjustment().get_page_size()
+            usable_for_rows = page_size - chrome
+            if usable_for_rows > 0:
+                new_margin = int(usable_for_rows) % row_height
+                if new_margin:
+                    self._scrolled.set_margin_bottom(new_margin)
+        GLib.timeout_add(60, self._release_snap_guard)
+        return GLib.SOURCE_REMOVE
+
+    def _release_snap_guard(self):
+        self._snap_in_progress = False
+        return GLib.SOURCE_REMOVE
 
     def _on_open_settings(self, *_args):
         # Bu pencereyi (ve altındaki ana pencereyi) aynı anda görünür
