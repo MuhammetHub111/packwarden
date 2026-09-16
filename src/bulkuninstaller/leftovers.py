@@ -64,6 +64,12 @@ _TRAILING_PAREN_RE = re.compile(r"\s*\([^()]*\)\s*$")
 class Leftover:
     path: str
     size: int
+    # "file" (varsayılan) ya da "registry" - Wine paketinin ana
+    # kurulum/kaldırma kaydı bir dosya değil, registry_prefix +
+    # registry_key doldurulduğunda "wine reg delete" ile silinir.
+    kind: str = "file"
+    registry_prefix: str | None = None
+    registry_key: str | None = None
 
 
 def _normalize(text: str) -> str:
@@ -215,6 +221,40 @@ def _find_wine_shortcut_leftovers(packages: list[Package], safe) -> list[Leftove
     return items
 
 
+def _find_wine_registry_leftovers(packages: list[Package]) -> list[Leftover]:
+    """Kaldırılacak Wine paketlerinin ana registry (kayıt defteri)
+    girdisini de kalıntı listesine ekler.
+
+    WineBackend.remove() bu kaydı zaten HER durumda kendisi garanti
+    altına alıyor (kaldırıcı çökse bile - bkz. _force_remove); bu satır
+    farklı bir amaç için var: kullanıcının kaldırma onayı ekranında
+    "registry kaydı da silinecek" diye AÇIKÇA görüp isteğe bağlı olarak
+    işaretini kaldırabilmesi. İşareti kaldırılsa da WineBackend.remove()
+    kaydı yine kendi başına siler - bu satır güvenlik ağı DEĞİL, sadece
+    şeffaflık için."""
+    from .backends.wine import _find_entry
+
+    items = []
+    for pkg in packages:
+        if pkg.source != "wine":
+            continue
+        prefix, sep, key = pkg.id.partition("::")
+        if not sep:
+            continue
+        entry = _find_entry(prefix, key)
+        reg_path = entry.get("_reg_path") if entry else None
+        if not reg_path:
+            continue
+        items.append(Leftover(
+            path=f"Windows Registry/{pkg.name}",
+            size=0,
+            kind="registry",
+            registry_prefix=prefix,
+            registry_key=f"HKLM\\{reg_path}",
+        ))
+    return items
+
+
 def find_package_leftovers(
     packages: list[Package],
 ) -> list[tuple[str, list[Leftover]]]:
@@ -292,6 +332,10 @@ def find_package_leftovers(
         shortcut_items.sort(key=lambda item: -item.size)
         result.append(("Desktop shortcut", shortcut_items))
 
+    registry_items = _find_wine_registry_leftovers(packages)
+    if registry_items:
+        result.append(("Registry entry", registry_items))
+
     return result
 
 
@@ -318,6 +362,24 @@ def remove_leftovers(leftovers: list[Leftover]) -> list[str]:
     permanent = prefs.get("leftover_delete_mode") == "permanent"
 
     for item in leftovers:
+        if item.kind == "registry":
+            # Gerçek bir dosya yolu değil - ev dizini güvenlik kontrolü
+            # ve çöp kutusu kavramı burada uygulanmıyor, doğrudan
+            # wineserver üzerinden siliniyor (bkz. backends/wine.py
+            # _force_remove'daki aynı yaklaşım).
+            try:
+                proc = host.run(
+                    ["env", f"WINEPREFIX={item.registry_prefix}", "wine",
+                     "reg", "delete", item.registry_key, "/f"],
+                    timeout=30,
+                )
+                if proc.returncode != 0:
+                    errors.append(
+                        f"{item.path}: {(proc.stderr or proc.stdout).strip()}"
+                    )
+            except Exception as exc:
+                errors.append(f"{item.path}: {exc}")
+            continue
         real = os.path.realpath(item.path)
         if real in protected or not real.startswith(home + os.sep):
             errors.append(f"{item.path}: güvenlik nedeniyle atlandı")

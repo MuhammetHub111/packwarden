@@ -185,6 +185,7 @@ TR = {
     "Flatpak data": "Flatpak verileri",
     "Installer file": "Kurulum dosyası",
     "Desktop shortcut": "Masaüstü kısayolu",
+    "Registry entry": "Kayıt Defteri girdisi",
     "Android SDK": "Android SDK",
     "Filtering": "Filtreleme",
     "Clear All Filters": "Tümünü Temizle",
