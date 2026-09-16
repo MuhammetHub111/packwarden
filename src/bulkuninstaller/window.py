@@ -1099,6 +1099,36 @@ class MainWindow(Adw.ApplicationWindow):
             pkg.id.lower()
         ) or self._launcher_map.get(pkg.name.lower())
 
+    def _wine_desktop_entry(self, pkg) -> str | None:
+        """Wine paketleri için .desktop İÇERİĞİNİ SIFIRDAN oluşturur.
+
+        Diğer kaynakların aksine (bkz. _shortcut_desktop_id/_desktop_
+        file_path — var olan bir .desktop dosyasını KOPYALAR), Wine
+        programlarının çoğu için winemenubuilder hiç .desktop dosyası
+        üretmiyor — kullanıcı foobar2000 ile doğruladı: "masaüstü
+        girdisine sahip değil" diyordu, oysa program gerçekten kurulu ve
+        çalıştırılabiliyordu (bkz. Çalıştır düğmesi, aynı launch_argv()'i
+        kullanıyor). Kopyalanacak bir kaynak dosyaya hiç gerek yok -
+        gereken her şey (komut, ikon) zaten backends/wine.py'de var."""
+        from .backends.wine import launch_argv
+        argv = launch_argv(pkg.id)
+        if not argv:
+            return None
+        exec_line = " ".join(
+            f'"{part}"' if " " in part else part for part in argv
+        )
+        lines = [
+            "[Desktop Entry]",
+            "Type=Application",
+            f"Name={pkg.name}",
+            f"Exec={exec_line}",
+            "Terminal=false",
+            "StartupNotify=true",
+        ]
+        if pkg.icon_path:
+            lines.append(f"Icon={pkg.icon_path}")
+        return "\n".join(lines) + "\n"
+
     def _desktop_dir(self) -> str:
         try:
             proc = host.run(["xdg-user-dir", "DESKTOP"], timeout=5)
@@ -1121,23 +1151,37 @@ class MainWindow(Adw.ApplicationWindow):
         failed = []
         for item in items:
             pkg = item.pkg
-            desktop_id = self._shortcut_desktop_id(pkg)
-            source_path = self._desktop_file_path(desktop_id) if desktop_id else None
-            if not source_path:
-                unsupported.append(pkg.name)
-                continue
+            entry_content = None
+            source_path = None
+            if pkg.source == "wine":
+                entry_content = self._wine_desktop_entry(pkg)
+                if entry_content is None:
+                    unsupported.append(pkg.name)
+                    continue
+            else:
+                desktop_id = self._shortcut_desktop_id(pkg)
+                source_path = (
+                    self._desktop_file_path(desktop_id) if desktop_id else None
+                )
+                if not source_path:
+                    unsupported.append(pkg.name)
+                    continue
             try:
                 os.makedirs(desktop_dir, exist_ok=True)
                 # Kaynak dosya adı yerine gerçek uygulama adını kullan —
                 # Flatpak/kendi kurulumumuz gibi kaynaklar dosyayı ters-DNS
                 # kimliğiyle adlandırır (io.github.foo.Bar.desktop), bu da
                 # dosya yöneticisinde çirkin görünür.
-                safe_name = pkg.name.replace("/", "_").strip() or desktop_id
+                safe_name = pkg.name.replace("/", "_").strip() or pkg.id
                 dest_path = os.path.join(desktop_dir, f"{safe_name}.desktop")
                 if os.path.lexists(dest_path):
                     existing.append(pkg.name)
                     continue
-                shutil.copyfile(source_path, dest_path)
+                if entry_content is not None:
+                    with open(dest_path, "w", encoding="utf-8") as f:
+                        f.write(entry_content)
+                else:
+                    shutil.copyfile(source_path, dest_path)
                 os.chmod(dest_path, 0o755)
                 created.append(pkg.name)
             except OSError:
