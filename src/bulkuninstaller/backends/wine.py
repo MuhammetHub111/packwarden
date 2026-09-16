@@ -67,7 +67,18 @@ def _parse_uninstall_entries(reg_path: str) -> list[dict]:
                         current = None
                     match = _UNINSTALL_KEY_RE.match(line)
                     if match:
-                        current = {"_key": match.group(1)}
+                        key_name = match.group(1)
+                        # force_remove()'un basarisiz UninstallString'i
+                        # "wine reg delete" ile yedeklerken hedefi dogru
+                        # bulmasi icin anahtarin HKLM'e gore TAM yolu.
+                        reg_path = (
+                            "Software\\Wow6432Node\\Microsoft\\Windows\\"
+                            "CurrentVersion\\Uninstall\\"
+                            if "Wow6432Node" in line
+                            else "Software\\Microsoft\\Windows\\"
+                            "CurrentVersion\\Uninstall\\"
+                        ) + key_name
+                        current = {"_key": key_name, "_reg_path": reg_path}
                         if match.group(2):
                             current["_key_time"] = float(match.group(2))
                     continue
@@ -85,6 +96,10 @@ def _parse_uninstall_entries(reg_path: str) -> list[dict]:
     if current is not None:
         entries.append(current)
     return entries
+
+
+def _key_exists(reg_path_file: str, key: str) -> bool:
+    return any(e.get("_key") == key for e in _parse_uninstall_entries(reg_path_file))
 
 
 # reg_path -> (dosyanın son ayrıştırmadaki mtime'ı, ayrıştırılmış girdiler).
@@ -220,6 +235,44 @@ def _resolve_install_path(prefix: str, entry: dict, exe_path: str | None) -> str
     if exe_path:
         return os.path.dirname(exe_path)
     return ""
+
+
+def _force_remove(prefix: str, entry: dict) -> bool:
+    """UninstallString'i calistirmak basarisiz olursa devreye giren yedek.
+
+    Wine'in kendi "wine" surec cikis kodu, altindaki Windows programinin
+    GERCEKTEN basarili olup olmadigini yansitmiyor - foobar2000'in NSIS
+    kaldiricisi "Unhandled page fault" ile coktugunde bile (hicbir dosya
+    silinmeden) wine 0 donduruyor. Bu yuzden UninstallString bittikten
+    sonra kayit hala registry'deyse buraya dusuluyor: kurulum klasoru
+    elle silinir, registry anahtari da "wine reg delete" ile kaldirilir
+    (system.reg dosyasini calisirken elle duzenlemek yerine wineserver
+    uzerinden - yarisla bozulma riski yok)."""
+    ok = True
+    display_icon = entry.get("DisplayIcon")
+    exe_path = _windows_path_to_unix(prefix, display_icon) if display_icon else None
+    install_dir = _resolve_install_path(prefix, entry, exe_path)
+    if install_dir and os.path.isdir(install_dir):
+        try:
+            shutil.rmtree(install_dir)
+        except OSError:
+            ok = False
+    reg_path = entry.get("_reg_path")
+    if reg_path:
+        try:
+            proc = host.run(
+                ["env", f"WINEPREFIX={prefix}", "wine", "reg", "delete",
+                 f"HKLM\\{reg_path}", "/f"],
+                timeout=30,
+            )
+        except Exception:
+            ok = False
+        else:
+            if proc.returncode != 0:
+                ok = False
+    else:
+        ok = False
+    return ok
 
 
 _GROUP_ICON_RE = re.compile(r"--type=14\s+--name=(?:'([^']*)'|(\S+))")
@@ -465,11 +518,19 @@ class WineBackend(Backend):
             argv = self._wine_argv(prefix, entry["UninstallString"])
             try:
                 proc = host.run(argv, timeout=600)
+                outputs.append((proc.stdout or "") + (proc.stderr or ""))
             except Exception as exc:
                 outputs.append(f"{key}: {exc}")
-                failed.append(pkg_id)
-                continue
-            outputs.append((proc.stdout or "") + (proc.stderr or ""))
-            if proc.returncode != 0:
+            # "wine" surecinin cikis kodu guvenilir degil - altindaki program
+            # coktugunde bile 0 donebiliyor (foobar2000'de canli dogrulandi).
+            # Coken surec bile arka planda GERCEK isini (dosya/registry
+            # silme) biraz gecikmeli tamamlayabiliyor - bu yuzden ne "wine"in
+            # ne de _force_remove'un KENDI cikis koduna guveniliyor; nihai
+            # basari, her sey bittikten SONRA kaydin registry'den gercekten
+            # kalkip kalkmadigina bakilarak anlasiliyor.
+            reg_path_file = os.path.join(prefix, "system.reg")
+            if _key_exists(reg_path_file, key):
+                _force_remove(prefix, entry)
+            if _key_exists(reg_path_file, key):
                 failed.append(pkg_id)
         return RemoveResult(ok=not failed, output="\n".join(outputs), failed_ids=failed)
