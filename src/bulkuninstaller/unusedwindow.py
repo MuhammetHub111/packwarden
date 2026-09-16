@@ -63,7 +63,7 @@ class UnusedAppsWindow(Adw.Window):
             modal=True,
             title=_("Unused programs"),
             default_width=780,
-            default_height=820,
+            default_height=920,
         )
         self._main = main_window
         self._data: list[tuple[object, float | None]] = []
