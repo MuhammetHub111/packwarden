@@ -178,10 +178,11 @@ class RemovalWindow(Adw.Window):
 
         for category, items in groups:
             cat_size = sum(item.size for item in items)
-            expander = Adw.ExpanderRow(
-                title=_(category),
-                subtitle=f"{len(items)} • {format_size(cat_size) or '0'}",
-            )
+            size_text = format_size(cat_size)
+            # Registry girdisi gibi anlamli bir bayt boyutu olmayan
+            # kalintilarda "0" gostermek yerine sayimi tek basina birak.
+            subtitle = f"{len(items)} • {size_text}" if size_text else str(len(items))
+            expander = Adw.ExpanderRow(title=_(category), subtitle=subtitle)
             expander.set_expanded(True)
             for item in items:
                 check = Gtk.CheckButton(valign=Gtk.Align.CENTER, active=True)
@@ -222,11 +223,14 @@ class RemovalWindow(Adw.Window):
         selected = self._selected_leftovers()
         if selected:
             total = sum(item.size for item in selected)
-            self._selection_label.set_label(
-                _("{count} selected • {size}").format(
-                    count=len(selected), size=format_size(total) or "0"
+            size_text = format_size(total)
+            if size_text:
+                label = _("{count} selected • {size}").format(
+                    count=len(selected), size=size_text
                 )
-            )
+            else:
+                label = _("{count} selected").format(count=len(selected))
+            self._selection_label.set_label(label)
         else:
             self._selection_label.set_label("")
 
