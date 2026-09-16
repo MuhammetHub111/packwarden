@@ -321,7 +321,20 @@ class UnusedAppsWindow(Adw.Window):
         # Kendi basit bildirim widget'imizi yazmak, konum/davranis
         # uzerinde tam kontrol sagliyor.
         self._toasts = []  # en eski once: [{"revealer","timeout_id","callback"}, ...]
-        self._toast_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        # pw-row-bg-fill: bu kutunun kendi arkaplani stilsizdi (duz
+        # pencere rengi/varsayilan), pill'lerin kendi CSS margin'i
+        # (bkz. .pw-toast, "margin: 4px 12px") disinda kalan kucuk
+        # seritlerde bu duz renk gorunuyordu - tam da listenin son
+        # satirinin ayirici cizgisinin bitip bildirim alaninin basladigi
+        # sinirda, ekran goruntusu + piksel olcumuyle dogrulandi (satir
+        # rengi rgb(52,52,55) -> bu kutunun stilsiz rengi rgb(32,32,36)
+        # -> pill rgb(46,46,50): ayirici cizginin "ic" tarafi kayboluyor,
+        # dogrudan bildirimin kendi renginmis gibi goruniyordu). Satirlarla
+        # AYNI hesaplanmis rengi vererek (bkz. _toast_spacer/_empty_status
+        # icin ayni cozum) bu sinirdaki ayirici cizgi normal/tam gorunuyor.
+        self._toast_box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL, css_classes=["pw-row-bg-fill"],
+        )
 
         css = b"""
         .pw-toast {
