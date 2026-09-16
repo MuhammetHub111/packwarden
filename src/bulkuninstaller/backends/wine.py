@@ -31,7 +31,7 @@ _ICON_SIZE_RE = re.compile(r"(\d+)x(\d+)")
 
 _UNINSTALL_KEY_RE = re.compile(
     r'^\[Software\\\\(?:Wow6432Node\\\\)?Microsoft\\\\Windows\\\\'
-    r'CurrentVersion\\\\Uninstall\\\\(.+)\]'
+    r'CurrentVersion\\\\Uninstall\\\\(.+)\](?:\s+(\d+))?'
 )
 _STR_RE = re.compile(r'^"([^"]+)"=(?:str\(2\):)?"((?:[^"\\]|\\.)*)"$')
 _DWORD_RE = re.compile(r'^"([^"]+)"=dword:([0-9a-fA-F]+)$')
@@ -68,6 +68,8 @@ def _parse_uninstall_entries(reg_path: str) -> list[dict]:
                     match = _UNINSTALL_KEY_RE.match(line)
                     if match:
                         current = {"_key": match.group(1)}
+                        if match.group(2):
+                            current["_key_time"] = float(match.group(2))
                     continue
                 if current is None:
                     continue
@@ -390,7 +392,16 @@ class WineBackend(Backend):
                     source=self.id,
                     publisher=entry.get("Publisher") or entry.get("publisher", ""),
                     origin="" if prefix == default_prefix else os.path.basename(prefix),
-                    install_date=_install_date(entry.get("InstallDate")),
+                    # Cok yukleyici (foobar2000 gibi NSIS tabanlilar, VC++
+                    # Redistributable'in ust duzey "bundle" girdisi) hic
+                    # InstallDate yazmiyor; bu durumda .reg'in kendi anahtar
+                    # icin tuttugu son-yazma zaman damgasina (satirin
+                    # sonundaki unix timestamp) dusuluyor - kurulum/kayit
+                    # anina gercekte en yakin bilgi bu.
+                    install_date=(
+                        _install_date(entry.get("InstallDate"))
+                        or entry.get("_key_time")
+                    ),
                     install_reason="explicit",
                     icon_path=icon_path,
                 ))
