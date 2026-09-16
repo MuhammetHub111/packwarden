@@ -56,7 +56,8 @@ LEFTOVER_CATEGORIES = (
 # paket yöneticisine kayıtlı değildir, PackWarden'ın kendi kurulum dosyası
 # temizliğinin dışında kalır.
 _INSTALLER_SCAN_DIRS = ("~/Downloads", "~/İndirilenler", "~/Desktop", "~/Masaüstü")
-_VERSION_SUFFIX_RE = re.compile(r"\s+[\d][\d.]*.*$")
+_VERSION_SUFFIX_RE = re.compile(r"\s+[vV]?[\d][\d.]*.*$")
+_TRAILING_PAREN_RE = re.compile(r"\s*\([^()]*\)\s*$")
 
 
 @dataclass
@@ -88,8 +89,21 @@ def _tree_size(path: str) -> int:
 
 
 def _installer_stem(name: str) -> str:
-    """Program görünen adının sonundaki sürüm numarasını atıp normalize
-    eder (ör. 'SteelSeries GG 115.0.0' -> 'steelseriesgg')."""
+    """Program görünen adının sonundaki mimari eki ve sürüm numarasını
+    atıp normalize eder (ör. 'SteelSeries GG 115.0.0' -> 'steelseriesgg').
+
+    Sondaki '(x64)'/'(x86)' gibi parantezli ekler de atılıyor - canlı
+    doğrulandı: 'foobar2000 v2.25.10 (x64)' bu ek yuzunden kurulum
+    dosyasindaki 'foobar2000-x64_v2.25.10.exe' ile hiç eşleşmiyordu
+    (mimari, dosya adında FARKLI bir sırada geçiyor - parantezli hali
+    de dosya adında hiç geçmiyor). Bu ek atılınca geriye kalan çekirdek
+    ad (yalnızca 'foobar2000') yine de güvenli bir alt dize eşleşmesi
+    sağlıyor."""
+    while True:
+        stripped = _TRAILING_PAREN_RE.sub("", name)
+        if stripped == name:
+            break
+        name = stripped
     return _normalize(_VERSION_SUFFIX_RE.sub("", name))
 
 
