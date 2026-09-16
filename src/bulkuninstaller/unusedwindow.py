@@ -222,7 +222,13 @@ class UnusedAppsWindow(Adw.Window):
         # goruntusuyle "hala sikismis" gosterdi; bunun YANINA, ayni
         # amaci farkli (belirsizlige daha az acik) bir mekanizmayla da
         # saglayan bu duz Gtk.Box'u ekliyoruz.
-        self._toast_spacer = Gtk.Box()
+        # Duz/stilsiz bir Gtk.Box, pencerenin DUZ arkaplanini gosteriyordu -
+        # satirlarin (boxed-list, @card_bg_color katmanli) arkaplanindan
+        # farkli oldugu icin acikca "ayri, gri bir kutu" gibi goze
+        # batiyordu (kullanici ekran goruntusuyle gosterdi). Satirlarla
+        # AYNI hesaplanmis rengi veriyoruz (bkz. asagidaki CSS) ki
+        # bosluk, listenin dogal bir uzantisi gibi gorunsun.
+        self._toast_spacer = Gtk.Box(css_classes=["pw-toast-spacer"])
         content.append(self._toast_spacer)
         # maximum_size onceden pencere genisliginden (720) daha buyuktu,
         # o yuzden hicbir sey kisitlamiyordu. Pencereyi 780'e cikarinca
@@ -382,6 +388,15 @@ class UnusedAppsWindow(Adw.Window):
             border: none;
             outline: none;
             margin: 0;
+        }
+        /* Bildirim rezerv boslugu (_toast_spacer) - satirlarla (boxed-list,
+           tek katman @card_bg_color) AYNI gorunen renk. @card_bg_color'in
+           tek katmani, olculen window_bg_color+%8 beyaz karisimiyla
+           matematiksel olarak esdeger (bkz. yukaridaki uzun aciklama) -
+           o yuzden AYNI mix() formulunu kullanmak yeterli.
+        */
+        .pw-toast-spacer {
+            background-color: mix(@window_bg_color, white, 0.08);
         }
         /* Ok gostergesi kendi ayri "hit area" boslugu yuzunden +/-
            dugmelerinin hizasindan saga kayiyor. margin-end negatif
@@ -606,6 +621,17 @@ class UnusedAppsWindow(Adw.Window):
         elif entry["rank"] == 2:
             box.add_css_class("pw-toast-rank-2")
 
+    def _row_height(self):
+        # Satir yuksekligi tema/yazi tipine bagli, sabit bir sayi degil -
+        # bu yuzden gercek deger, GERCEKTEN allocate edilmis ilk satirdan
+        # olculur (yoksa rezerv ile satir sinirlari ortusmez, kesme bir
+        # satirin ortasina denk gelir - "gimp" satirinin yarim kesilmesi
+        # buydu).
+        row = self._list_box.get_row_at_index(0)
+        if row is None:
+            return 0
+        return row.get_allocated_height()
+
     def _update_toast_reserve(self):
         # Bildirim(ler) listenin uzerinde OPAK bir sekilde durup altindaki
         # satirlarin +/- dugmelerini hem gorsel hem tiklama olarak
@@ -622,7 +648,21 @@ class UnusedAppsWindow(Adw.Window):
         # DEGISMEYEN) sabit deger - boylece "hangi rank/zamanlama" turu bir
         # hesap hatasi ihtimali ortadan kalkiyor, sadece "var mi yok mu"
         # kaldi.
-        reserve = self._TOAST_RESERVE_FIXED if self._toasts else 0
+        # Son bir sorun kaldi: bu sabit deger satir yuksekliginin tam
+        # kati DEGILDI, o yuzden kesme cizgisi bir satirin (ör. "gimp")
+        # ortasindan geciyordu. Duzeltme: rezervi, GERCEK satir
+        # yuksekliginin bir ustune (ceil) yuvarlayarak her zaman TAM
+        # satir sayisi kadar alan ayirtiyoruz - kesme cizgisi boylece her
+        # zaman iki satir arasindaki dogal sinira denk gelir.
+        if self._toasts:
+            row_height = self._row_height()
+            if row_height > 0:
+                rows_needed = -(-self._TOAST_RESERVE_FIXED // row_height)
+                reserve = rows_needed * row_height
+            else:
+                reserve = self._TOAST_RESERVE_FIXED
+        else:
+            reserve = 0
         self._scrolled.set_margin_bottom(reserve)
         self._toast_spacer.set_size_request(-1, reserve)
 
