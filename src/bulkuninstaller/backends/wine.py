@@ -142,6 +142,14 @@ def _split_uninstall_string(raw: str, prefix: str) -> list[str]:
             unix_path = _windows_path_to_unix(prefix, exe)
             resolved = _resolve_case_insensitive(unix_path) if unix_path else None
             first = resolved or exe
+            # NSIS'in "_?=<yol>" bayragi TEK bir arguman - degeri (kurulum
+            # dizini) genelde bosluk icerir (ör. "_?=C:\Program Files\foo"),
+            # asagidaki duz split() bunu YANLISLIKLA ikiye boluyordu, aynen
+            # yukarida ana exe yolu icin duzeltilen hatanin ayni turu -
+            # gercek bir kayitla (foobar2000) dogrulandi: "_?=C:\Program
+            # Files\foobar2000" boluniyordu.
+            if rest.startswith("_?="):
+                return [first, rest]
             return [first] + (rest.split() if rest else [])
         raw = raw.strip('"')
     unix_path = _windows_path_to_unix(prefix, raw)
