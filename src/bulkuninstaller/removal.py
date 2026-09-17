@@ -86,6 +86,7 @@ class RemovalWindow(Adw.Window):
 
         # Üst bölüm: kaldırılacak paketler (her zaman görünür)
         total = sum(pkg.size for pkg in self._pkgs)
+        self._pkg_total_size = total
         pkg_expander = Adw.ExpanderRow(
             title=_("Packages to remove"),
             subtitle=_("{count} packages • {size}").format(
@@ -221,18 +222,20 @@ class RemovalWindow(Adw.Window):
 
     def _update_selection(self):
         selected = self._selected_leftovers()
-        if selected:
-            total = sum(item.size for item in selected)
-            size_text = format_size(total)
-            if size_text:
-                label = _("{count} selected • {size}").format(
-                    count=len(selected), size=size_text
-                )
-            else:
-                label = _("{count} selected").format(count=len(selected))
-            self._selection_label.set_label(label)
+        # Ana paket(ler) kalıntı seçiminden bağımsız olarak zaten
+        # kaldırılıyor - toplam buna da dahil edilmezse "gerçekte ne
+        # kadar yer boşalacak" eksik/yanıltıcı gösteriliyordu (canlı
+        # bildirildi: hiç kalıntı seçili değilken toplamda paketin
+        # kendisi hiç yoktu).
+        grand_total = self._pkg_total_size + sum(item.size for item in selected)
+        size_text = format_size(grand_total)
+        if size_text:
+            label = _("{count} selected • {size}").format(
+                count=len(selected), size=size_text
+            )
         else:
-            self._selection_label.set_label("")
+            label = _("{count} selected").format(count=len(selected))
+        self._selection_label.set_label(label)
 
     # ---------------- Kaldırma ----------------
 
