@@ -481,8 +481,16 @@ class UnusedAppsWindow(Adw.Window):
            Dogru deger buydu; kullanicinin nudge'larinin toplami da
            tesadufen buna yakinmis.
         */
+        /* DUZELTME: "transform: translateX()" gorseli kaydiriyor ama
+           widget'in KENDI ayrilmis kutusunu (ve kirpma sinirini)
+           BUYUTMUYOR - onceki bir commit bunu "bu eleman translateX()'e
+           dogrusal olmayan tepki veriyor, kirpma/allocation kisiti"
+           diye zaten tespit etmisti ama sorunu (kirpilma) cozmeden,
+           sadece az fark edilecek kucuk bir deger secerek gecistirmisti.
+           margin-left GERCEKTEN yerlesime katilir - kutuyu genisletir,
+           kirpma sinirini de birlikte tasir, tasma/kirpilma olmaz. */
         .pw-ignore-row-icon {
-            transform: translateX(12px);
+            margin-left: 12px;
         }
         /* Yoksayilanlar bolumundeki boyut yazisi biraz sola kaydirilsin
            istendi.
@@ -982,6 +990,11 @@ class UnusedAppsWindow(Adw.Window):
         # arıyoruz. Uygulama o zamandan beri kaldırıldıysa bulunamaz,
         # o durumda ikonsuz kalır (ad hâlâ doğru gösterilir).
         pkg_by_key = {_pkg_key(pkg): pkg for pkg, _ts in self._data}
+        # "Kullanım zamanı" alt satırı için (ör. "1 ay önce") - asıl
+        # listedeki satırların gösterdiği aynı bilgi, buraya hiç
+        # eklenmemişti (canlı bildirildi: yoksayılan bir programın
+        # kullanım zamanı hiç görünmüyordu).
+        ts_by_key = {_pkg_key(pkg): ts for pkg, ts in self._data}
 
         for key in list(self._ignored_rows):
             if key not in ignored:
@@ -998,6 +1011,9 @@ class UnusedAppsWindow(Adw.Window):
                     pkg = pkg_by_key.get(key)
                     if pkg is not None:
                         row = self._ignored_rows[key]
+                        row.set_subtitle(
+                            f"{pkg.source} · {_format_last_used(ts_by_key.get(key))}"
+                        )
                         icon = self._icon_for(pkg)
                         icon.add_css_class("pw-ignore-row-icon")
                         row.add_prefix(icon)
@@ -1030,6 +1046,9 @@ class UnusedAppsWindow(Adw.Window):
             row.add_prefix(spacer)
             pkg = pkg_by_key.get(key)
             if pkg is not None:
+                row.set_subtitle(
+                    f"{pkg.source} · {_format_last_used(ts_by_key.get(key))}"
+                )
                 icon = self._icon_for(pkg)
                 icon.add_css_class("pw-ignore-row-icon")
                 row.add_prefix(icon)
