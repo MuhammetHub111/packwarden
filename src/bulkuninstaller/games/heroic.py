@@ -66,12 +66,19 @@ def _approx_last_used(install_path: str) -> float | None:
         return None
 
 
-def _run_uninstall(binary: str, argv_tail: list[str], ids: list[str]) -> RemoveResult:
+def _run_uninstall(
+    binary: str, argv_tail: list[str], ids: list[str],
+    env_overrides: dict[str, str] | None = None,
+) -> RemoveResult:
+    env_prefix = (
+        ["env"] + [f"{k}={v}" for k, v in env_overrides.items()]
+        if env_overrides else []
+    )
     failed = []
     messages = []
     for game_id in ids:
         try:
-            proc = host.run([binary, *argv_tail, game_id], timeout=300)
+            proc = host.run(env_prefix + [binary, *argv_tail, game_id], timeout=300)
         except Exception as exc:
             failed.append(game_id)
             messages.append(f"{game_id}: {exc}")
@@ -164,7 +171,16 @@ class HeroicEpicBackend(Backend):
         binary = _bin_path("legendary")
         if not binary:
             return RemoveResult(False, "legendary not found", failed_ids=ids)
-        return _run_uninstall(binary, ["uninstall", "-y"], ids)
+        # legendary, LEGENDARY_CONFIG_PATH verilmezse KENDİ varsayılan
+        # config klasörünü (~/.config/legendary) kullanır - Heroic'in
+        # kendi kopyası (installed.json dahil) legendaryConfig/legendary
+        # altında, apayrı bir yer. Canlı doğrulandı: bu değişken
+        # verilmeden "uninstall" çağrısı gerçek, kurulu bir oyun için
+        # bile "Game ... not installed, cannot uninstall!" diyordu -
+        # ÜSTÜNE bu hatayla bile çıkış kodu 0 dönüyordu, yani PackWarden
+        # hiçbir şey silinmediği hâlde "kaldırıldı" sanıyordu.
+        env = {"LEGENDARY_CONFIG_PATH": _config_path("legendaryConfig", "legendary")}
+        return _run_uninstall(binary, ["uninstall", "-y"], ids, env_overrides=env)
 
 
 class HeroicAmazonBackend(Backend):
@@ -210,7 +226,15 @@ class HeroicAmazonBackend(Backend):
         binary = _bin_path("nile")
         if not binary:
             return RemoveResult(False, "nile not found", failed_ids=ids)
-        return _run_uninstall(binary, ["uninstall"], ids)
+        # legendary'deki AYNI sorunun nile'da da olması bekleniyor
+        # (Heroic'in kendi nile_config/nile klasörü, nile'ın varsayılan
+        # konumundan ayrı) - ama bu makinede kurulu Amazon oyunu
+        # olmadığı için uçtan uca doğrulanamadı (env değişkeninin adı
+        # bile kesin değil, ikili dosyada yalnızca "CONFIG_PATH" dizesi
+        # bulundu). Hiçbir Amazon oyunu kurulu değilken zarar verme
+        # riski yok - en kötü ihtimalle nile bu değişkeni yok sayar.
+        env = {"NILE_CONFIG_PATH": _config_path("nile_config", "nile")}
+        return _run_uninstall(binary, ["uninstall"], ids, env_overrides=env)
 
 
 class HeroicGogBackend(Backend):
