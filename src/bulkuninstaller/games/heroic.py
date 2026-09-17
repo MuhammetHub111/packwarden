@@ -39,7 +39,12 @@ def _bin_path(tool: str) -> str | None:
         path = os.path.join(base, tool)
         if os.path.isfile(path) and os.access(path, os.X_OK):
             return path
-    return None
+    # _BIN_CANDIDATES yalnızca native (AUR/deb/rpm) Heroic kurulumunu
+    # kapsıyor; Flatpak Heroic'in gerçek iç yolu bu makinede kurulu
+    # olmadığı için doğrulanamadı - tahmin edip sabit kodlamak yerine
+    # PATH'te aynı adla bir araç varsa (ör. ayrı bir AUR paketinden)
+    # ona düşülüyor, hiçbir şeye güvenmemekten daha iyi.
+    return shutil.which(tool)
 
 
 def _config_path(*parts: str) -> str:
