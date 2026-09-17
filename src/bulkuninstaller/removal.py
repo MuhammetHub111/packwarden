@@ -28,33 +28,6 @@ from .protected import is_protected
 _WINE_NOISE_RE = re.compile(r"^[0-9a-f]+:(fixme|err):", re.IGNORECASE)
 
 
-def _steam_is_running() -> bool:
-    try:
-        proc = host.run(["pgrep", "-x", "steam"], timeout=5)
-    except Exception:
-        return False
-    return proc.returncode == 0
-
-
-def _restart_steam() -> None:
-    """Steam'i tam kapatıp yeniden açar.
-
-    Steam çalışırken steamapps klasörünü yalnızca açılışta okuyor,
-    sonrasında dışarıdan (PackWarden'dan) silinen bir oyunu fark
-    etmiyor - canlı doğrulandı: silinen bir oyun "Oyna" göstermeyi
-    sürdürüyordu, tam yeniden başlatma dışında güvenli bir "canlı
-    yenile" yolu yok (steam://validate/<appid> denendi - manifest yoksa
-    otomatik yeniden YÜKLEME başlatıyor, bu yüzden kullanılmadı)."""
-    try:
-        host.run(["steam", "-shutdown"], timeout=20)
-    except Exception:
-        pass
-    try:
-        host.spawn(["steam"])
-    except Exception:
-        pass
-
-
 def _installed_flatpak_ids() -> set:
     try:
         proc = host.run(
@@ -367,14 +340,11 @@ class RemovalWindow(Adw.Window):
 
             errors = []
             cancelled = False
-            steam_partially_removed = False
             for backend in self._main._backends:
                 ids = groups.get(backend.id)
                 if not ids:
                     continue
                 result = backend.remove(ids)
-                if backend.id == "steam" and len(result.failed_ids) < len(ids):
-                    steam_partially_removed = True
                 if result.cancelled:
                     cancelled = True
                 elif not result.ok:
@@ -403,37 +373,10 @@ class RemovalWindow(Adw.Window):
             GLib.idle_add(
                 self._on_done,
                 errors, leftover_errors, cancelled, backup_path, len(checked),
-                closed_running, affected_flatpak_apps, steam_partially_removed,
+                closed_running, affected_flatpak_apps,
             )
 
         threading.Thread(target=worker, daemon=True).start()
-
-    def _show_steam_stale_notice(self):
-        check = Gtk.CheckButton(label=_("Don't show this again"))
-        dialog = Adw.AlertDialog(
-            heading=_("Steam might still show the game as installed"),
-            body=_(
-                "Steam only reads its library folder when it starts, so it "
-                "may keep showing \"Play\" for a game you just removed. "
-                "Fully restarting Steam (not just closing its window) "
-                "fixes this."
-            ),
-        )
-        dialog.set_extra_child(check)
-        dialog.add_response("dismiss", _("Close"))
-        dialog.add_response("restart", _("Restart Steam"))
-        dialog.set_response_appearance("restart", Adw.ResponseAppearance.SUGGESTED)
-        dialog.set_default_response("dismiss")
-        dialog.set_close_response("dismiss")
-
-        def on_response(_dialog, response):
-            if check.get_active():
-                prefs.set("hide_steam_stale_notice", True)
-            if response == "restart":
-                threading.Thread(target=_restart_steam, daemon=True).start()
-
-        dialog.connect("response", on_response)
-        dialog.present(self._main)
 
     def _on_backup_failed(self, message):
         self._set_busy(False)
@@ -447,16 +390,9 @@ class RemovalWindow(Adw.Window):
 
     def _on_done(
         self, errors, leftover_errors, cancelled, backup_path, cleaned,
-        closed_running=(), affected_flatpak_apps=(), steam_partially_removed=False,
+        closed_running=(), affected_flatpak_apps=(),
     ):
         self._set_busy(False)
-
-        if (
-            steam_partially_removed
-            and not prefs.get("hide_steam_stale_notice")
-            and _steam_is_running()
-        ):
-            self._show_steam_stale_notice()
 
         if cancelled:
             self._toast_overlay.add_toast(
