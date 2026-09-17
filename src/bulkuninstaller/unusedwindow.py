@@ -865,7 +865,9 @@ class UnusedAppsWindow(Adw.Window):
             row.add_prefix(check)
             row.add_prefix(self._icon_for(pkg))
             size_label = Gtk.Label(
-                label=format_size(pkg.size),
+                # format_size(0) boş dize döner (bilinmeyen boyut) - boş
+                # bırakınca satır bozuk görünüyordu.
+                label=format_size(pkg.size) or "—",
                 css_classes=["numeric", "dim-label"],
                 valign=Gtk.Align.CENTER,
             )
@@ -1007,7 +1009,7 @@ class UnusedAppsWindow(Adw.Window):
                         if remove_btn is not None:
                             row.remove(remove_btn)
                         size_label = Gtk.Label(
-                            label=format_size(pkg.size),
+                            label=format_size(pkg.size) or "—",
                             css_classes=["numeric", "dim-label", "pw-ignore-row-size"],
                             valign=Gtk.Align.CENTER,
                         )
@@ -1032,7 +1034,7 @@ class UnusedAppsWindow(Adw.Window):
                 icon.add_css_class("pw-ignore-row-icon")
                 row.add_prefix(icon)
                 size_label = Gtk.Label(
-                    label=format_size(pkg.size),
+                    label=format_size(pkg.size) or "—",
                     css_classes=["numeric", "dim-label", "pw-ignore-row-size"],
                     valign=Gtk.Align.CENTER,
                 )

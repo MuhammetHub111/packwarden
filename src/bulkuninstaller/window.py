@@ -541,7 +541,11 @@ class MainWindow(Adw.ApplicationWindow):
                               align=self._cell_align(table, col), dim=True)
 
     def _draw_size_cell(self, table, cr, col, item, x, y, w, h, _selected):
-        table.draw_text_cell(cr, x, y, w, h, format_size(item.pkg.size),
+        # format_size(0) boş dize döner (bilinmeyen boyut - ör. Wine
+        # Mono Runtime hiç EstimatedSize vermiyor) - diğer TÜM sütunlar
+        # (Sürüm, Yayıncı, Konum, Lisans, vb.) bu durumda "—" gösteriyor;
+        # Boyut sütunu tek başına boş hücre bırakıyordu, tutarsızdı.
+        table.draw_text_cell(cr, x, y, w, h, format_size(item.pkg.size) or "—",
                               align=self._cell_align(table, col), dim=True)
 
     def _draw_source_cell(self, table, cr, col, item, x, y, w, h, _selected):
@@ -1620,5 +1624,6 @@ class MainWindow(Adw.ApplicationWindow):
         pkg = selected[0].pkg
         percent = pkg.size / self._total_size * 100
         return _("{name} — {size} ({percent}%)").format(
-            name=pkg.name, size=format_size(pkg.size), percent=format_percent(percent),
+            name=pkg.name, size=format_size(pkg.size) or "—",
+            percent=format_percent(percent),
         )

@@ -282,7 +282,7 @@ class DiskMapArea(Gtk.DrawingArea):
         percent = item.pkg.size / self._total_size * 100
         return _("{name} — {size} ({percent}%)").format(
             name=item.pkg.name,
-            size=format_size(item.pkg.size),
+            size=format_size(item.pkg.size) or "—",
             percent=format_percent(percent),
         )
 

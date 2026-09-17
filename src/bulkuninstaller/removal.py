@@ -114,7 +114,9 @@ class RemovalWindow(Adw.Window):
                 warn.add_css_class("warning")
                 row.add_prefix(warn)
             size_label = Gtk.Label(
-                label=format_size(pkg.size),
+                # format_size(0) boş dize döner (bilinmeyen boyut - ör.
+                # Wine Mono Runtime) - boş bırakınca bozuk görünüyordu.
+                label=format_size(pkg.size) or "—",
                 css_classes=["numeric", "dim-label"],
                 valign=Gtk.Align.CENTER,
             )
@@ -204,7 +206,11 @@ class RemovalWindow(Adw.Window):
                 )
                 row.add_prefix(check)
                 size_label = Gtk.Label(
-                    label=format_size(item.size),
+                    # format_size(0) boş dize döner (ör. "Registry entry"
+                    # kalıntısı - gerçek bir bayt boyutu yok) - diğer
+                    # kalıntı satırları gerçek boyut gösterirken bu satır
+                    # tamamen boş kalıp bozuk görünüyordu.
+                    label=format_size(item.size) or "—",
                     css_classes=["numeric", "dim-label"],
                     valign=Gtk.Align.CENTER,
                 )
