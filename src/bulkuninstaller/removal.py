@@ -7,6 +7,7 @@ Vazgeç / Yedeksiz Kaldır / Yedekle ve Kaldır.
 """
 
 import os
+import re
 import threading
 
 from gi.repository import Adw, Gio, GLib, Gtk
@@ -17,6 +18,14 @@ from .backup import create_backup
 from .i18n import _
 from .leftovers import find_package_leftovers, remove_leftovers
 from .protected import is_protected
+
+# Wine'ın HER çağrısında çıkan rutin teşhis satırları ("0088:fixme:...",
+# "00fc:err:module:import_dll ..."e) - başarısızlığın gerçek NEDENİYLE
+# ilgisi yok, her zaman aynı şekilde basılıyor (canlı doğrulandı: hem
+# başarılı hem başarısız kaldırmalarda aynı satırlar çıkıyor). Hata
+# özetinde bunları gösterip asıl anlamlı satırı gürültüye boğmamak için
+# eleniyor.
+_WINE_NOISE_RE = re.compile(r"^[0-9a-f]+:(fixme|err):", re.IGNORECASE)
 
 
 def _installed_flatpak_ids() -> set:
@@ -339,7 +348,11 @@ class RemovalWindow(Adw.Window):
                 if result.cancelled:
                     cancelled = True
                 elif not result.ok:
-                    tail = "\n".join(result.output.strip().splitlines()[-8:])
+                    lines = [
+                        line for line in result.output.strip().splitlines()
+                        if not _WINE_NOISE_RE.match(line.strip())
+                    ]
+                    tail = "\n".join(lines[-8:]) if lines else _("No further details")
                     errors.append(f"{backend.display_name}:\n{tail}")
 
             leftover_errors = []

@@ -540,4 +540,13 @@ class WineBackend(Backend):
                 _force_remove(prefix, entry)
             if _key_exists(reg_path_file, key):
                 failed.append(pkg_id)
+                # Ham Wine çıktısı (fixme/err satırları) HER çağrıda çıkan
+                # rutin gürültü, kullanıcıya anlamlı bir şey söylemiyor -
+                # asıl neden burada net olarak yazılıyor; removal.py bu
+                # satırı gösterirken gürültüyü zaten filtreliyor.
+                outputs.append(
+                    f"{entry.get('DisplayName', key)}: kaldırma denemesi "
+                    f"sonrası paket kaydı hâlâ sistemde duruyor "
+                    f"(Wine'ın kendi kaldırıcısı tamamlanamamış olabilir)"
+                )
         return RemoveResult(ok=not failed, output="\n".join(outputs), failed_ids=failed)

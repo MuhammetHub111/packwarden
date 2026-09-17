@@ -27,6 +27,7 @@ TR = {
     "Uninstall {count} selected…": "Seçilen {count} uygulamayı kaldır…",
     "Cancel": "Vazgeç",
     "Some packages could not be removed": "Bazı paketler kaldırılamadı",
+    "No further details": "Başka ayrıntı yok",
     "Installed apps were affected": "Kurulu uygulamalar etkilendi",
     "Cleaning up unused Flatpak data also removed these "
     "installed apps as a side effect. You may want to "
