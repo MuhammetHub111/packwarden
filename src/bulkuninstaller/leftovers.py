@@ -139,11 +139,25 @@ def _find_installer_leftovers(packages: list[Package], safe) -> list[Leftover]:
     (alt dize eşleşmesi). Yanlış pozitif riski üç şekilde sınırlanıyor:
     yalnızca .exe uzantılı dosyalara bakılıyor, yalnızca bilinen birkaç
     klasörde (İndirilenler/Masaüstü) aranıyor, ve çok kısa (<3 karakter)
-    kök adları hiç eşleştirilmiyor."""
-    stems = {
-        stem for pkg in packages if pkg.source == "wine"
-        for stem in _installer_stem_candidates(pkg.name)
-    }
+    kök adları hiç eşleştirilmiyor.
+
+    Kelime kelime kısaltma (bkz. _installer_stem_candidates) bir aday
+    daha da azaltıyor: sonuç, paketin kendi Yayıncı adının bir öneki
+    olursa (ör. "Microsoft Visual C++ ... Redistributable"ın kısalmış
+    hali "microsoft" - yayıncı da "Microsoft Corporation") o aday
+    atılıyor. Canlı doğrulandı: aksi hâlde İndirilenler'deki ALAKASIZ
+    herhangi bir "Microsoft*.exe" dosyası bu paketin kalıntısı sanılırdı
+    - marka kelimesi yalnızca yayıncının kendi adına indirgendiğinde çok
+    genel, gerçek bir ürün eşleştirmesi olmuyor."""
+    stems = set()
+    for pkg in packages:
+        if pkg.source != "wine":
+            continue
+        publisher_norm = _normalize(pkg.publisher) if pkg.publisher else ""
+        for stem in _installer_stem_candidates(pkg.name):
+            if publisher_norm and publisher_norm.startswith(stem):
+                continue
+            stems.add(stem)
     if not stems:
         return []
     items = []
