@@ -33,9 +33,10 @@ from ._safety import is_critical
 
 PGA_DB_PATH = "~/.local/share/lutris/pga.db"
 
-# Lutris'in kendi services/*.py dosyalarındaki "id"/"name" sabitleri -
-# "service" sütunu bunlardan birini (ya da manuel eklenen oyunlarda
-# boş) tutar.
+# Lutris'in kendi services/ klasöründeki HER dosyanın "id"/"name"
+# sabitleri, tek tek kontrol edildi (grep ile, tahmin değil) - "service"
+# sütunu bunlardan birini (ya da manuel eklenen/yerel oyunlarda boş)
+# tutar. "zoom" dosya adı olsa da gerçek id "zoomplatform".
 _SERVICE_NAMES = {
     "gog": "GOG",
     "egs": "Epic Games Store",
@@ -46,6 +47,15 @@ _SERVICE_NAMES = {
     "battlenet": "Battle.net",
     "humblebundle": "Humble Bundle",
     "itchio": "itch.io",
+    "dolphin": "Dolphin",
+    "flathub": "Flathub",
+    "mame": "MAME",
+    "scummvm": "ScummVM",
+    "steamfamily": "Steam Family",
+    "steamwindows": "Steam for Windows",
+    "xdg": "Local",
+    "zoomplatform": "ZOOM Platform",
+    "lutris": "Lutris",
 }
 
 # ~/.local/share/icons/hicolor/128x128/apps - Lutris'in kendi
@@ -114,9 +124,13 @@ class LutrisGameBackend(Backend):
                     install_date = os.stat(directory).st_mtime
                 except OSError:
                     pass
-            if service:
+            if service and service != "lutris":
                 publisher = f"{_SERVICE_NAMES.get(service, service)} (Lutris)"
             else:
+                # service boşsa (manuel eklenen oyun) ya da "lutris"
+                # servisinin kendisiyse (Lutris'in kendi kurulum betiğiyle
+                # kurulmuş, harici bir mağazadan değil) - "Lutris
+                # (Lutris)" gibi tekrarlı görünmesin.
                 publisher = "Lutris"
             packages.append(Package(
                 id=str(row_id),
