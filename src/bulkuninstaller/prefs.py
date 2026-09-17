@@ -55,6 +55,13 @@ DEFAULTS = {
     # bir daha bu listede gösterilmez, kullanıcı yönetim panelinden geri
     # alana kadar. Varsayılan boş — hiçbir şey hariç tutulmaz.
     "ignored_unused_programs": {},
+
+    # Steam çalışırken kaldırılan bir Steam oyunu, Steam yeniden
+    # başlatılmadan "Oyna" göstermeyi sürdürebilir (Steam, steamapps
+    # klasörünü yalnızca açılışta okuyor, çalışırken canlı izlemiyor -
+    # canlı doğrulandı). Bu uyarıyı kullanıcı "bir daha gösterme"
+    # dediyse bastırmak için.
+    "hide_steam_stale_notice": False,
 }
 
 _cache: dict | None = None

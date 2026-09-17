@@ -28,6 +28,18 @@ TR = {
     "Cancel": "Vazgeç",
     "Some packages could not be removed": "Bazı paketler kaldırılamadı",
     "No further details": "Başka ayrıntı yok",
+    "Steam might still show the game as installed":
+        "Steam, oyunu hâlâ kurulu gösterebilir",
+    "Steam only reads its library folder when it starts, so it "
+    "may keep showing \"Play\" for a game you just removed. "
+    "Fully restarting Steam (not just closing its window) "
+    "fixes this.":
+        "Steam, kütüphane klasörünü yalnızca açılışta okur, bu yüzden az "
+        "önce kaldırdığın bir oyun için \"Oyna\" göstermeyi sürdürebilir. "
+        "Steam'i tam olarak yeniden başlatmak (sadece pencereyi kapatmak "
+        "değil) bunu düzeltir.",
+    "Don't show this again": "Bunu bir daha gösterme",
+    "Restart Steam": "Steam'i Yeniden Başlat",
     "Installed apps were affected": "Kurulu uygulamalar etkilendi",
     "Cleaning up unused Flatpak data also removed these "
     "installed apps as a side effect. You may want to "
