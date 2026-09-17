@@ -11,10 +11,10 @@ Silme:
 - GOG: gogdl'de uninstall alt komutu YOK (doğrulandı) — kurulum
   klasörü elle silinip yerel install-info kaydı temizlenir
 
-Bu makinede yalnızca Epic üzerinden kurulu oyun var; GOG/Amazon
-ayrıştırma mantığı bu yüzden savunmacı yazıldı (beklenmeyen bir alan
-adı sessizce atlanır, hiçbir şeyi çökertmez) ama uçtan uca
-doğrulanamadı.
+Bu makinede yalnızca Epic üzerinden kurulu oyun var; Amazon ayrıştırma
+mantığı bu yüzden savunmacı yazıldı (beklenmeyen bir alan adı sessizce
+atlanır, hiçbir şeyi çökertmez) ama uçtan uca doğrulanamadı. GOG için
+bir oyun kurulunca canlı doğrulandı (bkz. HeroicGogBackend.list_packages).
 """
 
 import json
@@ -22,7 +22,7 @@ import os
 import shutil
 
 from .. import host
-from ..backends.base import Backend, Package, RemoveResult
+from ..backends.base import Backend, Package, RemoveResult, parse_human_size
 from ._icons import cached_icon
 from ._safety import is_critical
 from ._shortcuts import remove_matching_shortcuts
@@ -116,6 +116,29 @@ def _epic_library_map() -> dict[str, dict]:
                 "art_square": entry.get("art_square") or "",
                 "developer": entry.get("developer") or "",
             }
+    return result
+
+
+def _gog_title_map() -> dict[str, str]:
+    """app_name -> başlık (store_cache/gog_install_info.json'dan).
+
+    Bu dosya "kurulu oyunlar" listesi DEĞİL - GOG'un indirme manifest
+    önbelleği; gerçek kurulu-oyun listesi gog_store/installed.json'da
+    (bkz. HeroicGogBackend.list_packages). Buradaki her girdi normal
+    bir oyun değil - "__timestamp" adında bakım amaçlı bir anahtar da
+    var (canlı doğrulandı: eski kod bunu da bir paket gibi listeleyip
+    ekranda "__timestamp" diye bir satır gösteriyordu). Yalnızca başlık
+    bilgisi için kullanılıyor."""
+    data = _load_json(_config_path("store_cache", "gog_install_info.json"))
+    if not isinstance(data, dict):
+        return {}
+    result = {}
+    for key, entry in data.items():
+        if key == "__timestamp" or not isinstance(entry, dict):
+            continue
+        game = entry.get("game")
+        if isinstance(game, dict) and game.get("app_name"):
+            result[game["app_name"]] = game.get("title") or ""
     return result
 
 
@@ -246,24 +269,37 @@ class HeroicGogBackend(Backend):
         return _bin_path("gogdl") is not None
 
     def list_packages(self) -> list[Package]:
-        data = _load_json(_config_path("store_cache", "gog_install_info.json"))
+        # DİKKAT: store_cache/gog_install_info.json "kurulu oyunlar"
+        # listesi DEĞİL - GOG'un indirme manifest önbelleği (canlı
+        # doğrulandı: gerçek bir GOG oyunu kurulunca burada iç içe
+        # {"game": {...}} yapısı VE "__timestamp" adında bir bakım
+        # anahtarı görüldü - önceki kod ikisini de "kurulu oyun"
+        # sanıp __timestamp'i de listede bir paket gibi gösteriyordu).
+        # Gerçek kurulu-oyun listesi gog_store/installed.json'daki
+        # "installed" dizisi - başlık için ayrıca _gog_title_map()'e
+        # bakılıyor (o dosyada yalnızca app_name var, başlık yok).
+        data = _load_json(_config_path("gog_store", "installed.json"))
         if not isinstance(data, dict):
             return []
+        installed = data.get("installed")
+        if not isinstance(installed, list):
+            return []
+        titles = _gog_title_map()
         packages = []
-        for game_id, info in data.items():
-            if not isinstance(info, dict):
+        for entry in installed:
+            if not isinstance(entry, dict):
                 continue
-            title = info.get("title") or info.get("name") or game_id
-            install_path = info.get("install_path") or info.get("path") or ""
-            try:
-                size = int(info.get("install_size") or info.get("size") or 0)
-            except (TypeError, ValueError):
-                size = 0
+            app_name = entry.get("appName")
+            if not app_name:
+                continue
+            install_path = entry.get("install_path") or ""
             packages.append(Package(
-                id=game_id,
-                name=title,
-                version="",
-                size=size,
+                id=app_name,
+                name=titles.get(app_name) or app_name,
+                version=entry.get("version") or "",
+                # install_size burada "2.31 GiB" gibi biçimlendirilmiş
+                # bir dize - Epic/Amazon'daki ham bayt sayısından farklı.
+                size=parse_human_size(entry.get("install_size") or ""),
                 description="",
                 source=self.id,
                 publisher="GOG (Heroic)",
@@ -278,16 +314,25 @@ class HeroicGogBackend(Backend):
 
     def remove(self, ids: list[str]) -> RemoveResult:
         # gogdl'de uninstall alt komutu yok (doğrulandı) — kurulum
-        # klasörünü elle sil, yerel install-info kaydını temizle.
-        info_path = _config_path("store_cache", "gog_install_info.json")
-        data = _load_json(info_path) or {}
+        # klasörünü elle sil, gog_store/installed.json'daki "installed"
+        # dizisinden kaydı çıkar (bkz. list_packages'taki gerçek dosya
+        # yapısı notu).
+        info_path = _config_path("gog_store", "installed.json")
+        data = _load_json(info_path)
+        if not isinstance(data, dict) or not isinstance(data.get("installed"), list):
+            return RemoveResult(False, "GOG installed.json not found", failed_ids=ids)
+
         failed = []
         messages = []
-        for game_id in ids:
-            entry = data.get(game_id) if isinstance(data, dict) else None
-            install_path = None
-            if isinstance(entry, dict):
-                install_path = entry.get("install_path") or entry.get("path")
+        found = set()
+        remaining = []
+        for entry in data["installed"]:
+            app_name = entry.get("appName") if isinstance(entry, dict) else None
+            if app_name not in ids:
+                remaining.append(entry)
+                continue
+            found.add(app_name)
+            install_path = entry.get("install_path")
             try:
                 # install_path, Heroic'in yerel JSON kaydından geliyor —
                 # sıradan, korumasız bir dosya, herhangi bir yerel süreç
@@ -298,19 +343,22 @@ class HeroicGogBackend(Backend):
                     and not is_critical(install_path)
                 ):
                     shutil.rmtree(install_path)
-                if isinstance(data, dict) and game_id in data:
-                    del data[game_id]
-                remove_matching_shortcuts(game_id)
+                remove_matching_shortcuts(app_name)
             except OSError as exc:
-                failed.append(game_id)
-                messages.append(f"{game_id}: {exc}")
+                failed.append(app_name)
+                messages.append(f"{app_name}: {exc}")
+                remaining.append(entry)  # silinemedi, kayıtta tut
 
-        if isinstance(data, dict):
-            try:
-                with open(info_path, "w", encoding="utf-8") as f:
-                    json.dump(data, f, indent=2)
-            except OSError:
-                pass  # oyun klasörü zaten silindi; kayıt temizliği ikincil
+        for missing in set(ids) - found:
+            failed.append(missing)
+            messages.append(f"{missing}: gog_store/installed.json'da bulunamadı")
+
+        data["installed"] = remaining
+        try:
+            with open(info_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except OSError:
+            pass  # oyun klasörü zaten silindi; kayıt temizliği ikincil
 
         if failed:
             return RemoveResult(False, "\n".join(messages), failed_ids=failed)
