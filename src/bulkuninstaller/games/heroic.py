@@ -7,15 +7,18 @@ belirtilir.
 
 Silme:
 - Epic: birlikte gelen `legendary uninstall <app_name> -y` (doğrulandı)
-- Amazon: birlikte gelen `nile uninstall <id>` (doğrulandı)
+- Amazon: birlikte gelen `nile uninstall <id>` (dosya yapısı Heroic'in
+  kendi decompile edilmiş kaynağından doğrulandı, ama bu makinede
+  kurulu Amazon oyunu olmadığı için uçtan uca uninstall çalıştırılıp
+  denenemedi)
 - GOG: gogdl'de uninstall alt komutu YOK (doğrulandı) — kurulum
   klasörü elle silinip yerel install-info kaydı temizlenir
 
-Bu makinede yalnızca Epic üzerinden kurulu oyun var; Amazon ayrıştırma
-mantığı bu yüzden savunmacı yazıldı (beklenmeyen bir alan adı sessizce
-atlanır, hiçbir şeyi çökertmez) ama uçtan uca doğrulanamadı. GOG için
-bir oyun kurulunca canlı doğrulandı (bkz. HeroicGogBackend.list_packages).
-"""
+Bu makinede Epic ve GOG üzerinden kurulu gerçek oyunlarla canlı
+doğrulandı (bkz. HeroicGogBackend/HeroicEpicBackend.list_packages).
+Amazon'da hiç kurulu oyun olmadığı için list_packages/remove'un dosya
+yapısı Heroic'in kendi ana süreç kaynağından (main.js) çıkarılıp
+doğrulandı - GOG/Epic'teki gibi canlı bir kurulu oyunla test edilemedi."""
 
 import json
 import os
@@ -146,6 +149,34 @@ def _gog_library_map() -> dict[str, dict]:
     return result
 
 
+def _nile_library_map() -> dict[str, dict]:
+    """app_name -> {"title", "art_square", "developer"}
+    (nile_config/nile/library.json'dan - Heroic'in kendi decompile
+    edilmiş kaynağından doğrulandı: Epic/GOG'un aksine bu dosya
+    {"library"/"games": [...]} şeklinde SARILMAMIŞ, düz bir dizi; her
+    öğenin alanları da iç içe - product.title, product.id,
+    product.productDetail.iconUrl (art_square karşılığı),
+    ...details.developer."""
+    data = _load_json(_config_path("nile_config", "nile", "library.json"))
+    if not isinstance(data, list):
+        return {}
+    result = {}
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        product = entry.get("product")
+        if not isinstance(product, dict) or not product.get("id"):
+            continue
+        detail = product.get("productDetail") or {}
+        details = detail.get("details") or {}
+        result[product["id"]] = {
+            "title": product.get("title") or "",
+            "art_square": detail.get("iconUrl") or "",
+            "developer": details.get("developer") or "",
+        }
+    return result
+
+
 class HeroicEpicBackend(Backend):
     id = "heroic-epic"
     display_name = "Heroic (Epic)"
@@ -219,28 +250,43 @@ class HeroicAmazonBackend(Backend):
         return _bin_path("nile") is not None
 
     def list_packages(self) -> list[Package]:
-        data = _load_json(_config_path("store_cache", "nile_install_info.json"))
-        if not isinstance(data, dict):
+        # DİKKAT (GOG'daki aynı hata sınıfı, Heroic'in kendi decompile
+        # edilmiş kaynağından doğrulandı): store_cache/nile_install_info.json
+        # "kurulu oyunlar" listesi DEĞİL, Heroic'in kendi ayrı iç
+        # önbelleği. Gerçek kurulu-oyun listesi nile_config/nile/
+        # installed.json - GOG'dan farklı olarak bu dosya {"installed":
+        # [...]} şeklinde SARILMAMIŞ, DÜZ bir dizi; alan adları da farklı
+        # ("id" değil "appName", "path" değil "install_path" vb. yok -
+        # "id"/"path"/"size"/"version"). Başlık/ikon/geliştirici için
+        # ayrıca _nile_library_map()'e bakılıyor.
+        data = _load_json(_config_path("nile_config", "nile", "installed.json"))
+        if not isinstance(data, list):
             return []
+        library = _nile_library_map()
         packages = []
-        for game_id, info in data.items():
-            if not isinstance(info, dict):
+        for entry in data:
+            if not isinstance(entry, dict):
                 continue
-            title = info.get("title") or info.get("name") or game_id
-            install_path = info.get("install_path") or info.get("path") or ""
+            app_name = entry.get("id")
+            if not app_name:
+                continue
+            install_path = entry.get("path") or ""
             try:
-                size = int(info.get("install_size") or info.get("size") or 0)
+                size = int(entry.get("size") or 0)
             except (TypeError, ValueError):
                 size = 0
+            meta = library.get(app_name, {})
+            icon_path = cached_icon(meta.get("art_square", "")) or ""
             packages.append(Package(
-                id=game_id,
-                name=title,
-                version="",
+                id=app_name,
+                name=meta.get("title") or app_name,
+                version=entry.get("version") or "",
                 size=size,
                 description="",
                 source=self.id,
-                publisher="Amazon Games (Heroic)",
+                publisher=meta.get("developer") or "Amazon Games (Heroic)",
                 last_used=_approx_last_used(install_path) if install_path else None,
+                icon_path=icon_path,
                 install_path=install_path,
                 install_date=_approx_last_used(install_path) if install_path else None,
             ))
@@ -253,14 +299,17 @@ class HeroicAmazonBackend(Backend):
         binary = _bin_path("nile")
         if not binary:
             return RemoveResult(False, "nile not found", failed_ids=ids)
-        # legendary'deki AYNI sorunun nile'da da olması bekleniyor
-        # (Heroic'in kendi nile_config/nile klasörü, nile'ın varsayılan
-        # konumundan ayrı) - ama bu makinede kurulu Amazon oyunu
-        # olmadığı için uçtan uca doğrulanamadı (env değişkeninin adı
-        # bile kesin değil, ikili dosyada yalnızca "CONFIG_PATH" dizesi
-        # bulundu). Hiçbir Amazon oyunu kurulu değilken zarar verme
-        # riski yok - en kötü ihtimalle nile bu değişkeni yok sayar.
-        env = {"NILE_CONFIG_PATH": _config_path("nile_config", "nile")}
+        # legendary'deki AYNI sorunun nile'da da olması bekleniyor -
+        # Heroic'in kendi decompile edilmiş kaynağından DOĞRULANDI:
+        # options.env.NILE_CONFIG_PATH = path.dirname(nileConfigPath),
+        # nileConfigPath = appFolder/nile_config/nile. Yani legendary'nin
+        # tersine (LEGENDARY_CONFIG_PATH tam "legendary" klasörünü
+        # gösteriyor), nile kendi "nile" alt klasörünü İÇERDE kendisi
+        # ekliyor - buraya "nile_config/nile" verilseydi çift katmanlı
+        # "nile_config/nile/nile/..." aranırdı (önceki hatalı hâl).
+        # Bu makinede kurulu Amazon oyunu olmadığı için uçtan uca
+        # doğrulanamadı ama yol artık Heroic'in kendi kaynağıyla eşleşiyor.
+        env = {"NILE_CONFIG_PATH": _config_path("nile_config")}
         return _run_uninstall(binary, ["uninstall"], ids, env_overrides=env)
 
 
