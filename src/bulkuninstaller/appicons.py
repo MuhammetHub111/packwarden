@@ -12,6 +12,7 @@ paketi → org.gnome.Calculator simgesi). Doğru simgeyi bulmak için
 """
 
 import os
+import shutil
 
 from . import host
 
@@ -101,6 +102,47 @@ def _parse_desktop(path: str):
     except OSError:
         return None
     return icon, exec_base, name, category
+
+
+def resolve_exec_path(desktop_id: str) -> str:
+    """desktop_id (launcher_map değeri) -> ana programın gerçek, mutlak
+    yolu; bulunamazsa boş dize.
+
+    Pacman/apt/dnf/zypper gibi klasik paket yöneticileri "Konum" alanını
+    hiç doldurmuyor (paket dosyaları /usr/bin, /usr/lib, /etc gibi
+    onlarca yere yayılıyor, TEK bir kök klasör yok) - ama gerçek bir
+    uygulaması olan paketler (Ad ekranında görünen, .desktop girdisi
+    olanlar) için ana programın kendisi hâlâ anlamlı bir "konum".
+    .desktop'ın Exec= alanı genelde PATH'e güvenen çıplak bir komut adı
+    (ör. "Exec=dolphin %U"), mutlak yol değil - shutil.which ile
+    çözülüyor; zaten mutlak bir yolsa olduğu gibi kullanılır."""
+    for base in APP_DIRS + _EXTRA_APP_DIRS:
+        path = os.path.join(os.path.expanduser(base), f"{desktop_id}.desktop")
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                in_entry = False
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("["):
+                        if in_entry:
+                            break
+                        in_entry = line == "[Desktop Entry]"
+                        continue
+                    if not in_entry:
+                        continue
+                    if line.startswith("Exec="):
+                        tokens = line[5:].strip().split()
+                        if not tokens:
+                            return ""
+                        command = tokens[0]
+                        if os.path.isabs(command):
+                            return command if os.path.isfile(command) else ""
+                        return shutil.which(command) or ""
+        except OSError:
+            continue
+    return ""
 
 
 def build_maps() -> tuple[dict[str, str], dict[str, str], dict[str, str]]:

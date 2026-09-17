@@ -5,7 +5,7 @@ import threading
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk
 
 from . import DEV_BUILD, host, prefs
-from .appicons import APP_DIRS, build_maps
+from .appicons import APP_DIRS, build_maps, resolve_exec_path
 from .backends import available_backends, format_install_date, format_size
 from .diskmap import DiskMapArea, build_legend, format_percent
 from .i18n import _
@@ -1523,6 +1523,19 @@ class MainWindow(Adw.ApplicationWindow):
                 icon_map, launcher_map, category_map = build_maps()
             except Exception:
                 icon_map, launcher_map, category_map = {}, {}, {}
+            # pacman/apt/dnf/zypper "Konum"u hiç doldurmuyor (dosyalar
+            # /usr/bin, /usr/lib, /etc gibi onlarca yere yayılıyor, TEK
+            # bir kök klasör yok) - ama .desktop girdisi olan gerçek bir
+            # uygulamaysa, ana programın kendi yolu hâlâ anlamlı bir
+            # "konum". Sadece BOŞ olanlar için, gereksiz iş yapmadan.
+            for pkg in packages:
+                if pkg.install_path:
+                    continue
+                desktop_id = launcher_map.get(pkg.id.lower()) or launcher_map.get(
+                    pkg.name.lower()
+                )
+                if desktop_id:
+                    pkg.install_path = resolve_exec_path(desktop_id)
             GLib.idle_add(
                 self._on_loaded, backends, packages,
                 icon_map, launcher_map, category_map,
