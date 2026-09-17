@@ -29,6 +29,13 @@ from .base import Backend, Package, RemoveResult
 _ICON_CACHE_DIR = os.path.expanduser("~/.cache/bulkuninstaller/wine-icons")
 _ICON_SIZE_RE = re.compile(r"(\d+)x(\d+)")
 
+# PackWarden'ın kendi otomatik/arka plan Wine çağrılarında (kaldırma,
+# registry temizliği) WineDbg'nin "Program Hatası" penceresini açmasını
+# önler. O pencere biri "Kapat"a tıklayana kadar altındaki süreci canlı
+# tutuyor - canlı doğrulandı: foobar2000'in çöken kaldırıcısı bu yüzden
+# dakikalarca askıda kalıyordu, kimse tıklamadığı için (otomatik akış).
+_NO_CRASH_DIALOG_ENV = "WINEDLLOVERRIDES=winedbg.exe=d"
+
 _UNINSTALL_KEY_RE = re.compile(
     r'^\[Software\\\\(?:Wow6432Node\\\\)?Microsoft\\\\Windows\\\\'
     r'CurrentVersion\\\\Uninstall\\\\(.+)\](?:\s+(\d+))?'
@@ -261,8 +268,8 @@ def _force_remove(prefix: str, entry: dict) -> bool:
     if reg_path:
         try:
             proc = host.run(
-                ["env", f"WINEPREFIX={prefix}", "wine", "reg", "delete",
-                 f"HKLM\\{reg_path}", "/f"],
+                ["env", f"WINEPREFIX={prefix}", _NO_CRASH_DIALOG_ENV,
+                 "wine", "reg", "delete", f"HKLM\\{reg_path}", "/f"],
                 timeout=30,
             )
         except Exception:
@@ -485,7 +492,7 @@ class WineBackend(Backend):
 
     def _wine_argv(self, prefix: str, uninstall_string: str) -> list[str]:
         return (
-            ["env", f"WINEPREFIX={prefix}", "wine"]
+            ["env", f"WINEPREFIX={prefix}", _NO_CRASH_DIALOG_ENV, "wine"]
             + _split_uninstall_string(uninstall_string, prefix)
         )
 

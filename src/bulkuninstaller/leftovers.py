@@ -366,19 +366,35 @@ def remove_leftovers(leftovers: list[Leftover]) -> list[str]:
             # Gerçek bir dosya yolu değil - ev dizini güvenlik kontrolü
             # ve çöp kutusu kavramı burada uygulanmıyor, doğrudan
             # wineserver üzerinden siliniyor (bkz. backends/wine.py
-            # _force_remove'daki aynı yaklaşım).
+            # _force_remove'daki aynı yaklaşım). WINEDLLOVERRIDES,
+            # WineDbg'nin "Program Hatası" penceresini açmasını önler -
+            # o pencere biri "Kapat"a basana kadar süreci bekletiyordu.
+            env_argv = [
+                "env", f"WINEPREFIX={item.registry_prefix}",
+                "WINEDLLOVERRIDES=winedbg.exe=d", "wine",
+            ]
             try:
-                proc = host.run(
-                    ["env", f"WINEPREFIX={item.registry_prefix}", "wine",
-                     "reg", "delete", item.registry_key, "/f"],
+                host.run(
+                    env_argv + ["reg", "delete", item.registry_key, "/f"],
                     timeout=30,
                 )
-                if proc.returncode != 0:
-                    errors.append(
-                        f"{item.path}: {(proc.stderr or proc.stdout).strip()}"
-                    )
-            except Exception as exc:
-                errors.append(f"{item.path}: {exc}")
+            except Exception:
+                pass
+            # "wine reg delete"in kendi çıkış kodu güvenilir değil - ana
+            # paket kaldırması bu AYNI anahtarı kendi garantisiyle çoktan
+            # silmiş olabilir (bkz. WineBackend._force_remove); o durumda
+            # burada "anahtar bulunamadı" diye nonzero dönmesi normaldir
+            # ve zaten istenen sonuçtur. Asıl soru: silme denemesinden
+            # SONRA anahtar hâlâ registry'de mi.
+            try:
+                verify = host.run(
+                    env_argv + ["reg", "query", item.registry_key], timeout=30
+                )
+                still_there = verify.returncode == 0
+            except Exception:
+                still_there = True
+            if still_there:
+                errors.append(f"{item.path}: kayıt hâlâ registry'de duruyor")
             continue
         real = os.path.realpath(item.path)
         if real in protected or not real.startswith(home + os.sep):
