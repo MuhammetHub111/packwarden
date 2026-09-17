@@ -94,23 +94,39 @@ def _tree_size(path: str) -> int:
     return total
 
 
-def _installer_stem(name: str) -> str:
+def _installer_stem_candidates(name: str) -> list[str]:
     """Program görünen adının sonundaki mimari eki ve sürüm numarasını
-    atıp normalize eder (ör. 'SteelSeries GG 115.0.0' -> 'steelseriesgg').
+    atıp normalize eder, sonra sondan kelime kelime kısaltarak sırayla
+    en spesifikten en genele aday kökler üretir (ör. 'SteelSeries GG
+    115.0.0' -> ['steelseriesgg', 'steelseries']).
 
     Sondaki '(x64)'/'(x86)' gibi parantezli ekler de atılıyor - canlı
     doğrulandı: 'foobar2000 v2.25.10 (x64)' bu ek yuzunden kurulum
     dosyasindaki 'foobar2000-x64_v2.25.10.exe' ile hiç eşleşmiyordu
     (mimari, dosya adında FARKLI bir sırada geçiyor - parantezli hali
-    de dosya adında hiç geçmiyor). Bu ek atılınca geriye kalan çekirdek
-    ad (yalnızca 'foobar2000') yine de güvenli bir alt dize eşleşmesi
-    sağlıyor."""
+    de dosya adında hiç geçmiyor).
+
+    Kelime kelime kısaltma, BAŞKA bir gerçek örnek için: KeePass'ın
+    kayıt defteri adı 'KeePass Password Safe 2.61.1', ama gerçek
+    kurulum dosyası 'KeePass-2.61.1-Setup.exe' - 'Password Safe' hiç
+    geçmiyor. Tam ad eşleşmeyince sondaki kelimeler tek tek atılıp
+    yeniden denenir ('KeePass Password' -> 'KeePass'), en az 3 karaktere
+    kadar - kısa/genel kelimelerde (örn. 'Total') yanlış pozitif riski
+    biraz artar ama aranan yer zaten dar (İndirilenler/Masaüstü, sadece
+    .exe, sadece kaldırılan paketle ilgili aramada)."""
     while True:
         stripped = _TRAILING_PAREN_RE.sub("", name)
         if stripped == name:
             break
         name = stripped
-    return _normalize(_VERSION_SUFFIX_RE.sub("", name))
+    core = _VERSION_SUFFIX_RE.sub("", name).strip()
+    words = core.split()
+    candidates = []
+    for count in range(len(words), 0, -1):
+        candidate = _normalize(" ".join(words[:count]))
+        if len(candidate) >= 3:
+            candidates.append(candidate)
+    return candidates
 
 
 def _find_installer_leftovers(packages: list[Package], safe) -> list[Leftover]:
@@ -126,8 +142,7 @@ def _find_installer_leftovers(packages: list[Package], safe) -> list[Leftover]:
     kök adları hiç eşleştirilmiyor."""
     stems = {
         stem for pkg in packages if pkg.source == "wine"
-        for stem in [_installer_stem(pkg.name)]
-        if len(stem) >= 3
+        for stem in _installer_stem_candidates(pkg.name)
     }
     if not stems:
         return []
