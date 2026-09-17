@@ -6,8 +6,22 @@ pga.db'de installed=0 işaretlemek şeklinde yapılır. Bu, Lutris'in
 kütüphanede "kurulu değil" göstermesiyle aynı sonucu verir ama
 bazı oyunların kendi özel kaldırma betiklerini atlar.
 
-Bu makinede Lutris kurulu ama hiç kullanılmamış (pga.db yok); şema
-iyi bilinen/stabil olsa da canlı doğrulanamadı.
+Şema ve ikon/yayıncı bilgisi Lutris'in kendi Python paketinden
+(/usr/lib/python3.*/site-packages/lutris/) doğrudan okunarak
+doğrulandı - Heroic'in decompile edilmiş Electron paketinin aksine bu
+paket zaten düz Python, kaynağı doğrudan okunabiliyor:
+- database/schema.py: "games" tablosunun tam sütun listesi (slug,
+  service, runner, platform dahil - önceki kod sadece 4 sütun
+  okuyordu).
+- util/resources.py + settings.py: bir oyunun küçük ikonu her zaman
+  ~/.local/share/icons/hicolor/128x128/apps/lutris_<slug>.png (XDG
+  hicolor temasına kaydedilmiş gerçek bir PNG).
+- services/*.py: "service" sütunundaki ham kimlik (gog/egs/ea_app/
+  ubisoft/steam/amazon/battlenet/humblebundle/itchio) her servisin
+  kendi dosyasındaki "id"/"name" sabitleriyle eşleştirildi.
+
+Bu makinede Lutris kurulu ama hiç kullanılmamış (pga.db yok) - şema
+kaynaktan doğrulandı ama gerçek bir oyunla canlı test edilemedi.
 """
 
 import os
@@ -18,6 +32,34 @@ from ..backends.base import Backend, Package, RemoveResult
 from ._safety import is_critical
 
 PGA_DB_PATH = "~/.local/share/lutris/pga.db"
+
+# Lutris'in kendi services/*.py dosyalarındaki "id"/"name" sabitleri -
+# "service" sütunu bunlardan birini (ya da manuel eklenen oyunlarda
+# boş) tutar.
+_SERVICE_NAMES = {
+    "gog": "GOG",
+    "egs": "Epic Games Store",
+    "ea_app": "EA App",
+    "ubisoft": "Ubisoft Connect",
+    "steam": "Steam",
+    "amazon": "Amazon",
+    "battlenet": "Battle.net",
+    "humblebundle": "Humble Bundle",
+    "itchio": "itch.io",
+}
+
+# ~/.local/share/icons/hicolor/128x128/apps - Lutris'in kendi
+# util/resources.py:get_icon_path()'i de burayı kullanıyor.
+_ICON_DIR = os.path.expanduser(
+    "~/.local/share/icons/hicolor/128x128/apps"
+)
+
+
+def _lutris_icon_path(slug: str) -> str:
+    if not slug:
+        return ""
+    path = os.path.join(_ICON_DIR, f"lutris_{slug}.png")
+    return path if os.path.isfile(path) else ""
 
 
 def _db_path() -> str | None:
@@ -52,7 +94,7 @@ class LutrisGameBackend(Backend):
             conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
             try:
                 rows = conn.execute(
-                    "SELECT id, name, directory, lastplayed "
+                    "SELECT id, name, directory, lastplayed, slug, service "
                     "FROM games WHERE installed = 1"
                 ).fetchall()
             finally:
@@ -61,7 +103,7 @@ class LutrisGameBackend(Backend):
             return []
 
         packages = []
-        for row_id, name, directory, lastplayed in rows:
+        for row_id, name, directory, lastplayed, slug, service in rows:
             if not name:
                 continue
             size = 0
@@ -72,6 +114,10 @@ class LutrisGameBackend(Backend):
                     install_date = os.stat(directory).st_mtime
                 except OSError:
                     pass
+            if service:
+                publisher = f"{_SERVICE_NAMES.get(service, service)} (Lutris)"
+            else:
+                publisher = "Lutris"
             packages.append(Package(
                 id=str(row_id),
                 name=name,
@@ -79,8 +125,9 @@ class LutrisGameBackend(Backend):
                 size=size,
                 description="",
                 source=self.id,
-                publisher="Lutris",
+                publisher=publisher,
                 last_used=float(lastplayed) if lastplayed else None,
+                icon_path=_lutris_icon_path(slug),
                 install_path=directory or "",
                 install_date=install_date,
             ))
