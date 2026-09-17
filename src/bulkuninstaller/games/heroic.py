@@ -119,26 +119,30 @@ def _epic_library_map() -> dict[str, dict]:
     return result
 
 
-def _gog_title_map() -> dict[str, str]:
-    """app_name -> başlık (store_cache/gog_install_info.json'dan).
+def _gog_library_map() -> dict[str, dict]:
+    """app_name -> {"title", "art_square", "developer"}
+    (store_cache/gog_library.json'dan - Epic'in legendary_library.json'ı
+    ile aynı rolde, kullanıcının GOG'da sahip olduğu TÜM oyunların
+    önbelleği, kurulu olsun olmasın).
 
-    Bu dosya "kurulu oyunlar" listesi DEĞİL - GOG'un indirme manifest
-    önbelleği; gerçek kurulu-oyun listesi gog_store/installed.json'da
-    (bkz. HeroicGogBackend.list_packages). Buradaki her girdi normal
-    bir oyun değil - "__timestamp" adında bakım amaçlı bir anahtar da
-    var (canlı doğrulandı: eski kod bunu da bir paket gibi listeleyip
-    ekranda "__timestamp" diye bir satır gösteriyordu). Yalnızca başlık
-    bilgisi için kullanılıyor."""
-    data = _load_json(_config_path("store_cache", "gog_install_info.json"))
+    Bu dosyanın da üst seviyede "games" listesinin YANINDA bir
+    "__timestamp" bakım anahtarı var (gog_install_info.json'daki gibi -
+    canlı doğrulandı) ama "games" listesinin dışında olduğu için buraya
+    hiç girmiyor, ekstra bir eleme gerekmiyor."""
+    data = _load_json(_config_path("store_cache", "gog_library.json"))
     if not isinstance(data, dict):
         return {}
+    games = data.get("games")
+    if not isinstance(games, list):
+        return {}
     result = {}
-    for key, entry in data.items():
-        if key == "__timestamp" or not isinstance(entry, dict):
-            continue
-        game = entry.get("game")
-        if isinstance(game, dict) and game.get("app_name"):
-            result[game["app_name"]] = game.get("title") or ""
+    for entry in games:
+        if isinstance(entry, dict) and entry.get("app_name"):
+            result[entry["app_name"]] = {
+                "title": entry.get("title") or "",
+                "art_square": entry.get("art_square") or "",
+                "developer": entry.get("developer") or "",
+            }
     return result
 
 
@@ -276,15 +280,17 @@ class HeroicGogBackend(Backend):
         # anahtarı görüldü - önceki kod ikisini de "kurulu oyun"
         # sanıp __timestamp'i de listede bir paket gibi gösteriyordu).
         # Gerçek kurulu-oyun listesi gog_store/installed.json'daki
-        # "installed" dizisi - başlık için ayrıca _gog_title_map()'e
-        # bakılıyor (o dosyada yalnızca app_name var, başlık yok).
+        # "installed" dizisi - başlık/ikon/geliştirici için ayrıca
+        # _gog_library_map()'e bakılıyor (o dosyada yalnızca app_name
+        # var, başka hiçbir görüntüleme bilgisi yok - canlı doğrulandı:
+        # ikon hiç gösterilmiyordu).
         data = _load_json(_config_path("gog_store", "installed.json"))
         if not isinstance(data, dict):
             return []
         installed = data.get("installed")
         if not isinstance(installed, list):
             return []
-        titles = _gog_title_map()
+        library = _gog_library_map()
         packages = []
         for entry in installed:
             if not isinstance(entry, dict):
@@ -293,17 +299,20 @@ class HeroicGogBackend(Backend):
             if not app_name:
                 continue
             install_path = entry.get("install_path") or ""
+            meta = library.get(app_name, {})
+            icon_path = cached_icon(meta.get("art_square", "")) or ""
             packages.append(Package(
                 id=app_name,
-                name=titles.get(app_name) or app_name,
+                name=meta.get("title") or app_name,
                 version=entry.get("version") or "",
                 # install_size burada "2.31 GiB" gibi biçimlendirilmiş
                 # bir dize - Epic/Amazon'daki ham bayt sayısından farklı.
                 size=parse_human_size(entry.get("install_size") or ""),
                 description="",
                 source=self.id,
-                publisher="GOG (Heroic)",
+                publisher=meta.get("developer") or "GOG (Heroic)",
                 last_used=_approx_last_used(install_path) if install_path else None,
+                icon_path=icon_path,
                 install_path=install_path,
                 install_date=_approx_last_used(install_path) if install_path else None,
             ))
