@@ -247,7 +247,15 @@ class UnusedAppsWindow(Adw.Window):
         # _snap_scrolled_bottom) - hem tarama/yoksayma sonrasi (upper
         # degisince) hem pencere yeniden boyutlaninca (page_size degisince)
         # tetiklenir, boylece yarim satir hic gorunmez: ya tam satir ya hic.
-        self._snap_in_progress = False
+        # Bildirimin kendi acilma/kapanma gecisi (200ms kayma) art arda,
+        # hizli "page-size" degisimi ureten bir kaynak - _snap_debounce_id
+        # gelen tetikleri tek bir GECIKMELI cagriya indirger, yalnizca son
+        # degisimden SONRA sessizlik olunca (gecis tamamen bitince) gercekten
+        # calisir. Canli testte GORULDU: debounce olmadan (veya hesap her
+        # seferinde margin'i once 0'a cekip yeniden olcerse) kendi
+        # duzeltmemiz kendi page-size bildirimini tetikleyip sonsuz bir
+        # dongu icinde %60+ CPU ile donuyordu - bkz. _snap_scrolled_bottom.
+        self._snap_debounce_id = None
         vadjustment = self._scrolled.get_vadjustment()
         vadjustment.connect("notify::upper", self._on_scroll_area_changed)
         vadjustment.connect("notify::page-size", self._on_scroll_area_changed)
@@ -637,81 +645,85 @@ class UnusedAppsWindow(Adw.Window):
         if callback is not None:
             callback()
 
+    # Bildirimin kendi kayma gecisinden (200ms) daha uzun - debounce
+    # penceresi, gecis TAMAMEN bitip sessizlik olana kadar gercek
+    # hesabi surekli erteler.
+    _SNAP_DEBOUNCE_MS = 250
+
     def _on_scroll_area_changed(self, *_args):
-        # "upper" (icerik degisti - tarama/yoksayma) veya "page_size"
-        # (pencere yeniden boyutlandi) degistiginde tetiklenir. Kendi
-        # margin_bottom degisikligimiz de page_size'i degistirdigi icin
-        # (bkz. _snap_scrolled_bottom) bu sinyali YENIDEN tetikler - guard
-        # bayragi bu geri-besleme dongusunu kesiyor.
-        if self._snap_in_progress:
-            return
-        GLib.idle_add(self._snap_scrolled_bottom)
+        # "upper" (icerik degisti - tarama/yoksayma), "page_size"
+        # (pencere yeniden boyutlandi) VEYA bildirim alani buyuyup/
+        # kucultugunde tetiklenir. Kendi margin_bottom degisikligimiz de
+        # page_size'i degistirir (bkz. _snap_scrolled_bottom) ve bu
+        # sinyali YENIDEN tetikler - ama asagidaki hesap idempotent
+        # oldugundan (degisiklik gerekmiyorsa margin'e hic dokunmaz) bu
+        # kendiliginden 1-2 turda sonlanir. Debounce ise bildirimin
+        # animasyonu gibi art arda hizli ates eden AYRI/HARICI bir
+        # kaynagin her karesinde tekrar hesap yapmak yerine, gecis
+        # tamamen durulunca TEK SEFER hesap yapmasini sagliyor.
+        if self._snap_debounce_id is not None:
+            GLib.source_remove(self._snap_debounce_id)
+        self._snap_debounce_id = GLib.timeout_add(
+            self._SNAP_DEBOUNCE_MS, self._on_snap_debounce_fired
+        )
+
+    def _on_snap_debounce_fired(self):
+        self._snap_debounce_id = None
+        self._snap_scrolled_bottom()
+        return GLib.SOURCE_REMOVE
 
     def _snap_scrolled_bottom(self):
         # Fikir: gorunur listenin alt kenarini, GERCEK satir yuksekligine
         # yuvarlayarak her zaman iki satir arasindaki dogal sinira
         # getirmek - hangi satir "en sonda" kalirsa kalsin (icerik/pencere
         # boyutuna gore degisebilir) YARIM gorunmez, ya tam gorunur ya da
-        # hic.
+        # hic. Bildirim(ler) acikken de (toast_box gercek bir alt cubuk
+        # oldugundan page_size zaten kucculmus gelir) aynen uygulanir -
+        # boylece bildirim sayisi ne olursa olsun (1/2/3) listenin bittigi
+        # yerde hic satir yarim kalmaz.
         #
-        # Canli testle (debug print ile) bulundu: get_allocated_height()
-        # set_margin_bottom() cagrisini SENKRON yansitmiyor - GTK'nin
-        # kendi yerlesim gecisi bir-iki kare geriden geliyor. "Simdiki
-        # margin'i geri ekleyip dogal yuksekligi yeniden elde et" seklinde
-        # TEK ADIMLIK bir hesap bu yuzden YANLIS deger uretip 0->17->34->17
-        # ->0 diye sonsuz salinima giriyordu (gercek bug, canli logla
-        # yakalandi). Duzeltme: ONCE margin'i 0'a cek, GTK'nin bunu
-        # gercekten islemesi icin bir kare bekle, SONRA (margin GERCEKTEN
-        # 0 iken) dogal yuksekligi guvenilir sekilde olc, ancak O ZAMAN
-        # dogru margin'i uygula. Guard bayragi, bu iki adimin kendi kendini
-        # tetiklemesini (page_size iki kez daha degisecek) engelliyor.
-        self._snap_in_progress = True
-        self._scrolled.set_margin_bottom(0)
-        GLib.timeout_add(60, self._measure_and_apply_snap)
-        return GLib.SOURCE_REMOVE
-
-    def _measure_and_apply_snap(self):
-        # Bildirim(ler) aciksa satir hizalamasi hic uygulanmiyor - deneme
-        # gosterdi ki bu durumda hizalama, listenin son tam satiri ile
-        # bildirim alani arasinda (renk artik eslesse de) gozle gorulur
-        # bir BOSLUK birakiyordu; kullanici bunu ekran goruntusuyle
-        # gosterip bildirim alaninin son satira YAPISIK olmasini istedi.
-        # Bildirim(ler) acikken olasi bir yarim satir, hemen yanindaki
-        # aktif bir bildirimin yaninda, bu bosluktan daha az goze
-        # batiyor - margin_bottom zaten 0'a cekilmis durumda kaliyor
-        # (bkz. _snap_scrolled_bottom), sadece yeniden hesaplamiyoruz.
-        if self._toasts:
-            GLib.timeout_add(60, self._release_snap_guard)
-            return GLib.SOURCE_REMOVE
+        # ONEMLI (canli testle bulunan bug'in cozumu): onceki tasarim,
+        # dogal yuksekligi guvenilir olcmek icin ONCE margin'i 0'a cekip
+        # bir kare bekleyip YENIDEN olcuyordu (get_allocated_height()
+        # set_margin_bottom() cagrisini senkron yansitmadigi icin). Ama bu
+        # "sifirla, yeniden olc" ikili adimin KENDISI de iki kez daha
+        # page_size degistirip notify::page-size'i tetikliyordu -
+        # bildirimin kendi 200ms'lik kayma animasyonuyla cakisinca bu,
+        # guard penceresinin disina tasan SONSUZ bir kendi-kendini-
+        # tetikleme dongusune (canli testte GORULDU: %60+ CPU, hic
+        # durmuyor) yol aciyordu. Cozum: sifirlayip yeniden olcmek YERINE,
+        # su anki (zaten uygulanmis) margin'i page_size'a GERI EKLEYEREK
+        # "dogal" (margin=0 olsaydi ne olurdu) yuksekligi cebirsel olarak
+        # geri cikar - bu deger sadece pencere/satir/chrome boyutuna
+        # baglidir, gecmiste hangi margin uygulanmis oldugundan bagimsizdir.
+        # Hesaplanan hedef margin, su anki margin'e ZATEN esitse hicbir sey
+        # yapmiyoruz (set_margin_bottom bile cagrilmiyor) - boylece dogru
+        # deger zaten uygulanmisken kendiliginden yeni bir page_size
+        # degisimi URETMEZ ve dongu kendiliginden durur.
         row = self._list_box.get_row_at_index(0)
         row_height = row.get_allocated_height() if row is not None else 0
-        if row_height > 0:
-            # page_size, scrolled goruntulenen TUM icerigi (hint_banner +
-            # settings_group + list_box + empty_status) kapsar - satirlar
-            # SADECE bunun bir kismini kaplar, oncesinde ayar satirlari
-            # (bkz. settings_group) var. O yuzden dogrudan page_size'a
-            # modulo almak YANLIS cikti (canli testle bulundu: 15 tam
-            # satirlik yer varmis gibi hesaplandi ama gercekte ~3 satir
-            # zaten ayar bolumune gidiyordu). Once listenin BASLADIGI
-            # noktaya kadar olan "ust kisim" yuksekligini (spacing/margin
-            # dahil) cikarip GERI KALANI satir sayisina yuvarliyoruz.
-            spacing = self._content.get_spacing()
-            chrome = self._content.get_margin_top() + spacing
-            chrome += self._settings_group.get_allocated_height()
-            if self._hint_banner.get_visible():
-                chrome += self._hint_banner.get_allocated_height() + spacing
-            page_size = self._scrolled.get_vadjustment().get_page_size()
-            usable_for_rows = page_size - chrome
-            if usable_for_rows > 0:
-                new_margin = int(usable_for_rows) % row_height
-                if new_margin:
-                    self._scrolled.set_margin_bottom(new_margin)
-        GLib.timeout_add(60, self._release_snap_guard)
-        return GLib.SOURCE_REMOVE
-
-    def _release_snap_guard(self):
-        self._snap_in_progress = False
-        return GLib.SOURCE_REMOVE
+        if row_height <= 0:
+            return
+        # page_size, scrolled goruntulenen TUM icerigi (hint_banner +
+        # settings_group + list_box + empty_status) kapsar - satirlar
+        # SADECE bunun bir kismini kaplar, oncesinde ayar satirlari (bkz.
+        # settings_group) var. O yuzden dogrudan page_size'a modulo almak
+        # YANLIS cikti (canli testle bulundu: 15 tam satirlik yer varmis
+        # gibi hesaplandi ama gercekte ~3 satir zaten ayar bolumune
+        # gidiyordu). Once listenin BASLADIGI noktaya kadar olan "ust
+        # kisim" yuksekligini (spacing/margin dahil) cikarip GERI KALANI
+        # satir sayisina yuvarliyoruz.
+        spacing = self._content.get_spacing()
+        chrome = self._content.get_margin_top() + spacing
+        chrome += self._settings_group.get_allocated_height()
+        if self._hint_banner.get_visible():
+            chrome += self._hint_banner.get_allocated_height() + spacing
+        current_margin = self._scrolled.get_margin_bottom()
+        natural_page_size = self._scrolled.get_vadjustment().get_page_size() + current_margin
+        usable_for_rows = natural_page_size - chrome
+        new_margin = int(usable_for_rows) % row_height if usable_for_rows > 0 else 0
+        if new_margin != current_margin:
+            self._scrolled.set_margin_bottom(new_margin)
 
     def _on_open_settings(self, *_args):
         # Bu pencereyi (ve altındaki ana pencereyi) aynı anda görünür
