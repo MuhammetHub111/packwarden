@@ -256,7 +256,11 @@ class UnusedAppsWindow(Adw.Window):
         # duzeltmemiz kendi page-size bildirimini tetikleyip sonsuz bir
         # dongu icinde %60+ CPU ile donuyordu - bkz. _snap_scrolled_bottom.
         self._snap_debounce_id = None
+        # Kullanici (ya da programatik olarak biz) listeyi en alta kadar
+        # kaydirmis mi - bkz. _on_scroll_value_changed/_snap_scrolled_bottom.
+        self._pinned_to_bottom = False
         vadjustment = self._scrolled.get_vadjustment()
+        vadjustment.connect("notify::value", self._on_scroll_value_changed)
         vadjustment.connect("notify::upper", self._on_scroll_area_changed)
         vadjustment.connect("notify::page-size", self._on_scroll_area_changed)
 
@@ -672,34 +676,73 @@ class UnusedAppsWindow(Adw.Window):
         self._snap_scrolled_bottom()
         return GLib.SOURCE_REMOVE
 
+    def _on_scroll_value_changed(self, vadjustment, _pspec):
+        # Kullanicinin (fare tekeri/kaydirma cubugu ile) ya da bizim
+        # (_snap_scrolled_bottom'daki yeniden-sabitleme) az once nereye
+        # kaydirdigimizi ANLIK olarak izliyor - "su an listenin gorunen en
+        # altina kadar kaydirilmis mi" bilgisi, bir SONRAKI upper/page-size
+        # degisiminde (ör. bir bildirim daha eklenip page_size kuculunce)
+        # KORUNMASI gereken davranisi (en altta kalmaya devam et) belirlemek
+        # icin lazim - o degisim aninda deger ZATEN yeni haline gecmis
+        # olacagi icin "degismeden ONCE en altta miydi" bilgisini simdiden
+        # saklamamiz gerekiyor.
+        page_size = vadjustment.get_page_size()
+        upper = vadjustment.get_upper()
+        value = vadjustment.get_value()
+        self._pinned_to_bottom = value >= upper - page_size - 2
+
     def _snap_scrolled_bottom(self):
-        # Fikir: gorunur listenin alt kenarini, GERCEK satir yuksekligine
-        # yuvarlayarak her zaman iki satir arasindaki dogal sinira
-        # getirmek - hangi satir "en sonda" kalirsa kalsin (icerik/pencere
-        # boyutuna gore degisebilir) YARIM gorunmez, ya tam gorunur ya da
-        # hic. Bildirim(ler) acikken de (toast_box gercek bir alt cubuk
-        # oldugundan page_size zaten kucculmus gelir) aynen uygulanir -
-        # boylece bildirim sayisi ne olursa olsun (1/2/3) listenin bittigi
-        # yerde hic satir yarim kalmaz.
+        vadjustment = self._scrolled.get_vadjustment()
+        # Icerik (ayar satirlari + liste) kaydirma gerektirmeden viewport'a
+        # ZATEN sigiyorsa (upper, su anki margin'i geri eklenmis "dogal"
+        # page_size'i asmiyorsa) kirpilma riski hic yok - gecmise/kaydirma
+        # gecmisine bakmaya bile gerek yok, HER ZAMAN margin=0 dogru
+        # sonuctur. Bu kontrol asagidaki "en alta sabitleme" mantigindan
+        # ONCE ve ONDAN BAGIMSIZ calisir - cunku _pinned_to_bottom bayragi
+        # sadece notify::value fiilen tetiklenince guncellenir, deger hic
+        # degismeden (value=0'da) kalirsa (ör. pencere yeni acildi, kullanici
+        # henuz kaydirmadi) bayrak henuz doğru kurulmamis olabilir.
+        current_margin = self._scrolled.get_margin_bottom()
+        natural_page_size = vadjustment.get_page_size() + current_margin
+        if vadjustment.get_upper() <= natural_page_size:
+            if current_margin != 0:
+                self._scrolled.set_margin_bottom(0)
+            return
+        # Liste EN ALTA kadar kaydirilmis durumdaysa (bildirimlerin hemen
+        # ustunde goze batan "gereksiz bosluk" raporu HER ZAMAN bu durumda
+        # ortaya cikiyordu - kullanici ekran goruntusuyle dogruladi):
+        # icerik orada zaten HER ZAMAN tam bir satirin sonunda biter -
+        # satirlar bosluksuz art arda dizildigi icin listenin dogal sonu
+        # (upper) matematiksel olarak HER ZAMAN bir satir sinirina denk
+        # gelir, margin'e hic gerek yok. Bildirim sayisi degistiginde
+        # (page_size kuculup/buyudukce) tek yapilmasi gereken, kaydirma
+        # degerini YENI "en alt" konumuna guncellemek - boylece bildirimler
+        # eklenip/kaldirilirken liste otomatik olarak onlara "yapisik"
+        # kaliyor, ne bosluk ne yarim satir.
         #
-        # ONEMLI (canli testle bulunan bug'in cozumu): onceki tasarim,
-        # dogal yuksekligi guvenilir olcmek icin ONCE margin'i 0'a cekip
-        # bir kare bekleyip YENIDEN olcuyordu (get_allocated_height()
-        # set_margin_bottom() cagrisini senkron yansitmadigi icin). Ama bu
-        # "sifirla, yeniden olc" ikili adimin KENDISI de iki kez daha
-        # page_size degistirip notify::page-size'i tetikliyordu -
-        # bildirimin kendi 200ms'lik kayma animasyonuyla cakisinca bu,
-        # guard penceresinin disina tasan SONSUZ bir kendi-kendini-
-        # tetikleme dongusune (canli testte GORULDU: %60+ CPU, hic
-        # durmuyor) yol aciyordu. Cozum: sifirlayip yeniden olcmek YERINE,
-        # su anki (zaten uygulanmis) margin'i page_size'a GERI EKLEYEREK
-        # "dogal" (margin=0 olsaydi ne olurdu) yuksekligi cebirsel olarak
-        # geri cikar - bu deger sadece pencere/satir/chrome boyutuna
-        # baglidir, gecmiste hangi margin uygulanmis oldugundan bagimsizdir.
-        # Hesaplanan hedef margin, su anki margin'e ZATEN esitse hicbir sey
-        # yapmiyoruz (set_margin_bottom bile cagrilmiyor) - boylece dogru
-        # deger zaten uygulanmisken kendiliginden yeni bir page_size
-        # degisimi URETMEZ ve dongu kendiliginden durur.
+        # ONCEKI TASARIM (canli testle bulunan, kaldirilan bug): bu durumda
+        # da satir-yuksekligine gore modulo alinarak bir margin
+        # hesaplaniyordu (deger SADECE "value=0'dan/pencerenin USTUNDEN
+        # bakilsaydi" senaryosu icin dogruydu, gercek kaydirma degerini hic
+        # hesaba katmiyordu) - kullanicinin EN ALTA kaydirdigi, tipik
+        # senaryoda bu, listenin son satiriyla bildirimler arasinda 34-48px
+        # arasi, goze batan, tamamen gereksiz bir bosluk birakiyordu (canli
+        # testle dogrulandi, ekran goruntusuyle raporlandi).
+        if self._pinned_to_bottom:
+            if current_margin != 0:
+                self._scrolled.set_margin_bottom(0)
+            new_value = vadjustment.get_upper() - vadjustment.get_page_size()
+            if new_value < 0:
+                new_value = 0
+            if abs(vadjustment.get_value() - new_value) > 0.5:
+                vadjustment.set_value(new_value)
+            return
+        # Kullanici en altta DEGILSE (listenin ustlerinde bir yeri
+        # goruntuluyor - ör. pencere daha yeni acildi, value=0) asagidaki
+        # eski mantik gecerliligini koruyor: gorunur alanin alt kenarini
+        # GERCEK satir yuksekligine yuvarlayarak iki satir arasindaki dogal
+        # sinira getiriyoruz, hangi satir "en sonda" kalirsa kalsin YARIM
+        # gorunmesin.
         row = self._list_box.get_row_at_index(0)
         row_height = row.get_allocated_height() if row is not None else 0
         if row_height <= 0:
@@ -718,24 +761,8 @@ class UnusedAppsWindow(Adw.Window):
         chrome += self._settings_group.get_allocated_height()
         if self._hint_banner.get_visible():
             chrome += self._hint_banner.get_allocated_height() + spacing
-        current_margin = self._scrolled.get_margin_bottom()
-        vadjustment = self._scrolled.get_vadjustment()
-        natural_page_size = vadjustment.get_page_size() + current_margin
-        # Icerik (ayar satirlari + liste + bos-durum sayfasi) kaydirma
-        # gerektirmeden viewport'a ZATEN sigiyorsa (upper <= natural
-        # page_size, "yoksayilanlar" acilir paneli az sayida ogeyle kisa
-        # bir liste birakinca canli testte GORULDU) kirpilma riski hic
-        # yok - son satirin altinda dogal olarak kalan bosluk zaten
-        # gorunur ve zararsiz. Bu durumda modulo'ya gore margin hesaplamak
-        # o dogal boslugun USTUNE bir de margin ekleyip bildirimlerin
-        # ustunde gereksiz, cift kalinlikta bir "bosluk" olusturuyordu
-        # (kullanici ekran goruntusuyle gosterdi) - margin'i 0'a
-        # cekiyoruz, cunku hic gerek yok.
-        if vadjustment.get_upper() <= natural_page_size:
-            new_margin = 0
-        else:
-            usable_for_rows = natural_page_size - chrome
-            new_margin = int(usable_for_rows) % row_height if usable_for_rows > 0 else 0
+        usable_for_rows = natural_page_size - chrome
+        new_margin = int(usable_for_rows) % row_height if usable_for_rows > 0 else 0
         if new_margin != current_margin:
             self._scrolled.set_margin_bottom(new_margin)
 
