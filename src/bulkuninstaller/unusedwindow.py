@@ -360,7 +360,7 @@ class UnusedAppsWindow(Adw.Window):
         self._toasts = []  # en eski once: [{"revealer","timeout_id","callback"}, ...]
         # pw-row-bg-fill: bu kutunun kendi arkaplani stilsizdi (duz
         # pencere rengi/varsayilan), pill'lerin kendi CSS margin'i
-        # (bkz. .pw-toast, "margin: 4px 12px") disinda kalan kucuk
+        # (bkz. .pw-toast) disinda kalan kucuk
         # seritlerde bu duz renk gorunuyordu - tam da listenin son
         # satirinin ayirici cizgisinin bitip bildirim alaninin basladigi
         # sinirda, ekran goruntusu + piksel olcumuyle dogrulandi (satir
@@ -386,8 +386,13 @@ class UnusedAppsWindow(Adw.Window):
                UZERINDE degil. Boylece 0 bildirim varken kutunun 0 cocugu
                = 0 gorunur yukseklik + 0 margin (bos alan kalmiyor); her
                bildirim VARKEN kendi boslugunu kendi tasiyor.
+               Ust bosluk (listenin bitisiyle ilk bildirim arasi) bilerek
+               ALTTAN daha kucuk - kullanici ekran goruntusuyle "bildirim
+               biraz daha yukari gelsin" dedi (ustteki uzun bos dikdortgen
+               bug'iyla ilgisi yok, o ayri ve zaten cozuldu - bu sadece
+               pill'in kendi ince kenar boslugu).
             */
-            margin: 4px 12px;
+            margin: 2px 12px 4px;
         }
         /* libadwaita bu satira farkli bir kart rengi, yuvarlak kose ve
            ince bir kenarlik veriyor (acilan bir alt-kart gibi ayirt
@@ -803,8 +808,21 @@ class UnusedAppsWindow(Adw.Window):
         if value < row_height:
             if current_margin != 0:
                 self._scrolled.set_margin_bottom(0)
-            if value != leftover:
-                vadjustment.set_value(leftover)
+            # DUZELTME (canli olcumle bulunan bug): buraya "leftover"
+            # DEGIL, onun row_height'e tamamlayani yazilmali. "leftover"
+            # margin icin dogru degerdi (margin sayfa boyutunu KUCULTUR,
+            # bu yuzden margin=leftover alt kenari geriye ceker) - ama
+            # deger burada TERSINE calisiyor: value'yu ARTIRMAK alt
+            # kenari (value+page_size) ILERI iter. deger+page_size-chrome
+            # ifadesinin row_height'e bolumden kalansiz cikmasi icin
+            # deger = (row_height - leftover) % row_height olmali. Bunu
+            # atlayip dogrudan "leftover" yazmak, alt kenarin bir satirin
+            # ORTASINDA bitmesine yol aciyordu (canli olcumle dogrulandi:
+            # bir satirin sadece 7/55 pikseli gorunur kaliyordu) - tam da
+            # geri getirmemem istenen kirpilma bug'i, farkli bir sekilde.
+            target_value = (row_height - leftover) % row_height
+            if value != target_value:
+                vadjustment.set_value(target_value)
             return
         # Gercekten ORTA bir konuma kaydirilmissa (kullanici o an aktif
         # olarak listeyi geziyor) kaydirma degerini degistirmek onun
