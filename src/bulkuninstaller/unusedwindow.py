@@ -755,11 +755,9 @@ class UnusedAppsWindow(Adw.Window):
             if abs(vadjustment.get_value() - new_value) > 0.5:
                 vadjustment.set_value(new_value)
             return
-        # Kullanici en altta DEGILSE (listenin ustlerinde bir yeri
-        # goruntuluyor - ör. pencere daha yeni acildi, value=0) asagidaki
-        # eski mantik gecerliligini koruyor: gorunur alanin alt kenarini
-        # GERCEK satir yuksekligine yuvarlayarak iki satir arasindaki dogal
-        # sinira getiriyoruz, hangi satir "en sonda" kalirsa kalsin YARIM
+        # Kullanici en altta DEGILSE, gorunur alanin alt kenarini GERCEK
+        # satir yuksekligine yuvarlayarak iki satir arasindaki dogal
+        # sinira getiriyoruz - hangi satir "en sonda" kalirsa kalsin YARIM
         # gorunmesin.
         row = self._list_box.get_row_at_index(0)
         row_height = row.get_allocated_height() if row is not None else 0
@@ -780,7 +778,39 @@ class UnusedAppsWindow(Adw.Window):
         if self._hint_banner.get_visible():
             chrome += self._hint_banner.get_allocated_height() + spacing
         usable_for_rows = natural_page_size - chrome
-        new_margin = int(usable_for_rows) % row_height if usable_for_rows > 0 else 0
+        leftover = int(usable_for_rows) % row_height if usable_for_rows > 0 else 0
+        value = vadjustment.get_value()
+        # EN USTE YAKINSA (value < row_height - pencere yeni acilmis,
+        # kullanici henuz hic kaydirmamis, YA DA az once BURADAN bir
+        # kaydirma-duzeltmesi uyguladik; ekran goruntuleriyle DOGRULANDI:
+        # "Yok Sayilanlar"a bir program eklendiginde bildirimin USTUNDE
+        # goze batan, uzun bir bos dikdortgen kendini tekrar tekrar
+        # gosteriyordu, cunku pencere HER acildiginda deger 0'da
+        # basliyor) margin YERINE kaydirma DEGERINI leftover'a esitliyoruz:
+        # viewport kendi DOGAL (kucultulmemis) boyutunda kaliyor, hicbir
+        # yerde bos bir "margin seridi" olusmuyor - sadece en ustteki
+        # ayar satirlarinin (chrome) bir kac pikselik UST kismi ekran
+        # disina kayiyor, bu da bildirimin hemen yaninda beliren buyuk bos
+        # alandan kat kat az goze batiyor. Kirpilma korumasi aynen
+        # korunuyor: alt kenar hala tam bir satir sinirinda bitiyor -
+        # sadece bunu "viewport'u kucultmek" yerine "biraz daha asagi
+        # kaydirmak" ile sagliyoruz. Esik deger sabit kucuk bir epsilon
+        # DEGIL, row_height - kendi onceki duzeltmemiz value'yu en fazla
+        # row_height-1 kadar ileri itmis olabilir, bir SONRAKI cagrida da
+        # bunu hala "ustte" olarak tanimamiz gerekiyor (yoksa deger
+        # degisince asagidaki "orta konum" koluna dusup margin'e geri
+        # donerdik).
+        if value < row_height:
+            if current_margin != 0:
+                self._scrolled.set_margin_bottom(0)
+            if value != leftover:
+                vadjustment.set_value(leftover)
+            return
+        # Gercekten ORTA bir konuma kaydirilmissa (kullanici o an aktif
+        # olarak listeyi geziyor) kaydirma degerini degistirmek onun
+        # konumunu "kaçirmak" olurdu - bu nadir durumda eski margin
+        # mantigi degismeden kaliyor.
+        new_margin = leftover
         if new_margin != current_margin:
             self._scrolled.set_margin_bottom(new_margin)
 
