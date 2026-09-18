@@ -57,7 +57,20 @@ DEFAULTS = {
     "ignored_unused_programs": {},
 }
 
+# Bu surecin BASINDA (herhangi bir get()/set() cagrisindan once, modul
+# import edilirken) settings.json dosyasi hic yoktuysa True - "PackWarden'i
+# varsayilan olarak Yok Sayilanlar'a ekle" gibi SADECE taze bir kurulumda
+# yapilmasi gereken tek seferlik ayarlar icin (bkz. application.py). Modul
+# import ediliyorken hesaplaniyor ki set() ile dosyanin GERCEKTEN ilk kez
+# olusturulmasindan (bu da ilk get()/set() cagrisiyla olur) ONCE, guvenilir
+# sekilde yakalansin.
+_IS_FIRST_RUN = not os.path.isfile(CONFIG_PATH)
+
 _cache: dict | None = None
+
+
+def is_first_run() -> bool:
+    return _IS_FIRST_RUN
 
 
 def _load() -> dict:
