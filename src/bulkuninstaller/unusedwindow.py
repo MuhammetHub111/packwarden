@@ -690,6 +690,24 @@ class UnusedAppsWindow(Adw.Window):
         upper = vadjustment.get_upper()
         value = vadjustment.get_value()
         self._pinned_to_bottom = value >= upper - page_size - 2
+        # ARALIKLI (intermittent) bug'in gercek kaynagi (canli stres
+        # testiyle bulundu): kullanici kaydirma cubugunu/fare tekerini
+        # kullanip listeyi elle en alta kaydirdiginda SADECE bu sinyal
+        # ateşlenir - "upper"/"page-size" DEGISMEZ (icerik/bildirim sayisi
+        # ayni kalir), o yuzden _on_scroll_area_changed hic tetiklenmez ve
+        # _snap_scrolled_bottom hic CAGRILMAZ. Kullanici en alta kaydirmadan
+        # ONCE (ör. listeyi ustten goruntulerken) hesaplanmis eski bir
+        # margin varsa, bu deger duzeltilmeden KALICI olarak asili kaliyor
+        # - ta ki BASKA bir sebeple (ör. yeni bir yoksayma) upper/page-size
+        # tekrar degisene kadar. Iste bu yuzden sorun "aralikli" gorunuyordu:
+        # kullanici en alta kaydirip HEMEN ekran goruntusu alirsa (araya
+        # baska bir islem girmeden) bosluk hala oradaydi; birkac yoksayma
+        # daha yaparsa o islemler "yan etki" olarak duzeltiyordu. Duzeltme:
+        # simdi en alta sabitlenmis oldugumuzu ANLADIGIMIZ (ya da hala
+        # oyle oldugunu dogruladigimiz) HER an, asili kalan margin'i hemen
+        # sifirla - baska bir tetikleyici beklemeye gerek yok.
+        if self._pinned_to_bottom and self._scrolled.get_margin_bottom() != 0:
+            self._scrolled.set_margin_bottom(0)
 
     def _snap_scrolled_bottom(self):
         vadjustment = self._scrolled.get_vadjustment()
