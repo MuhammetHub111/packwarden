@@ -719,9 +719,23 @@ class UnusedAppsWindow(Adw.Window):
         if self._hint_banner.get_visible():
             chrome += self._hint_banner.get_allocated_height() + spacing
         current_margin = self._scrolled.get_margin_bottom()
-        natural_page_size = self._scrolled.get_vadjustment().get_page_size() + current_margin
-        usable_for_rows = natural_page_size - chrome
-        new_margin = int(usable_for_rows) % row_height if usable_for_rows > 0 else 0
+        vadjustment = self._scrolled.get_vadjustment()
+        natural_page_size = vadjustment.get_page_size() + current_margin
+        # Icerik (ayar satirlari + liste + bos-durum sayfasi) kaydirma
+        # gerektirmeden viewport'a ZATEN sigiyorsa (upper <= natural
+        # page_size, "yoksayilanlar" acilir paneli az sayida ogeyle kisa
+        # bir liste birakinca canli testte GORULDU) kirpilma riski hic
+        # yok - son satirin altinda dogal olarak kalan bosluk zaten
+        # gorunur ve zararsiz. Bu durumda modulo'ya gore margin hesaplamak
+        # o dogal boslugun USTUNE bir de margin ekleyip bildirimlerin
+        # ustunde gereksiz, cift kalinlikta bir "bosluk" olusturuyordu
+        # (kullanici ekran goruntusuyle gosterdi) - margin'i 0'a
+        # cekiyoruz, cunku hic gerek yok.
+        if vadjustment.get_upper() <= natural_page_size:
+            new_margin = 0
+        else:
+            usable_for_rows = natural_page_size - chrome
+            new_margin = int(usable_for_rows) % row_height if usable_for_rows > 0 else 0
         if new_margin != current_margin:
             self._scrolled.set_margin_bottom(new_margin)
 
