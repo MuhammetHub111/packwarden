@@ -30,6 +30,7 @@ import time
 from . import host
 from .appicons import APP_DIRS
 from .backends.base import Package
+from .backends.wine import exec_basename as _wine_exec_basename
 
 USAGE_PATH = os.path.expanduser("~/.config/bulkuninstaller/usage.json")
 
@@ -295,6 +296,16 @@ def scan_and_record(packages: list, launcher_map: dict) -> None:
             needle = pkg.id if pkg.source == "appimage" else pkg.install_path
             if pkg.source == "snap":
                 needle = f"/snap/{pkg.id}/"
+        elif pkg.source == "wine":
+            # launch_argv() ile AYNI .exe çözümlemesi (bkz. backends/wine.py:
+            # _resolve_exe) — needle her zaman o Wine paketinin SPESİFİK
+            # hedef .exe'si, bu yüzden wineserver/winedevice.exe gibi
+            # prefix'e ait paylaşılan süreçlerle asla eşleşmez. Proton/Steam
+            # prefix'leri _prefixes()'in tarama kapsamına hiç girmediği için
+            # (~/.wine ve $WINEPREFIX dışında hiçbir yeri taramıyor) burada
+            # ayrıca bir dışlama gerekmiyor — Steam oyunları zaten yukarıda
+            # SteamAppId ile ayrıca ele alınıyor.
+            needle = _wine_exec_basename(pkg.id)
         else:
             needle = _exec_base_for(pkg, launcher_map)
 
@@ -343,6 +354,8 @@ def _needle_for(pkg: Package, launcher_map: dict) -> str | None:
         return f"/snap/{pkg.id}/"
     if pkg.source in ("heroic-epic", "heroic-amazon", "heroic-gog", "lutris"):
         return pkg.install_path
+    if pkg.source == "wine":
+        return _wine_exec_basename(pkg.id)
     return _exec_base_for(pkg, launcher_map)
 
 

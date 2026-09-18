@@ -29,6 +29,9 @@ DEFAULTS = {
     # Ana liste sütunlarının kullanıcının belirlediği sırası
     "column_order": [],
 
+    # Başlığa sağ tıklayıp kapatılan sütunların kimlikleri
+    "hidden_columns": [],
+
     # Kullanılmayan uygulamalar penceresindeki eşik:
     # 0=3 ay, 1=6 ay, 2=1 yıl, 3=özel
     "unused_threshold_preset": 1,
@@ -46,9 +49,28 @@ DEFAULTS = {
     # arkaplanda systemd --user servisi çalıştır. Varsayılan kapalı —
     # yalnızca kullanıcı Ayarlar'dan bilerek açarsa etkinleşir.
     "background_usage_detection": False,
+
+    # Kullanıcının Kullanılmayan Programlar listesinden bilerek çıkardığı
+    # paketler: {"kaynak:kimlik": "görünen ad"}. Ne kadar kullanılmasa da
+    # bir daha bu listede gösterilmez, kullanıcı yönetim panelinden geri
+    # alana kadar. Varsayılan boş — hiçbir şey hariç tutulmaz.
+    "ignored_unused_programs": {},
 }
 
+# Bu surecin BASINDA (herhangi bir get()/set() cagrisindan once, modul
+# import edilirken) settings.json dosyasi hic yoktuysa True - "PackWarden'i
+# varsayilan olarak Yok Sayilanlar'a ekle" gibi SADECE taze bir kurulumda
+# yapilmasi gereken tek seferlik ayarlar icin (bkz. application.py). Modul
+# import ediliyorken hesaplaniyor ki set() ile dosyanin GERCEKTEN ilk kez
+# olusturulmasindan (bu da ilk get()/set() cagrisiyla olur) ONCE, guvenilir
+# sekilde yakalansin.
+_IS_FIRST_RUN = not os.path.isfile(CONFIG_PATH)
+
 _cache: dict | None = None
+
+
+def is_first_run() -> bool:
+    return _IS_FIRST_RUN
 
 
 def _load() -> dict:

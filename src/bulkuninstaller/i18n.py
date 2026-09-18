@@ -10,6 +10,9 @@ import os
 TR = {
     "Search packages…": "Paket ara…",
     "Refresh package list": "Paket listesini yenile",
+    "File": "Dosya",
+    "Tools": "Araçlar",
+    "Help": "Yardım",
     "About PackWarden": "PackWarden Hakkında",
     "Quit": "Çık",
     "All sources": "Tüm kaynaklar",
@@ -22,13 +25,20 @@ TR = {
     "{count} selected": "{count} seçildi",
     "Selection mode (Esc to finish)": "Seçim modu (bitirmek için Esc)",
     "Uninstall {count} selected…": "Seçilen {count} uygulamayı kaldır…",
-    "Uninstall {count} packages?": "{count} paket kaldırılsın mı?",
     "Cancel": "Vazgeç",
-    "Uninstall": "Kaldır",
     "Some packages could not be removed": "Bazı paketler kaldırılamadı",
+    "No further details": "Başka ayrıntı yok",
+    "Installed apps were affected": "Kurulu uygulamalar etkilendi",
+    "Cleaning up unused Flatpak data also removed these "
+    "installed apps as a side effect. You may want to "
+    "reinstall them:":
+        "Kullanılmayan Flatpak verilerini temizlemek, yan etki olarak şu "
+        "kurulu uygulamaları da kaldırdı. Yeniden kurmak isteyebilirsin:",
     "OK": "Tamam",
     "Authorization was cancelled": "Yetkilendirme iptal edildi",
     "Uninstalled {count} packages": "{count} paket kaldırıldı",
+    "Closed {count} running app(s) before removal":
+        "Kaldırmadan önce {count} çalışan uygulama kapatıldı",
     "Backup failed — nothing was removed":
         "Yedek oluşturulamadı — hiçbir şey kaldırılmadı",
     "Backup saved: {path}": "Yedek kaydedildi: {path}",
@@ -57,6 +67,28 @@ TR = {
         "gelmeyebilir veya internet bağlantın kopabilir. Yalnızca ne "
         "yaptığından kesinlikle eminsen devam et.",
     "Remove anyway (I accept the risk)": "Yine de kaldır (riski kabul ediyorum)",
+    "Privacy": "Gizlilik",
+    "Off by default. Fully local, no network access. Only a "
+    "package id and a timestamp are stored, never process "
+    "names or window titles.":
+        "Varsayılan olarak kapalıdır. Her şey bu cihazda kalır, ağa erişim "
+        "olmaz, süreç adı ya da pencere başlığı saklanmaz, yalnızca bir "
+        "paket kimliği ve zaman damgası tutulur.",
+    "Detect app usage in the background":
+        "Arkaplanda uygulama kullanımını algıla",
+    "Without this, app usage isn't updated while PackWarden is closed, "
+    "so the Unused Programs list can be inaccurate":
+        "Bu kapalıyken, PackWarden kapalı olduğu sürece uygulama "
+        "kullanımı güncellenmez, bu da Kullanılmayan Programlar "
+        "listesinin yanlış sonuçlar vermesine yol açabilir",
+    "Enable background detection for more accurate results":
+        "Daha doğru sonuçlar için Ayarlar'dan arka plan algılamayı aç",
+    "Open Settings": "Ayarları Aç",
+    "Could not change this setting": "Bu ayar değiştirilemedi",
+    "Service unit not found — run install.sh to install PackWarden "
+    "properly before enabling this.":
+        "Servis birimi bulunamadı — bunu etkinleştirmeden önce "
+        "PackWarden'ı install.sh ile düzgün kurman gerekiyor.",
     "Language": "Dil",
     "Interface language": "Arayüz dili",
     "Automatic (system)": "Otomatik (sistem)",
@@ -99,6 +131,7 @@ TR = {
     "Launching {name}…": "{name} başlatılıyor…",
     "Launching {count} apps…": "{count} uygulama başlatılıyor…",
     "Could not launch {name}": "{name} başlatılamadı",
+    "Could not launch {name}: {detail}": "{name} başlatılamadı: {detail}",
     "Could not launch selected apps": "Seçilen uygulamalar başlatılamadı",
     "Create desktop shortcut": "Masaüstü kısayolu oluştur",
     "Desktop shortcut created for {name}": "{name} için masaüstü kısayolu oluşturuldu",
@@ -112,10 +145,7 @@ TR = {
     "Could not create shortcuts for selected apps":
         "Seçilen uygulamalar için kısayol oluşturulamadı",
     "Copied: {text}": "Kopyalandı: {text}",
-    "Sort by name": "Ada göre sırala",
-    "Sort by size": "Boyuta göre sırala",
     "No action taken": "Hiçbir işlem yapılmadı",
-    "Deleted {count} leftover items": "{count} kalıntı silindi",
     "Delete leftovers of {name}?": "{name} kalıntıları silinsin mi?",
     "Total: {size}": "Toplam: {size}",
     "Delete": "Sil",
@@ -131,6 +161,7 @@ TR = {
     "Reason": "Neden",
     "Required by": "Bağımlı",
     "License": "Lisans",
+    "Closed Source": "Kapalı Kaynak",
     "Category": "Kategori",
     "Explicit": "Elle kuruldu",
     "Dependency": "Bağımlılık",
@@ -148,10 +179,20 @@ TR = {
     "System": "Sistem",
     "Utility": "Araç",
     "Description": "Açıklama",
+    "Bulk application manager (this app)": "Toplu uygulama kaldırıcı (bu uygulama)",
     "Cache": "Önbellek",
     "App data": "Uygulama verileri",
     "State logs": "Durum kayıtları",
     "Flatpak data": "Flatpak verileri",
+    "Installer file": "Kurulum dosyası",
+    "Desktop shortcut": "Masaüstü kısayolu",
+    "Registry entry": "Kayıt Defteri girdisi",
+    "Android SDK": "Android SDK",
+    "Filtering": "Filtreleme",
+    "Clear All Filters": "Tümünü Temizle",
+    "Select All": "Tümünü Seç",
+    "Apply": "Uygula",
+    "{letter} ({count} items)": "{letter} ({count} öğe)",
     "Updates": "Güncellemeler",
     "You are running the latest version.": "En güncel sürümü kullanıyorsun.",
     "Running version": "Çalışan sürüm",
@@ -178,24 +219,35 @@ TR = {
     "Update cancelled.": "Güncelleme iptal edildi.",
     "Update failed: {error}": "Güncelleme başarısız: {error}",
     "Error: archive is empty.": "Hata: arşiv boş çıktı.",
-    "Unused apps": "Kullanılmayan uygulamalar",
+    "Unused programs": "Kullanılmayan programlar",
     "Not used for": "Şu süredir kullanılmayanlar",
     "3 months": "3 ay",
     "6 months": "6 ay",
     "1 year": "1 yıl",
     "Custom": "Özel",
     "Custom (days)": "Özel (gün)",
-    "Scanning applications…": "Uygulamalar taranıyor…",
-    "No unused applications found": "Kullanılmayan uygulama bulunamadı",
-    "Every scanned app was used within the threshold":
-        "Taranan tüm uygulamalar seçilen süre içinde kullanılmış",
+    "Scanning programs…": "Programlar taranıyor…",
+    "No unused programs found": "Kullanılmayan program bulunamadı",
+    "Every scanned program was used within the threshold":
+        "Taranan tüm programlar seçilen süre içinde kullanılmış",
+    "Don't show again": "Bir daha gösterme",
+    "Ignored ({count})": "Yoksayılanlar ({count})",
+    "Show again": "Tekrar göster",
+    "{name} won't be shown in the Unused programs list again":
+        "{name} artık Kullanılmayan programlar listesinde gösterilmeyecek",
+    "{name} will be shown in the Unused programs list again":
+        "{name} tekrar Kullanılmayan programlar listesinde gösterilecek",
+    "Undo": "Geri al",
     "No packages match": "Eşleşen paket yok",
     "Try a different search or source filter":
         "Farklı bir arama veya kaynak filtresi deneyin",
     "Unknown": "Bilinmiyor",
     "approximate": "yaklaşık",
+    "{days} day ago": "{days} gün önce",
     "{days} days ago": "{days} gün önce",
+    "{months} month ago": "{months} ay önce",
     "{months} months ago": "{months} ay önce",
+    "{years} year ago": "{years} yıl önce",
     "{years} years ago": "{years} yıl önce",
     "Uninstall selected…": "Seçilenleri kaldır…",
     "Disk map": "Disk haritası",

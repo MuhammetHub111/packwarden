@@ -7,6 +7,7 @@ Vazgeç / Yedeksiz Kaldır / Yedekle ve Kaldır.
 """
 
 import os
+import re
 import threading
 
 from gi.repository import Adw, Gio, GLib, Gtk
@@ -17,6 +18,52 @@ from .backup import create_backup
 from .i18n import _
 from .leftovers import find_package_leftovers, remove_leftovers
 from .protected import is_protected
+
+# Wine'ın HER çağrısında çıkan rutin teşhis satırları ("0088:fixme:...",
+# "00fc:err:module:import_dll ..."e) - başarısızlığın gerçek NEDENİYLE
+# ilgisi yok, her zaman aynı şekilde basılıyor (canlı doğrulandı: hem
+# başarılı hem başarısız kaldırmalarda aynı satırlar çıkıyor). Hata
+# özetinde bunları gösterip asıl anlamlı satırı gürültüye boğmamak için
+# eleniyor.
+_WINE_NOISE_RE = re.compile(r"^[0-9a-f]+:(fixme|err):", re.IGNORECASE)
+
+
+def _installed_flatpak_ids() -> set:
+    try:
+        proc = host.run(
+            ["flatpak", "list", "--app", "--columns=application"], timeout=15
+        )
+        return {line.strip() for line in proc.stdout.splitlines() if line.strip()}
+    except Exception:
+        return set()
+
+
+def _clean_unused_flatpak_data() -> None:
+    """Kaldırılan Flatpak paketlerinin arkasında kalan paylaşımlı, artık
+    yetim runtime'ları ve OSTree depo nesnelerini temizler (Bazaar'ın
+    "Trash Data" dediği şey — bkz. 7050a23, 96dc5ee, e4c0366). Daha önce
+    ayrı bir Araçlar menü öğesiydi, kafa karıştırdığı için kaldırılıp
+    kaldırma akışının içine gömülmesi planlanmıştı: bir paket kaldırılırken
+    Flatpak kaynaklıysa bu adım otomatik ve sessizce çalışır, ayrı bir
+    onay istemez — çağıran taraf (worker) before/after kurulu-uygulama
+    listesini kıyaslayıp yan etki olursa kullanıcıyı ayrıca uyarır."""
+    try:
+        host.run(["flatpak", "uninstall", "--unused", "-y"], timeout=120)
+    except Exception:
+        pass
+    try:
+        import gi
+        gi.require_version("Flatpak", "1.0")
+        from gi.repository import Flatpak
+        for make_installation in (
+            Flatpak.Installation.new_system, Flatpak.Installation.new_user,
+        ):
+            try:
+                make_installation().prune_local_repo()
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 
 def _installed_flatpak_ids() -> set:
@@ -86,6 +133,7 @@ class RemovalWindow(Adw.Window):
 
         # Üst bölüm: kaldırılacak paketler (her zaman görünür)
         total = sum(pkg.size for pkg in self._pkgs)
+        self._pkg_total_size = total
         pkg_expander = Adw.ExpanderRow(
             title=_("Packages to remove"),
             subtitle=_("{count} packages • {size}").format(
@@ -104,7 +152,9 @@ class RemovalWindow(Adw.Window):
                 warn.add_css_class("warning")
                 row.add_prefix(warn)
             size_label = Gtk.Label(
-                label=format_size(pkg.size),
+                # format_size(0) boş dize döner (bilinmeyen boyut - ör.
+                # Wine Mono Runtime) - boş bırakınca bozuk görünüyordu.
+                label=format_size(pkg.size) or "—",
                 css_classes=["numeric", "dim-label"],
                 valign=Gtk.Align.CENTER,
             )
@@ -178,10 +228,11 @@ class RemovalWindow(Adw.Window):
 
         for category, items in groups:
             cat_size = sum(item.size for item in items)
-            expander = Adw.ExpanderRow(
-                title=_(category),
-                subtitle=f"{len(items)} • {format_size(cat_size) or '0'}",
-            )
+            size_text = format_size(cat_size)
+            # Registry girdisi gibi anlamli bir bayt boyutu olmayan
+            # kalintilarda "0" gostermek yerine sayimi tek basina birak.
+            subtitle = f"{len(items)} • {size_text}" if size_text else str(len(items))
+            expander = Adw.ExpanderRow(title=_(category), subtitle=subtitle)
             expander.set_expanded(True)
             for item in items:
                 check = Gtk.CheckButton(valign=Gtk.Align.CENTER, active=True)
@@ -193,7 +244,11 @@ class RemovalWindow(Adw.Window):
                 )
                 row.add_prefix(check)
                 size_label = Gtk.Label(
-                    label=format_size(item.size),
+                    # format_size(0) boş dize döner (ör. "Registry entry"
+                    # kalıntısı - gerçek bir bayt boyutu yok) - diğer
+                    # kalıntı satırları gerçek boyut gösterirken bu satır
+                    # tamamen boş kalıp bozuk görünüyordu.
+                    label=format_size(item.size) or "—",
                     css_classes=["numeric", "dim-label"],
                     valign=Gtk.Align.CENTER,
                 )
@@ -220,15 +275,20 @@ class RemovalWindow(Adw.Window):
 
     def _update_selection(self):
         selected = self._selected_leftovers()
-        if selected:
-            total = sum(item.size for item in selected)
-            self._selection_label.set_label(
-                _("{count} selected • {size}").format(
-                    count=len(selected), size=format_size(total) or "0"
-                )
+        # Ana paket(ler) kalıntı seçiminden bağımsız olarak zaten
+        # kaldırılıyor - toplam buna da dahil edilmezse "gerçekte ne
+        # kadar yer boşalacak" eksik/yanıltıcı gösteriliyordu (canlı
+        # bildirildi: hiç kalıntı seçili değilken toplamda paketin
+        # kendisi hiç yoktu).
+        grand_total = self._pkg_total_size + sum(item.size for item in selected)
+        size_text = format_size(grand_total)
+        if size_text:
+            label = _("{count} selected • {size}").format(
+                count=len(selected), size=size_text
             )
         else:
-            self._selection_label.set_label("")
+            label = _("{count} selected").format(count=len(selected))
+        self._selection_label.set_label(label)
 
     # ---------------- Kaldırma ----------------
 
@@ -332,7 +392,11 @@ class RemovalWindow(Adw.Window):
                 if result.cancelled:
                     cancelled = True
                 elif not result.ok:
-                    tail = "\n".join(result.output.strip().splitlines()[-8:])
+                    lines = [
+                        line for line in result.output.strip().splitlines()
+                        if not _WINE_NOISE_RE.match(line.strip())
+                    ]
+                    tail = "\n".join(lines[-8:]) if lines else _("No further details")
                     errors.append(f"{backend.display_name}:\n{tail}")
 
             leftover_errors = []

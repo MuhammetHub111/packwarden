@@ -2,6 +2,7 @@ import os
 
 from .. import host
 from ._flathub_metadata import developers_for
+from ._github_license import licenses_for
 from .base import Backend, Package, parse_human_size
 
 _INSTALL_ROOTS = (
@@ -64,8 +65,44 @@ class FlatpakBackend(Backend):
                 origin=parts[5] if len(parts) > 5 else "",
                 install_date=self._install_date(app_id),
                 install_path=self._install_path(app_id),
+                license=self._license(app_id),
             ))
+
+        # İkinci kademe: flatpak info'da lisans yoksa (mağaza yayıncısı
+        # hiç doldurmamışsa) ve kimlik GitHub'ı işaret ediyorsa
+        # (io.github.<kullanıcı>.<proje>), GitHub'ın kendi tespit ettiği
+        # lisansı dene. Kimlik GitHub'ı işaret etmiyorsa hiç sorgulanmaz
+        # (bkz. _github_license.py).
+        still_missing = [p.id for p in packages if not p.license]
+        if still_missing:
+            github_licenses = licenses_for(still_missing)
+            for pkg in packages:
+                if not pkg.license and pkg.id in github_licenses:
+                    pkg.license = github_licenses[pkg.id]
+
         return packages
+
+    @staticmethod
+    def _license(app_id: str) -> str:
+        """flatpak info'nun "License:" satırı.
+
+        Snap'in aksine (snap info paket başına ~300-500ms, mağazaya
+        gidiyor) flatpak info tamamen yerel — ölçüldü: ~15ms, ağ yok.
+        Bu yüzden Snap'teki gibi arka planda sonradan doldurmaya gerek
+        yok, doğrudan burada, liste yüklenirken senkron çağrılabiliyor."""
+        try:
+            proc = host.run(
+                ["env", "LC_ALL=C", "flatpak", "info", app_id], timeout=5
+            )
+        except Exception:
+            return ""
+        if proc.returncode != 0:
+            return ""
+        for line in proc.stdout.splitlines():
+            line = line.strip()
+            if line.startswith("License:"):
+                return line[len("License:"):].strip()
+        return ""
 
     @staticmethod
     def _install_path(app_id: str) -> str:

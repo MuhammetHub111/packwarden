@@ -2,18 +2,22 @@ import os
 import shutil
 import threading
 
-from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango
+from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk
 
-from . import host, prefs
-from .appicons import APP_DIRS, build_maps
-from .backends import available_backends, format_size
+from . import DEV_BUILD, host, prefs
+from .appicons import APP_DIRS, build_maps, resolve_exec_path
+from .backends import available_backends, format_install_date, format_size
 from .diskmap import DiskMapArea, build_legend, format_percent
 from .i18n import _
 from .leftovers import find_package_leftovers, remove_leftovers
+from .packagetable import Column, PackageTableArea
 from .removal import RemovalWindow
 from .unusedwindow import UnusedAppsWindow
 
-SORT_NAME, SORT_SIZE = 0, 1
+# _build_name_filter_panel'daki genişlik isteğiyle aynı tutulmalı — sütun
+# görünürlüğü popover'ı genişleyince yatay kaymayı iptal etmek için
+# kullanılıyor (bkz. _show_column_visibility_popover).
+_FILTER_PANEL_WIDTH = 190
 
 
 class PackageItem(GObject.Object):
@@ -31,57 +35,36 @@ class MainWindow(Adw.ApplicationWindow):
         super().__init__(**kwargs)
         self.set_title("PackWarden")
         self.set_default_size(920, 640)
+        self.maximize()
 
         self._backends = []
         self._items: list[PackageItem] = []
         self._icon_map: dict[str, str] = {}
         self._launcher_map: dict[str, str] = {}
+        self._category_map: dict[str, str] = {}
         self._apps_only = bool(prefs.get("apps_only"))
         self._context_item = None  # sağ tık yapılan satırın paketi
-        # Basılı tutunca açılan seçim modu: açıkken normal tıklamalar
-        # seçime ekler/çıkarır (telefondaki gibi). Liste bileşeninin
-        # yerleşik "tık = tek seçim" davranışı seçimi ezdiği için mod
-        # boyunca istenen seçim _mode_positions'ta tutulur ve her
-        # ezilmede yeniden uygulanır.
-        self._selection_mode = False
-        self._mode_positions: set[int] = set()
-        self._applying_selection = False
         self._setup_context_actions()
-        self._setup_css()
         self._search_text = ""
         # (backend_id | None, origin | None): (None, None) = tümü
         self._source_filter = (None, None)
         self._source_choices = [(None, None)]
-        self._sort_mode = SORT_NAME
+        # None = harf filtresi yok (hepsi görünür); aksi halde sadece bu
+        # baş harflerdeki paketler gösterilir (bkz. _section_letter).
+        self._name_letter_filter: set[str] | None = None
         self._busy = False
+        self._total_size = 1
 
         self._store = Gio.ListStore(item_type=PackageItem)
         self._filter = Gtk.CustomFilter.new(self._filter_func)
         self._filter_model = Gtk.FilterListModel(model=self._store, filter=self._filter)
-        self._sorter = Gtk.CustomSorter.new(self._sort_func)
-        self._sort_model = Gtk.SortListModel(model=self._filter_model, sorter=self._sorter)
 
         self._setup_icon_theme()
+        self._setup_css()
         self._build_ui()
         self.refresh()
 
     # ---------------- UI construction ----------------
-
-    def _setup_css(self):
-        css = b"""
-        .selection-pill {
-            background-color: @accent_bg_color;
-            border-radius: 99px;
-            min-width: 6px;
-            min-height: 28px;
-        }
-        """
-        provider = Gtk.CssProvider()
-        provider.load_from_data(css)
-        Gtk.StyleContext.add_provider_for_display(
-            self.get_display(), provider,
-            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
-        )
 
     def _setup_icon_theme(self):
         """Uygulama simgelerini bulmak için Flatpak dışa aktarma
@@ -93,6 +76,81 @@ class MainWindow(Adw.ApplicationWindow):
         ):
             if os.path.isdir(path):
                 self._icon_theme.add_search_path(path)
+
+    def _setup_css(self):
+        """GNOME/Adwaita'nın yuvarlatılmış pencere köşelerini ve
+        gölgeli/kenarsız başlık çubuğunu düzleştirir — geleneksel
+        masaüstü uygulaması görünümüne daha yakın, keskin köşeli bir
+        çerçeve."""
+        css = b"""
+        window.background {
+            border-radius: 0px;
+        }
+        headerbar {
+            border-radius: 0px;
+            box-shadow: none;
+            border-bottom: 1px solid alpha(currentColor, 0.15);
+        }
+        .pw-popover-close {
+            background-color: alpha(currentColor, 0.16);
+            transition: background-color 150ms ease, color 150ms ease;
+        }
+        .pw-popover-close:hover, .pw-popover-close:focus {
+            background-color: alpha(currentColor, 0.26);
+        }
+        .pw-popover-list, .pw-popover-list row {
+            background-color: transparent;
+            background-image: none;
+        }
+        .pw-popover-list row:hover {
+            background-color: alpha(currentColor, 0.08);
+        }
+        .pw-popover-header {
+            padding-top: 3px;
+            padding-bottom: 3px;
+        }
+        .pw-popover-header:hover {
+            background-color: alpha(currentColor, 0.08);
+        }
+        .pw-columns-popover {
+            background-color: @window_bg_color;
+            box-shadow: none;
+            margin: 0px;
+        }
+        .pw-columns-popover > contents {
+            padding: 0px;
+            background-color: @window_bg_color;
+        }
+        .pw-warning-banner {
+            background-color: #f6d32d;
+            color: rgba(0, 0, 0, 0.85);
+            border-radius: 12px;
+            padding: 0px 14px;
+        }
+        .pw-warning-banner image {
+            color: rgba(0, 0, 0, 0.85);
+        }
+        .pw-warning-btn {
+            background-color: transparent;
+            background-image: none;
+            color: rgba(0, 0, 0, 0.85);
+            box-shadow: none;
+            border: none;
+            border-radius: 8px;
+            text-decoration: underline;
+            font-weight: bold;
+            padding: 8px 14px;
+        }
+        .pw-warning-btn:hover, .pw-warning-btn:focus {
+            background-color: alpha(black, 0.1);
+        }
+        """
+        provider = Gtk.CssProvider()
+        provider.load_from_data(css)
+        Gtk.StyleContext.add_provider_for_display(
+            self.get_display(), provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+        )
 
     def _icon_name_for(self, pkg) -> str:
         """Paketin uygulama simgesini bul; yoksa genel paket simgesi.
@@ -126,14 +184,35 @@ class MainWindow(Adw.ApplicationWindow):
                     return name
         return "package-x-generic"
 
-    def _build_ui(self):
-        header = Adw.HeaderBar()
+    def _category_for(self, pkg) -> str:
+        # Oyun kaynaklarının .desktop dosyası olmayabilir (Steam/Lutris/
+        # Heroic'te kurulan oyunlar genelde menüye kayıtlı değildir) —
+        # kaynağın kendisi zaten kategoriyi kesin olarak veriyor.
+        if pkg.source.startswith(("steam", "lutris", "heroic-")):
+            return _("Game")
+        raw = self._category_map.get(pkg.id.lower()) or self._category_map.get(
+            pkg.name.lower()
+        )
+        return _(raw) if raw else ""
 
-        self._search_entry = Gtk.SearchEntry(placeholder_text=_("Search packages…"))
-        self._search_entry.set_hexpand(True)
+    def _build_ui(self):
+        # Ayrı, sade bir başlık çubuğu — GNOME'un arama/menü/düğmeleri
+        # pencere kontrolleriyle aynı satıra gömen "headerbar" tasarımı
+        # yerine, klasik masaüstü görünümü: başlık çubuğu sadece pencere
+        # kontrollerini taşır, uygulamanın kendi araçları aşağıda ayrı
+        # bir araç çubuğunda durur.
+        # AdwApplicationWindow düz Gtk.Window.set_titlebar()'ı
+        # desteklemiyor (doğrulandı: "gtk_window_set_titlebar() is not
+        # supported for AdwApplicationWindow") — libadwaita'nın kendi
+        # ToolbarView mekanizması üzerinden, ama SADE bir Gtk.HeaderBar
+        # (Adw.HeaderBar değil) üst çubuk olarak eklenir.
+        self._titlebar = Gtk.HeaderBar()
+        self._titlebar.set_title_widget(Gtk.Label(label="PackWarden"))
+
+        self._search_entry = Gtk.SearchEntry(
+            placeholder_text=_("Search packages…"), width_chars=28, hexpand=False,
+        )
         self._search_entry.connect("search-changed", self._on_search_changed)
-        clamp = Adw.Clamp(maximum_size=420, child=self._search_entry, hexpand=True)
-        header.set_title_widget(clamp)
 
         search_action = Gio.SimpleAction.new("search", None)
         search_action.connect("activate", lambda *_: self._search_entry.grab_focus())
@@ -143,36 +222,57 @@ class MainWindow(Adw.ApplicationWindow):
             icon_name="view-refresh-symbolic", tooltip_text=_("Refresh package list")
         )
         self._refresh_button.connect("clicked", lambda *_: self.refresh())
-        header.pack_start(self._refresh_button)
 
-        # Yenile düğmesinin yanında küçük uygulama logosu
+        # Araç çubuğunun solundaki küçük uygulama logosu
         logo_path = os.path.abspath(os.path.join(
             os.path.dirname(__file__), "..", "..",
             "data", "icons", "io.github.muhammethub111.PackWarden.svg",
         ))
+        logo = None
         if os.path.exists(logo_path):
             logo = Gtk.Image(pixel_size=24, valign=Gtk.Align.CENTER)
             logo.set_from_file(logo_path)
-            header.pack_start(logo)
 
-        menu = Gio.Menu()
-        menu.append(_("Unused programs"), "win.unused-apps")
-        menu.append(_("Settings"), "app.settings")
-        menu.append(_("About PackWarden"), "app.about")
-        menu.append(_("Quit"), "app.quit")
-        menu_button = Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu)
-        header.pack_end(menu_button)
+        # Hamburger menü yerine klasik, üst düzey açılır menü çubuğu
+        # (Dosya/Araçlar/Yardım) — Windows/eski masaüstü uygulamalarının
+        # alışılmış düzeni. "Yenile" burada da bir menü ögesi olsun diye
+        # ayrı bir eylem tanımlanıyor (araç çubuğundaki düğmeyle aynı işi yapar).
+        refresh_action = Gio.SimpleAction.new("refresh-list", None)
+        refresh_action.connect("activate", lambda *_: self.refresh())
+        self.add_action(refresh_action)
 
-        # Filter row under the header: source + sort dropdowns
+        file_menu = Gio.Menu()
+        file_menu.append(_("Refresh package list"), "win.refresh-list")
+        file_menu.append(_("Quit"), "app.quit")
+
+        tools_menu = Gio.Menu()
+        tools_menu.append(_("Unused programs"), "win.unused-apps")
+        tools_menu.append(_("Settings"), "app.settings")
+
+        help_menu = Gio.Menu()
+        help_menu.append(_("About PackWarden"), "app.about")
+
+        menu_bar_model = Gio.Menu()
+        menu_bar_model.append_submenu(_("File"), file_menu)
+        menu_bar_model.append_submenu(_("Tools"), tools_menu)
+        menu_bar_model.append_submenu(_("Help"), help_menu)
+        menu_bar = Gtk.PopoverMenuBar.new_from_model(menu_bar_model)
+
+        self._busy_spinner = Gtk.Spinner()
+
+        toolbar = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL, spacing=8,
+            margin_top=6, margin_bottom=6, margin_start=8, margin_end=8,
+        )
+        if logo is not None:
+            toolbar.append(logo)
+        toolbar.append(self._refresh_button)
+        toolbar.append(self._search_entry)
+        toolbar.append(self._busy_spinner)
+
+        # Filter row under the toolbar: source dropdown
         self._source_dropdown = Gtk.DropDown.new_from_strings([_("All sources")])
         self._source_dropdown.connect("notify::selected", self._on_source_changed)
-
-        self._sort_dropdown = Gtk.DropDown.new_from_strings(
-            [_("Sort by name"), _("Sort by size")]
-        )
-        self._sort_dropdown.connect("notify::selected", self._on_sort_changed)
-
-        self._count_label = Gtk.Label(css_classes=["dim-label"], hexpand=True, xalign=1)
 
         toggle_content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         toggle_content.append(Gtk.Image(icon_name="drive-harddisk-symbolic"))
@@ -181,10 +281,6 @@ class MainWindow(Adw.ApplicationWindow):
             child=toggle_content, tooltip_text=_("Disk map"),
         )
         self._diskmap_toggle.connect("toggled", self._on_diskmap_toggled)
-        # Kutuların üzerine gelince/tıklayınca ad+boyut+oranı burada
-        # göster — GTK'nin yerleşik tooltip'i kutular arası hızlı
-        # geçişte kararsız davranıyor, kalıcı bir etiket daha güvenilir
-        self._diskmap_hover_label = Gtk.Label(css_classes=["dim-label"])
 
         filter_bar = Gtk.Box(
             orientation=Gtk.Orientation.HORIZONTAL,
@@ -192,27 +288,119 @@ class MainWindow(Adw.ApplicationWindow):
             margin_top=8, margin_bottom=8, margin_start=12, margin_end=12,
         )
         filter_bar.append(self._source_dropdown)
-        filter_bar.append(self._sort_dropdown)
         filter_bar.append(self._diskmap_toggle)
-        filter_bar.append(self._count_label)
-        filter_bar.append(self._diskmap_hover_label)
 
-        # Package list
-        factory = Gtk.SignalListItemFactory()
-        factory.connect("setup", self._on_row_setup)
-        factory.connect("bind", self._on_row_bind)
-
-        # Çoklu seçim: tık = seç, Ctrl+tık = ekle, Shift+tık = aralık,
-        # sürükleme = kutuyla toplu seçim (rubber band)
-        self._selection = Gtk.MultiSelection(model=self._sort_model)
-        self._selection.connect("selection-changed", self._on_selection_changed)
-        self._list_view = Gtk.ListView(
-            model=self._selection,
-            enable_rubberband=True,
-            factory=factory,
-            css_classes=["rich-list"],
+        # Alt durum çubuğu (Windows Gezgini tarzı) — paket sayısı ve
+        # üzerine gelince ad/boyut/oran bilgisi eskiden filtre satırının
+        # sağında duruyordu, artık pencerenin en altında ayrı bir şerit.
+        self._count_label = Gtk.Label(css_classes=["dim-label"], hexpand=True, xalign=0)
+        # Kutuların üzerine gelince/tıklayınca ad+boyut+oranı burada
+        # göster — GTK'nin yerleşik tooltip'i kutular arası hızlı
+        # geçişte kararsız davranıyor, kalıcı bir etiket daha güvenilir
+        self._diskmap_hover_label = Gtk.Label(css_classes=["dim-label"], xalign=1)
+        status_bar = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL, spacing=12,
+            margin_top=4, margin_bottom=4, margin_start=12, margin_end=12,
         )
-        self._scrolled = Gtk.ScrolledWindow(child=self._list_view, vexpand=True)
+        status_bar.append(self._count_label)
+        status_bar.append(self._diskmap_hover_label)
+
+        # Paket listesi: tamamen özel çizilen bir tablo (PackageTableArea,
+        # bkz. packagetable.py) — Gtk.ColumnView'in yerini alıyor çünkü
+        # GTK'nin bu widget'ı bir sütun büyük ölçüde genişleyince
+        # başlıkla satır hücrelerinin senkronunu kaybediyor — kullanıcının
+        # istediği "her sütun tamamen bağımsız sürüklensin" davranışı
+        # zaten bu widget'la mümkün değildi. Yeni tablo, diskmap.py'deki
+        # DiskMapArea ile aynı deyimi izliyor: Cairo ile elle çizim, elle
+        # hit-test, düz Python callback'leri.
+        self._table = PackageTableArea()
+        self._table.on_hover = self._on_table_hover
+        self._table.on_context_menu = self._on_table_context_menu
+        self._table.on_selection_changed = self._update_count_label
+        self._table.on_columns_reordered = self._on_table_columns_reordered
+        self._table.on_header_context_menu = self._on_table_header_context_menu
+
+        self._table.add_column(Column(
+            id="name", title=_("Name"), width=320, min_width=4,
+            sort_key=lambda it: it.pkg.name.lower(),
+            section_key=lambda it: self._section_letter(it.pkg),
+            draw_content=self._draw_name_cell,
+        ))
+        self._table.add_column(Column(
+            id="version", title=_("Version"), width=130, min_width=4,
+            align="left", sort_key=lambda it: (it.pkg.version.lower(), it.pkg.name.lower()),
+            draw_content=self._draw_version_cell,
+        ))
+        self._table.add_column(Column(
+            id="size", title=_("Size"), width=100, min_width=4,
+            align="left", sort_key=lambda it: (it.pkg.size, it.pkg.name.lower()),
+            draw_content=self._draw_size_cell,
+        ))
+        self._table.add_column(Column(
+            id="percent", title=_("Percent"), width=90, min_width=4,
+            # Yüzde, boyutun sabit bir çarpanı olduğu için (pay/toplam)
+            # aynı sırayı verir — Boyut ile aynı sort_key'i paylaşıyor.
+            align="left", sort_key=lambda it: (it.pkg.size, it.pkg.name.lower()),
+            draw_content=self._draw_percent_cell,
+        ))
+        self._table.add_column(Column(
+            id="publisher", title=_("Publisher"), width=200, min_width=4,
+            align="left",
+            sort_key=lambda it: (it.pkg.publisher.lower(), it.pkg.name.lower()),
+            draw_content=self._draw_publisher_cell,
+        ))
+        self._table.add_column(Column(
+            id="install_date", title=_("Installed"), width=120, min_width=4,
+            align="left",
+            sort_key=lambda it: (it.pkg.install_date or 0, it.pkg.name.lower()),
+            draw_content=self._draw_install_date_cell,
+        ))
+        self._table.add_column(Column(
+            id="install_path", title=_("Location"), width=260, min_width=4,
+            align="left",
+            sort_key=lambda it: (it.pkg.install_path.lower(), it.pkg.name.lower()),
+            draw_content=self._draw_install_path_cell,
+        ))
+        self._table.add_column(Column(
+            id="install_reason", title=_("Reason"), width=130, min_width=4,
+            align="left",
+            sort_key=lambda it: (it.pkg.install_reason, it.pkg.name.lower()),
+            draw_content=self._draw_install_reason_cell,
+        ))
+        self._table.add_column(Column(
+            id="required_by", title=_("Required by"), width=110, min_width=4,
+            align="left",
+            sort_key=lambda it: (it.pkg.required_by if it.pkg.required_by is not None
+                                  else -1, it.pkg.name.lower()),
+            draw_content=self._draw_required_by_cell,
+        ))
+        self._table.add_column(Column(
+            id="license", title=_("License"), width=160, min_width=4,
+            align="left",
+            sort_key=lambda it: (it.pkg.license.lower(), it.pkg.name.lower()),
+            draw_content=self._draw_license_cell,
+        ))
+        self._table.add_column(Column(
+            id="category", title=_("Category"), width=130, min_width=4,
+            align="left",
+            sort_key=lambda it: (self._category_for(it.pkg).lower(), it.pkg.name.lower()),
+            draw_content=self._draw_category_cell,
+        ))
+
+        # Kullanıcı başlıkları sürükleyerek yeniden sıraladıysa (bkz.
+        # _on_table_columns_reordered) o sıra kalıcıdır — her açılışta
+        # sıfırlanması can sıkıcı olurdu, tıpkı bir dosya yöneticisinde
+        # sütun sırasının hatırlanması gibi.
+        saved_order = prefs.get("column_order")
+        if saved_order:
+            self._table.reorder_columns(saved_order)
+
+        # Kullanıcının başlığa sağ tıklayıp kapattığı sütunlar da kalıcı
+        # (bkz. _on_column_check_toggled) — sıralamayla aynı mantık.
+        for column_id in prefs.get("hidden_columns") or []:
+            self._table.set_column_visible(column_id, False)
+
+        self._scrolled = Gtk.ScrolledWindow(child=self._table, vexpand=True)
         scrolled = self._scrolled
 
         # Orta fare tuşuyla otomatik kaydırma (Windows usulü): basılı
@@ -235,31 +423,55 @@ class MainWindow(Adw.ApplicationWindow):
         spinner = Gtk.Spinner(spinning=True, width_request=32, height_request=32)
         self._loading_page.set_child(spinner)
 
+        self._list_empty_status = Adw.StatusPage(
+            icon_name="edit-find-symbolic",
+            title=_("No packages match"),
+            description=_("Try a different search or source filter"),
+            vexpand=True,
+            visible=False,
+        )
+        list_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        list_page.append(scrolled)
+        list_page.append(self._list_empty_status)
+
         self._stack = Gtk.Stack()
         self._stack.add_named(self._loading_page, "loading")
-        self._stack.add_named(scrolled, "list")
+        self._stack.add_named(list_page, "list")
 
         self._diskmap_area = DiskMapArea()
         self._diskmap_area.on_select = self._on_diskmap_select
         self._diskmap_area.on_context_menu = self._on_diskmap_context_menu
         self._diskmap_area.on_hover = self._on_diskmap_hover
         self._diskmap_legend = build_legend([])
+        self._diskmap_content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self._diskmap_content.append(self._diskmap_area)
+        self._diskmap_content.append(Gtk.Separator())
+        self._diskmap_content.append(self._diskmap_legend)
+
+        self._diskmap_empty_status = Adw.StatusPage(
+            icon_name="edit-find-symbolic",
+            title=_("No packages match"),
+            description=_("Try a different search or source filter"),
+            vexpand=True,
+            visible=False,
+        )
         self._diskmap_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        self._diskmap_page.append(self._diskmap_area)
-        self._diskmap_page.append(Gtk.Separator())
-        self._diskmap_page.append(self._diskmap_legend)
+        self._diskmap_page.append(self._diskmap_content)
+        self._diskmap_page.append(self._diskmap_empty_status)
         self._stack.add_named(self._diskmap_page, "diskmap")
 
-        self._busy_spinner = Gtk.Spinner()
-        header.pack_end(self._busy_spinner)
-
         content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        content_box.append(menu_bar)
+        content_box.append(toolbar)
+        content_box.append(Gtk.Separator())
         content_box.append(filter_bar)
         content_box.append(Gtk.Separator())
         content_box.append(self._stack)
+        content_box.append(Gtk.Separator())
+        content_box.append(status_bar)
 
         toolbar_view = Adw.ToolbarView(content=content_box)
-        toolbar_view.add_top_bar(header)
+        toolbar_view.add_top_bar(self._titlebar)
 
         self._toast_overlay = Adw.ToastOverlay(child=toolbar_view)
         self.set_content(self._toast_overlay)
@@ -269,8 +481,8 @@ class MainWindow(Adw.ApplicationWindow):
         self.add_controller(key_controller)
 
     def _on_key_pressed(self, _controller, keyval, _keycode, _state):
-        if keyval == Gdk.KEY_Escape and self._selection_mode:
-            self._exit_selection_mode()
+        if keyval == Gdk.KEY_Escape and self._table.is_selection_mode():
+            self._table.exit_selection_mode()
             return True
         if keyval == Gdk.KEY_F5:
             self.refresh()
@@ -307,109 +519,414 @@ class MainWindow(Adw.ApplicationWindow):
             )
         return GLib.SOURCE_CONTINUE
 
-    # ---------------- List rows ----------------
+    # ---------------- Tablo hücre çizimleri (PackageTableArea) ----------------
+    #
+    # Her metot Column.draw_content imzasıyla çağrılır:
+    # (table, cr, column, item, x, y, width, height, selected). Genel
+    # çizim yardımcıları (draw_text_cell, draw_icon_and_text_cell,
+    # draw_two_line_cell) packagetable.py'de tanımlı — burada sadece
+    # hangi paket alanının hangi yardımcıyla çizileceğine karar veriliyor.
 
-    def _on_row_setup(self, _factory, list_item):
-        # Seçim hapı: satır seçiliyken solda beliren oval gösterge
-        pill = Gtk.Box(css_classes=["selection-pill"], valign=Gtk.Align.CENTER)
-        pill.set_opacity(0)
-        list_item.connect(
-            "notify::selected",
-            lambda li, _p: pill.set_opacity(1 if li.get_selected() else 0),
+    def _draw_name_cell(self, table, cr, _col, item, x, y, w, h, selected):
+        pkg = item.pkg
+        table.draw_icon_and_text_cell(
+            cr, x, y, w, h, self._icon_name_for(pkg), pkg.name, selected=selected
         )
 
-        icon = Gtk.Image(pixel_size=32, valign=Gtk.Align.CENTER)
+    def _draw_version_cell(self, table, cr, col, item, x, y, w, h, _selected):
+        # Oyun arka uçları (Steam/Lutris/Heroic) sürüm bilgisi
+        # sunmuyor, version="" geliyor — boş bırakınca hücre kırık/boş
+        # görünüyordu, yer tutucu tire ile dolduruyoruz.
+        table.draw_text_cell(cr, x, y, w, h, item.pkg.version or "—",
+                              align=self._cell_align(table, col), dim=True)
 
-        name = Gtk.Label(xalign=0, css_classes=["heading"],
-                         ellipsize=Pango.EllipsizeMode.END)
-        desc = Gtk.Label(xalign=0, css_classes=["dim-label", "caption"],
-                         ellipsize=Pango.EllipsizeMode.END)
-        text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True)
-        text_box.append(name)
-        text_box.append(desc)
+    def _draw_size_cell(self, table, cr, col, item, x, y, w, h, _selected):
+        # format_size(0) boş dize döner (bilinmeyen boyut - ör. Wine
+        # Mono Runtime hiç EstimatedSize vermiyor) - diğer TÜM sütunlar
+        # (Sürüm, Yayıncı, Konum, Lisans, vb.) bu durumda "—" gösteriyor;
+        # Boyut sütunu tek başına boş hücre bırakıyordu, tutarsızdı.
+        table.draw_text_cell(cr, x, y, w, h, format_size(item.pkg.size) or "—",
+                              align=self._cell_align(table, col), dim=True)
 
-        source = Gtk.Label(css_classes=["caption", "accent"], xalign=1)
-        publisher = Gtk.Label(css_classes=["caption", "dim-label"], xalign=1,
-                              ellipsize=Pango.EllipsizeMode.END, max_width_chars=24)
-        badge_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
-                            valign=Gtk.Align.CENTER)
-        badge_box.append(source)
-        badge_box.append(publisher)
+    def _draw_source_cell(self, table, cr, col, item, x, y, w, h, _selected):
+        pkg = item.pkg
+        badge = f"{pkg.source} · {pkg.origin}" if pkg.origin else pkg.source
+        table.draw_two_line_cell(cr, x, y, w, h, badge, pkg.publisher,
+                                  align=self._cell_align(table, col))
 
-        size = Gtk.Label(css_classes=["numeric", "dim-label"],
-                         valign=Gtk.Align.CENTER, width_chars=9, xalign=1)
+    def _draw_percent_cell(self, table, cr, col, item, x, y, w, h, _selected):
+        percent = item.pkg.size / self._total_size * 100
+        table.draw_text_cell(cr, x, y, w, h, f"{format_percent(percent)}%",
+                              align=self._cell_align(table, col), dim=True)
 
-        row = Gtk.Box(
-            orientation=Gtk.Orientation.HORIZONTAL, spacing=12,
-            margin_top=6, margin_bottom=6, margin_start=12, margin_end=12,
+    def _draw_publisher_cell(self, table, cr, col, item, x, y, w, h, _selected):
+        table.draw_text_cell(cr, x, y, w, h, item.pkg.publisher or "—",
+                              align=self._cell_align(table, col), dim=True)
+
+    def _draw_install_date_cell(self, table, cr, col, item, x, y, w, h, _selected):
+        table.draw_text_cell(
+            cr, x, y, w, h, format_install_date(item.pkg.install_date) or "—",
+            align=self._cell_align(table, col), dim=True,
         )
-        row.append(pill)
-        row.append(icon)
-        row.append(text_box)
-        row.append(badge_box)
-        row.append(size)
 
-        gesture = Gtk.GestureClick(button=Gdk.BUTTON_SECONDARY)
-        gesture.connect("pressed", self._on_row_right_click, list_item)
-        row.add_controller(gesture)
+    def _draw_install_path_cell(self, table, cr, col, item, x, y, w, h, _selected):
+        table.draw_text_cell(cr, x, y, w, h, item.pkg.install_path or "—",
+                              align=self._cell_align(table, col), dim=True)
 
-        # Basılı tutma: seçim modunu başlatır (fare ve dokunmatik)
-        long_press = Gtk.GestureLongPress(touch_only=False)
-        long_press.connect("pressed", self._on_row_long_press, list_item)
-        row.add_controller(long_press)
+    _INSTALL_REASON_LABELS = {"explicit": _("Explicit"), "dependency": _("Dependency")}
 
-        # Seçim modu açıkken sol tık seçime ekler/çıkarır; kapalıyken
-        # bu denetleyici olaya karışmaz ve normal davranış sürer
-        toggle_click = Gtk.GestureClick(
-            button=Gdk.BUTTON_PRIMARY,
-            propagation_phase=Gtk.PropagationPhase.CAPTURE,
-        )
-        toggle_click.connect("pressed", self._on_row_toggle_click, list_item)
-        row.add_controller(toggle_click)
+    def _draw_install_reason_cell(self, table, cr, col, item, x, y, w, h, _selected):
+        text = self._INSTALL_REASON_LABELS.get(item.pkg.install_reason, "—")
+        table.draw_text_cell(cr, x, y, w, h, text,
+                              align=self._cell_align(table, col), dim=True)
 
-        # Disk haritasındaki gibi, tıklamadan sadece üzerine gelince
-        # paket sayısının yanında ad/boyut/oran göster
-        hover = Gtk.EventControllerMotion()
-        hover.connect("enter", self._on_row_hover_enter, list_item)
-        hover.connect("leave", self._on_row_hover_leave)
-        row.add_controller(hover)
+    def _draw_required_by_cell(self, table, cr, col, item, x, y, w, h, _selected):
+        count = item.pkg.required_by
+        text = str(count) if count is not None else "—"
+        table.draw_text_cell(cr, x, y, w, h, text,
+                              align=self._cell_align(table, col), dim=True)
 
-        list_item.set_child(row)
-        list_item.icon = icon
-        list_item.name_label = name
-        list_item.desc_label = desc
-        list_item.source_label = source
-        list_item.publisher_label = publisher
-        list_item.size_label = size
+    def _draw_license_cell(self, table, cr, col, item, x, y, w, h, _selected):
+        table.draw_text_cell(cr, x, y, w, h,
+                              self._display_license(item.pkg.license) or "—",
+                              align=self._cell_align(table, col), dim=True)
 
-    def _on_row_hover_enter(self, _ctrl, _x, _y, list_item):
+    @staticmethod
+    def _display_license(raw_license: str) -> str:
+        """Ham lisans dizesini kullanıcıya gösterilecek hale getirir.
+
+        "LicenseRef-proprietary..." Flatpak/Flathub'ın kapalı kaynak
+        uygulamalar için kullandığı standart SPDX kalıbı (doğrulandı:
+        Spotify/VSCode/Sober böyle geliyor) — ham SPDX referansını/URL'i
+        göstermek yerine okunabilir bir etikete çevriliyor. Düz
+        "proprietary" değeri de aynı şekilde ele alınıyor. Tanınan bir
+        SPDX lisansı (GPL-3.0 vb.) veya boşsa olduğu gibi bırakılır."""
+        value = (raw_license or "").strip()
+        if not value:
+            return ""
+        lowered = value.lower()
+        if lowered.startswith("licenseref-proprietary") or lowered == "proprietary":
+            return _("Closed Source")
+        return value
+
+    def _draw_category_cell(self, table, cr, col, item, x, y, w, h, _selected):
+        table.draw_text_cell(cr, x, y, w, h, self._category_for(item.pkg) or "—",
+                              align=self._cell_align(table, col), dim=True)
+
+    def _cell_align(self, table, col) -> str:
+        # Sağa yaslı bir sütun (Sürüm/Boyut/Yüzde) sürüklenerek en başa
+        # taşınırsa sağa yaslı kalması "ters" görünür — ilk sütun her
+        # zaman sol kenardan okunmaya başlanır. En baştaysa sola yasla.
+        if table.is_leading_column(col):
+            return "left"
+        return col.align
+
+    def _on_table_hover(self, item):
         if self._stack.get_visible_child_name() == "diskmap":
             return
-        item = list_item.get_item()
-        if item is not None:
-            self._diskmap_hover_label.set_label(self._single_selection_info([item]))
+        self._diskmap_hover_label.set_label(
+            self._single_selection_info([item]) if item is not None else ""
+        )
 
-    def _on_row_hover_leave(self, *_args):
-        if self._stack.get_visible_child_name() != "diskmap":
-            self._diskmap_hover_label.set_label("")
+    def _on_table_context_menu(self, items, x, y):
+        if not items or self._busy:
+            return
+        self._context_item = items[0]
+        self._popup_context_menu(self._table, x, y, len(items))
 
-    def _on_row_bind(self, _factory, list_item):
-        item = list_item.get_item()
-        pkg = item.pkg
+    def _on_table_columns_reordered(self, id_order):
+        prefs.set("column_order", id_order)
 
-        version = f"  {pkg.version}" if pkg.version else ""
-        icon = self._icon_name_for(pkg)
-        if os.path.isabs(icon):
-            list_item.icon.set_from_file(icon)
-        else:
-            list_item.icon.set_from_icon_name(icon)
-        list_item.name_label.set_label(pkg.name + version)
-        list_item.desc_label.set_label(pkg.description or pkg.id)
-        badge = f"{pkg.source} · {pkg.origin}" if pkg.origin else pkg.source
-        list_item.source_label.set_label(badge)
-        list_item.publisher_label.set_label(pkg.publisher)
-        list_item.publisher_label.set_visible(bool(pkg.publisher))
-        list_item.size_label.set_label(format_size(pkg.size))
+    # ---------------- Sütun görünürlüğü (başlığa sağ tık) ----------------
+
+    def _on_column_check_toggled(self, check, column_id):
+        self._table.set_column_visible(column_id, check.get_active())
+        hidden = [
+            col.id for col in self._table.all_columns()
+            if col.id not in self._table.visible_column_ids()
+        ]
+        prefs.set("hidden_columns", hidden)
+
+    def _on_table_header_context_menu(self, x, y, column_id):
+        self._show_column_visibility_popover(x, y)
+
+    def _show_column_visibility_popover(self, x, y):
+        # Gio.Menu tabanlı bir Gtk.PopoverMenu her tıklamada kapanır — bu,
+        # arka arkaya birkaç sütunu işaretlemek/kaldırmak isteyen biri için
+        # (asıl kullanım şekli bu) her seferinde tekrar sağ tıklamayı
+        # gerektirirdi. Bunun yerine düz Gtk.CheckButton'lardan oluşan bir
+        # panel: tıklamak kutuyu değiştirir ama pencereyi kapatmaz, kapanış
+        # dışarı tıklayınca/Esc ile olur.
+        # GTK, zaten açık olan bir popover'ı bu ortamda (Wayland/KWin)
+        # sonradan büyütmeyi güvenilir şekilde yapmıyor (doğrulandı: bir
+        # çocuğu sonradan visible=True yapmak "çalışıyor" ama popover'ın
+        # yüzeyi büyümediği için görünmüyor). Bu yüzden: normalde sadece
+        # sütun listesini gösteren KÜÇÜK bir popover açılır; "Filtreleme"
+        # satırının üstüne gelince bu popover kapatılıp, aynı noktada,
+        # baştan sütun listesi + harf paneliyle birlikte GENİŞ bir popover
+        # yeniden açılır — büyütme değil, doğru boyutla yeniden doğum.
+        def _open(expanded: bool):
+            left_box, _filter_row_content, close_btn, listbox = (
+                self._build_columns_left_box()
+            )
+            # "Filtreleme" her zaman listbox'taki ilk satır — kendi boşluğu
+            # (margin) dahil TÜM alanı kapsayan gerçek satır sarmalayıcısı
+            # bu. filter_row_content'in kendisi bu boşluk kadar içeride
+            # kaldığından, hover dinleyicisini ona değil bu satıra
+            # bağlıyoruz (kenara yakın noktalarda "iz" çıkıyor ama
+            # filter_row_content'e hiç ulaşmıyordu).
+            filter_row = listbox.get_row_at_index(0)
+            if expanded:
+                filter_panel, apply_or_clear = self._build_name_filter_panel()
+                outer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+                outer.append(left_box)
+                outer.append(filter_panel)
+                content = outer
+            else:
+                apply_or_clear = None
+                content = left_box
+
+            popover = Gtk.Popover(
+                child=content, has_arrow=False, css_classes=["pw-columns-popover"],
+            )
+            popover.set_parent(self._table)
+            rect = Gdk.Rectangle()
+            # GTK popover'ı, işaret ettiği noktanın etrafında YATAY olarak
+            # ORTALIYOR — bu yüzden genişleyince (panel eklenince) sol
+            # kenar da sola kayıyordu. Panelin genişliğinin yarısı kadar
+            # işaret noktasını sağa kaydırarak bu kaymayı iptal ediyoruz;
+            # böylece sol taraf (sütun listesi) sabit kalıyor.
+            anchor_x = int(x) + (_FILTER_PANEL_WIDTH // 2 if expanded else 0)
+            rect.x, rect.y, rect.width, rect.height = anchor_x, int(y), 1, 1
+            popover.set_pointing_to(rect)
+            close_btn.connect("clicked", lambda b: popover.popdown())
+            if apply_or_clear is not None:
+                apply_or_clear(lambda: popover.popdown())
+
+            if not expanded:
+                # Popover ilk açıldığında fare, sağ tık noktasından
+                # "Filtreleme" satırına doğru hareket ediyor — bu, yeni
+                # eşlenmiş bir yüzeye ilk giriş olduğundan "enter" olayı
+                # bazen kaçıyordu. "motion" ile de aynı tetikleyiciyi
+                # dinleyip bir bayrakla tek seferlik çalışmasını
+                # garantiliyoruz.
+                triggered = [False]
+
+                def _trigger_expand(*_a):
+                    if not triggered[0]:
+                        triggered[0] = True
+                        popover.popdown()
+                        _open(True)
+
+                filter_hover = Gtk.EventControllerMotion()
+                filter_hover.connect("enter", _trigger_expand)
+                filter_hover.connect("motion", _trigger_expand)
+                filter_row.add_controller(filter_hover)
+            else:
+                # Sadece "Filtreleme" satırı VE ABC paneli "güvenli" bölge —
+                # Sürüm/Boyut/... gibi diğer sütun satırlarına gelince bile
+                # (outer'ın içinde olsa da) küçük popover'a dönülmeli. Küçük
+                # bir gecikmeyle: satırdan panele geçerken aradaki anlık
+                # "leave" iptal ediliyor, gerçekten ikisinden de çıkınca
+                # kapanıyor.
+                close_src = [None]
+
+                def _cancel_close():
+                    if close_src[0] is not None:
+                        GLib.source_remove(close_src[0])
+                        close_src[0] = None
+
+                def _schedule_close():
+                    _cancel_close()
+
+                    def _do_close():
+                        close_src[0] = None
+                        popover.popdown()
+                        _open(False)
+                        return False
+
+                    close_src[0] = GLib.timeout_add(120, _do_close)
+
+                for safe_widget in (filter_row, filter_panel):
+                    safe_hover = Gtk.EventControllerMotion()
+                    safe_hover.connect("enter", lambda *_a: _cancel_close())
+                    safe_hover.connect("leave", lambda *_a: _schedule_close())
+                    safe_widget.add_controller(safe_hover)
+
+            popover.connect("closed", lambda p: GLib.idle_add(p.unparent))
+            popover.popup()
+
+        _open(False)
+
+    def _build_columns_left_box(self):
+        """Sütun görünürlüğü panelini (çarpı + Filtreleme satırı + sütun
+        check'leri) kurar. (left_box, filter_row_content, close_btn,
+        listbox) döner."""
+        # Satırların hover izi tam genişlikte görünsün diye box'ta yan
+        # boşluk yok; iç boşluk her satırın kendi check button'unda.
+        left_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+
+        close_icon = Gtk.Image.new_from_icon_name("window-close-symbolic")
+        close_icon.set_pixel_size(12)
+        close_btn = Gtk.Button(
+            child=close_icon, css_classes=["circular", "flat", "pw-popover-close"],
+            halign=Gtk.Align.CENTER, hexpand=True, tooltip_text=_("Close"),
+        )
+        close_btn.set_size_request(20, 20)
+        # Sadece çarpının kendi dairesi değil, satırlardaki gibi tüm üst
+        # şerit (kenardan kenara, satırlarla aynı hizada) üzerine gelince
+        # iz göstersin; çarpı da bu şeridin tam ortasında dursun.
+        header_row = Gtk.Box(css_classes=["pw-popover-header"])
+        header_row.append(close_btn)
+        left_box.append(header_row)
+
+        # "boxed-list" popover'ın kendi arka planından ayrı, ikinci bir
+        # kutu/pencere görünümü veriyordu — düz Gtk.ListBox kullanıyoruz;
+        # satır vurgusu (hover) zaten tema tarafından sağlanıyor.
+        listbox = Gtk.ListBox(
+            selection_mode=Gtk.SelectionMode.NONE, css_classes=["pw-popover-list"],
+        )
+
+        # "Filtreleme" — çarpı ile Sürüm arasında; üzerine gelince harfe
+        # göre filtre paneli sağında açılır.
+        filter_row_content = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL, hexpand=True,
+            margin_top=6, margin_bottom=6, margin_start=8, margin_end=8,
+        )
+        filter_row_content.append(
+            Gtk.Label(label=_("Filtering"), xalign=0, hexpand=True)
+        )
+        filter_row_content.append(
+            Gtk.Image.new_from_icon_name("pan-end-symbolic")
+        )
+        listbox.append(filter_row_content)
+
+        visible_ids = self._table.visible_column_ids()
+        for column in self._table.all_columns():
+            if self._table.is_leading_column(column):
+                continue
+            check = Gtk.CheckButton(
+                label=column.title, active=column.id in visible_ids,
+                margin_top=6, margin_bottom=6, margin_start=8, margin_end=8,
+            )
+            check.connect("toggled", self._on_column_check_toggled, column.id)
+            listbox.append(check)
+        left_box.append(listbox)
+
+        return left_box, filter_row_content, close_btn, listbox
+
+    # ---------------- Ad filtresi (harfe göre, "Ad" başlığına sağ tık) ----
+
+    def _letter_counts_ignoring_name_filter(self) -> dict:
+        """Harf filtresi devre dışıymış gibi, diğer filtrelere (kaynak,
+        arama, apps_only) uyan öğeleri baş harfe göre sayar."""
+        counts: dict[str, int] = {}
+        saved = self._name_letter_filter
+        self._name_letter_filter = None
+        try:
+            for i in range(self._store.get_n_items()):
+                item = self._store.get_item(i)
+                if not self._filter_func(item):
+                    continue
+                letter = self._section_letter(item.pkg)
+                counts[letter] = counts.get(letter, 0) + 1
+        finally:
+            self._name_letter_filter = saved
+        return counts
+
+    def _apply_name_letter_filter(self, letters: set | None):
+        self._name_letter_filter = letters
+        self._filter.changed(Gtk.FilterChange.DIFFERENT)
+        self._refresh_table()
+        self._update_count_label()
+
+    def _build_name_filter_panel(self):
+        """Sağa bitişik açılan harf filtresi panelini kurar. (panel,
+        register) döner — register(on_applied_or_cleared) çağrılarak
+        Uygula/Temizle sonrası çalışacak (ör. popover'ı kapatan) bir geri
+        çağırma bağlanabilir."""
+        counts = self._letter_counts_ignoring_name_filter()
+        letters = sorted(counts, key=lambda ltr: (ltr == "#", ltr))
+        # Referans örnekteki gibi: filtre uygulanmamışken hiçbir kutu işaretli
+        # değil (boş seçim = filtre yok, hepsi görünür); daha önce Uygula'ya
+        # basılmışsa yalnızca o harfler işaretli açılır.
+        active_letters = self._name_letter_filter or set()
+
+        panel = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL, spacing=2,
+            width_request=_FILTER_PANEL_WIDTH,
+            css_classes=["pw-columns-popover"],
+        )
+
+        clear_btn = Gtk.Button(
+            label=_("Clear All Filters"), css_classes=["flat"], margin_bottom=2,
+        )
+        panel.append(clear_btn)
+
+        # vexpand=True, propagate_natural_height ile çakışıp GTK'de geçersiz
+        # bir adjustment durumuna (Gtk-CRITICAL) yol açtı. Onun yerine sabit
+        # ama daha büyük bir üst sınır: sol paneldeki daha uzun sütun
+        # listesiyle boyu daha iyi eşleşsin, Uygula altında kalan boşluk
+        # küçülsün.
+        scroller = Gtk.ScrolledWindow(
+            hscrollbar_policy=Gtk.PolicyType.NEVER,
+            vscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
+            max_content_height=380, propagate_natural_height=True,
+        )
+        listbox = Gtk.ListBox(
+            selection_mode=Gtk.SelectionMode.NONE, css_classes=["pw-popover-list"],
+        )
+        checks: dict[str, Gtk.CheckButton] = {}
+        for letter in letters:
+            check = Gtk.CheckButton(
+                label=_("{letter} ({count} items)").format(
+                    letter=letter, count=counts[letter]
+                ),
+                active=letter in active_letters,
+                margin_top=6, margin_bottom=6, margin_start=8, margin_end=8,
+            )
+            checks[letter] = check
+            listbox.append(check)
+        scroller.set_child(listbox)
+        panel.append(scroller)
+
+        select_all = Gtk.CheckButton(
+            label=_("Select All"), active=len(active_letters) == len(letters),
+            margin_top=6, margin_bottom=6, margin_start=8, margin_end=8,
+        )
+
+        def _on_select_all(chk):
+            state = chk.get_active()
+            for c in checks.values():
+                c.set_active(state)
+
+        select_all.connect("toggled", _on_select_all)
+        panel.append(select_all)
+
+        apply_btn = Gtk.Button(
+            label=_("Apply"), css_classes=["suggested-action"], margin_top=4,
+        )
+        panel.append(apply_btn)
+
+        callbacks: list = []
+
+        def _do_apply(_btn):
+            chosen = {ltr for ltr, c in checks.items() if c.get_active()}
+            # Hiçbiri veya hepsi işaretliyse fiilen filtre yok demektir.
+            no_filter = not chosen or chosen == set(letters)
+            self._apply_name_letter_filter(None if no_filter else chosen)
+            for cb in callbacks:
+                cb()
+
+        def _do_clear(_btn):
+            self._apply_name_letter_filter(None)
+            for cb in callbacks:
+                cb()
+
+        apply_btn.connect("clicked", _do_apply)
+        clear_btn.connect("clicked", _do_clear)
+
+        return panel, callbacks.append
 
     # ---------------- Sağ tık menüsü ----------------
 
@@ -427,71 +944,6 @@ class MainWindow(Adw.ApplicationWindow):
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", handler)
             self.add_action(action)
-
-    def _apply_mode_selection(self):
-        """Mod seçimini modele uygula (yerleşik davranışın ezdiğini geri yaz)."""
-        chosen = Gtk.Bitset.new_empty()
-        for position in self._mode_positions:
-            chosen.add(position)
-        everything = Gtk.Bitset.new_range(0, self._selection.get_n_items())
-        self._applying_selection = True
-        self._selection.set_selection(chosen, everything)
-        self._applying_selection = False
-        self._update_count_label()
-        return GLib.SOURCE_REMOVE
-
-    def _on_selection_changed(self, *_args):
-        if self._selection_mode and not self._applying_selection:
-            bitset = self._selection.get_selection()
-            current = {
-                bitset.get_nth(n) for n in range(bitset.get_size())
-            }
-            if current != self._mode_positions:
-                # Yerleşik tıklama seçimi ezdi; bizimkini geri yükle
-                GLib.idle_add(self._apply_mode_selection)
-        self._update_count_label()
-
-    def _on_row_long_press(self, gesture, _x, _y, list_item):
-        item = list_item.get_item()
-        if item is None or self._busy:
-            return
-        gesture.set_state(Gtk.EventSequenceState.CLAIMED)
-        self._selection_mode = True
-        self._mode_positions.add(list_item.get_position())
-        self._apply_mode_selection()
-
-    def _on_row_toggle_click(self, gesture, _n_press, _x, _y, list_item):
-        if not self._selection_mode:
-            return  # normal düzen: olaya karışma
-        item = list_item.get_item()
-        if item is None:
-            return
-        gesture.set_state(Gtk.EventSequenceState.CLAIMED)
-        position = list_item.get_position()
-        if position in self._mode_positions:
-            self._mode_positions.discard(position)
-            if not self._mode_positions:
-                self._selection_mode = False  # seçim bitti, mod kapanır
-        else:
-            self._mode_positions.add(position)
-        self._apply_mode_selection()
-
-    def _exit_selection_mode(self):
-        if self._selection_mode:
-            self._selection_mode = False
-            self._mode_positions.clear()
-            self._selection.unselect_all()
-            self._update_count_label()
-
-    def _selected_items(self):
-        """Vurgulanarak seçilmiş satırların paketleri."""
-        bitset = self._selection.get_selection()
-        items = []
-        for n in range(bitset.get_size()):
-            item = self._selection.get_item(bitset.get_nth(n))
-            if item is not None:
-                items.append(item)
-        return items
 
     def _build_context_menu(self, selected_count: int) -> Gio.Menu:
         menu = Gio.Menu()
@@ -523,22 +975,8 @@ class MainWindow(Adw.ApplicationWindow):
         popover.connect("closed", lambda p: GLib.idle_add(p.unparent))
         popover.popup()
 
-    def _on_row_right_click(self, gesture, _n_press, x, y, list_item):
-        item = list_item.get_item()
-        if item is None or self._busy:
-            return
-        self._context_item = item
-
-        # Sağ tıklanan satır mevcut seçimin dışındaysa seçimi ona daralt
-        position = list_item.get_position()
-        if not self._selection.is_selected(position):
-            self._selection.select_item(position, True)
-        selected_count = len(self._selected_items())
-
-        self._popup_context_menu(gesture.get_widget(), x, y, selected_count)
-
     def _ctx_uninstall(self, *_args):
-        items = self._selected_items()
+        items = self._table.get_selected_items()
         if not items and self._context_item:
             items = [self._context_item]
         if items:
@@ -552,6 +990,9 @@ class MainWindow(Adw.ApplicationWindow):
             return ["snap", "run", pkg.id]
         if pkg.source == "appimage":
             return [pkg.id]  # kimlik = dosya yolu
+        if pkg.source == "wine":
+            from .backends.wine import launch_argv
+            return launch_argv(pkg.id)
         desktop_id = self._launcher_map.get(
             pkg.id.lower()
         ) or self._launcher_map.get(pkg.name.lower())
@@ -560,15 +1001,15 @@ class MainWindow(Adw.ApplicationWindow):
         return ["gtk-launch", desktop_id]
 
     def _ctx_launch(self, *_args):
-        items = self._selected_items()
+        items = self._table.get_selected_items()
         if not items and self._context_item:
             items = [self._context_item]
         if not items:
             return
 
-        launched = []
         no_window = []
         failed = []
+        pending = []  # (pkg.name, host.SpawnedProcess)
         for item in items:
             pkg = item.pkg
             argv = self._launch_argv(pkg)
@@ -576,11 +1017,40 @@ class MainWindow(Adw.ApplicationWindow):
                 no_window.append(pkg.name)
                 continue
             try:
-                host.spawn(argv)
-                launched.append(pkg.name)
+                pending.append((pkg.name, host.spawn(argv)))
             except Exception:
                 failed.append(pkg.name)
 
+        if not pending:
+            self._show_launch_toast([], no_window, failed)
+            return
+
+        # Bir süreç başladıktan hemen sonra sessizce çökebilir (ör. eksik
+        # bir grafik eklentisi) — eskiden bu durumda bile hep "Launching…"
+        # gösterilir, gerçek hata /dev/null'a gidip kaybolurdu. Kısa bir
+        # süre bekleyip gerçekten hâlâ ayakta mı diye bakıyoruz. SADECE
+        # sürenin kısalığına bakmıyoruz: bazı başlatıcılar (ör. gtk-launch)
+        # gerçek uygulamayı ayrı bir süreç/PID olarak başlatıp kendisi
+        # hemen, çıkış kodu 0 ile kapanır — bu normal bir devretme, hata
+        # değil (doğrulandı: gtk-launch ~80ms'de kod 0 ile dönüyor, asıl
+        # uygulama ayrı bir PID'de devam ediyor). Yalnızca SIFIR OLMAYAN
+        # bir çıkış koduyla hızlıca ölen süreçler hataya sayılır.
+        def _check_after_grace():
+            launched = []
+            crashed = []
+            for name, proc in pending:
+                code = proc.poll()
+                if code in (None, 0):
+                    launched.append(name)
+                else:
+                    crashed.append((name, proc.output_tail()))
+            self._show_launch_toast(launched, no_window, failed, crashed)
+            return GLib.SOURCE_REMOVE
+
+        GLib.timeout_add(1000, _check_after_grace)
+
+    def _show_launch_toast(self, launched, no_window, failed, crashed=None):
+        crashed = crashed or []
         if launched:
             title = (
                 _("Launching {name}…").format(name=launched[0])
@@ -588,19 +1058,24 @@ class MainWindow(Adw.ApplicationWindow):
                 else _("Launching {count} apps…").format(count=len(launched))
             )
             self._toast_overlay.add_toast(Adw.Toast(title=title))
-        elif no_window and not failed:
+        elif no_window and not failed and not crashed:
             title = (
                 _("{name} has no launchable window").format(name=no_window[0])
                 if len(no_window) == 1
                 else _("Selected apps have no launchable window")
             )
             self._toast_overlay.add_toast(Adw.Toast(title=title))
-        elif failed:
-            title = (
-                _("Could not launch {name}").format(name=failed[0])
-                if len(failed) == 1
-                else _("Could not launch selected apps")
-            )
+        elif crashed or failed:
+            if len(crashed) == 1 and not failed and crashed[0][1]:
+                name, detail = crashed[0]
+                title = _("Could not launch {name}: {detail}").format(
+                    name=name, detail=detail[:120]
+                )
+            elif len(crashed) + len(failed) == 1:
+                name = crashed[0][0] if crashed else failed[0]
+                title = _("Could not launch {name}").format(name=name)
+            else:
+                title = _("Could not launch selected apps")
             self._toast_overlay.add_toast(Adw.Toast(title=title))
 
     # Flatpak/Snap kendi .desktop dosyalarını APP_DIRS'ın taradığı sıradan
@@ -628,6 +1103,36 @@ class MainWindow(Adw.ApplicationWindow):
             pkg.id.lower()
         ) or self._launcher_map.get(pkg.name.lower())
 
+    def _wine_desktop_entry(self, pkg) -> str | None:
+        """Wine paketleri için .desktop İÇERİĞİNİ SIFIRDAN oluşturur.
+
+        Diğer kaynakların aksine (bkz. _shortcut_desktop_id/_desktop_
+        file_path — var olan bir .desktop dosyasını KOPYALAR), Wine
+        programlarının çoğu için winemenubuilder hiç .desktop dosyası
+        üretmiyor — kullanıcı foobar2000 ile doğruladı: "masaüstü
+        girdisine sahip değil" diyordu, oysa program gerçekten kurulu ve
+        çalıştırılabiliyordu (bkz. Çalıştır düğmesi, aynı launch_argv()'i
+        kullanıyor). Kopyalanacak bir kaynak dosyaya hiç gerek yok -
+        gereken her şey (komut, ikon) zaten backends/wine.py'de var."""
+        from .backends.wine import launch_argv
+        argv = launch_argv(pkg.id)
+        if not argv:
+            return None
+        exec_line = " ".join(
+            f'"{part}"' if " " in part else part for part in argv
+        )
+        lines = [
+            "[Desktop Entry]",
+            "Type=Application",
+            f"Name={pkg.name}",
+            f"Exec={exec_line}",
+            "Terminal=false",
+            "StartupNotify=true",
+        ]
+        if pkg.icon_path:
+            lines.append(f"Icon={pkg.icon_path}")
+        return "\n".join(lines) + "\n"
+
     def _desktop_dir(self) -> str:
         try:
             proc = host.run(["xdg-user-dir", "DESKTOP"], timeout=5)
@@ -638,7 +1143,7 @@ class MainWindow(Adw.ApplicationWindow):
         return os.path.expanduser("~/Desktop")
 
     def _ctx_desktop_shortcut(self, *_args):
-        items = self._selected_items()
+        items = self._table.get_selected_items()
         if not items and self._context_item:
             items = [self._context_item]
         if not items:
@@ -650,23 +1155,37 @@ class MainWindow(Adw.ApplicationWindow):
         failed = []
         for item in items:
             pkg = item.pkg
-            desktop_id = self._shortcut_desktop_id(pkg)
-            source_path = self._desktop_file_path(desktop_id) if desktop_id else None
-            if not source_path:
-                unsupported.append(pkg.name)
-                continue
+            entry_content = None
+            source_path = None
+            if pkg.source == "wine":
+                entry_content = self._wine_desktop_entry(pkg)
+                if entry_content is None:
+                    unsupported.append(pkg.name)
+                    continue
+            else:
+                desktop_id = self._shortcut_desktop_id(pkg)
+                source_path = (
+                    self._desktop_file_path(desktop_id) if desktop_id else None
+                )
+                if not source_path:
+                    unsupported.append(pkg.name)
+                    continue
             try:
                 os.makedirs(desktop_dir, exist_ok=True)
                 # Kaynak dosya adı yerine gerçek uygulama adını kullan —
                 # Flatpak/kendi kurulumumuz gibi kaynaklar dosyayı ters-DNS
                 # kimliğiyle adlandırır (io.github.foo.Bar.desktop), bu da
                 # dosya yöneticisinde çirkin görünür.
-                safe_name = pkg.name.replace("/", "_").strip() or desktop_id
+                safe_name = pkg.name.replace("/", "_").strip() or pkg.id
                 dest_path = os.path.join(desktop_dir, f"{safe_name}.desktop")
                 if os.path.lexists(dest_path):
                     existing.append(pkg.name)
                     continue
-                shutil.copyfile(source_path, dest_path)
+                if entry_content is not None:
+                    with open(dest_path, "w", encoding="utf-8") as f:
+                        f.write(entry_content)
+                else:
+                    shutil.copyfile(source_path, dest_path)
                 os.chmod(dest_path, 0o755)
                 created.append(pkg.name)
             except OSError:
@@ -689,6 +1208,7 @@ class MainWindow(Adw.ApplicationWindow):
                 else _("Desktop shortcuts already exist")
             )
             self._toast_overlay.add_toast(Adw.Toast(title=title))
+
         elif unsupported and not failed:
             title = (
                 _("{name} has no desktop entry to copy").format(name=unsupported[0])
@@ -708,6 +1228,8 @@ class MainWindow(Adw.ApplicationWindow):
         item = self._context_item
         if not item:
             return
+
+        
         self.get_clipboard().set(item.pkg.id)
         self._toast_overlay.add_toast(
             Adw.Toast(title=_("Copied: {text}").format(text=item.pkg.id))
@@ -755,7 +1277,7 @@ class MainWindow(Adw.ApplicationWindow):
                 self._toast_overlay.add_toast(Adw.Toast(title=errors[0]))
             else:
                 self._toast_overlay.add_toast(Adw.Toast(
-                    title=_("Deleted {count} leftover items").format(
+                    title=_("Moved {count} leftover items to Trash").format(
                         count=len(flat)
                     )
                 ))
@@ -775,11 +1297,16 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _refresh_diskmap(self):
         items = self._filtered_items()
-        self._diskmap_area.set_items(items)
+        empty = not items
+        self._diskmap_content.set_visible(not empty)
+        self._diskmap_empty_status.set_visible(empty)
+        if empty:
+            return
+        self._diskmap_area.set_items(items, total_size=self._total_size)
 
-        self._diskmap_page.remove(self._diskmap_legend)
+        self._diskmap_content.remove(self._diskmap_legend)
         self._diskmap_legend = build_legend(items)
-        self._diskmap_page.append(self._diskmap_legend)
+        self._diskmap_content.append(self._diskmap_legend)
 
     def _on_diskmap_toggled(self, button):
         if self._stack.get_visible_child_name() == "loading":
@@ -788,13 +1315,8 @@ class MainWindow(Adw.ApplicationWindow):
         if button.get_active():
             self._refresh_diskmap()
             self._stack.set_visible_child_name("diskmap")
-            # Sıralama diskmap'te bir işe yaramıyor — kutu boyutu/yeri
-            # zaten disk payını temsil ediyor, algoritma her zaman
-            # büyükten küçüğe düzenliyor
-            self._sort_dropdown.set_sensitive(False)
         else:
             self._stack.set_visible_child_name("list")
-            self._sort_dropdown.set_sensitive(True)
             self._on_diskmap_hover(None)
 
     def _on_diskmap_select(self, item):
@@ -807,11 +1329,31 @@ class MainWindow(Adw.ApplicationWindow):
         self._context_item = item
         self._popup_context_menu(self._diskmap_area, x, y, 1)
 
+    def _snap_license(self, snap_id: str) -> str:
+        """Sadece Özellikler penceresi tek bir Snap paketi için açılınca
+        çağrılır — snap info paket başına ~300ms sürdüğü için (mağazaya
+        gidiyor) liste yüklenirken hiç kullanılmıyor (bkz. backends/
+        snap.py: _installed_size yorumu), sadece burada, tek seferlik."""
+        try:
+            proc = host.run(["snap", "info", snap_id], timeout=5)
+        except Exception:
+            return ""
+        if proc.returncode != 0:
+            return ""
+        for line in proc.stdout.splitlines():
+            if line.startswith("license:"):
+                value = line[len("license:"):].strip()
+                return "" if value in ("", "unset") else value
+        return ""
+
     def _ctx_properties(self, *_args):
         item = self._context_item
         if not item:
             return
         pkg = item.pkg
+        license_value = pkg.license
+        if pkg.source == "snap" and not license_value:
+            license_value = self._snap_license(pkg.id)
         rows = [
             (_("Package ID"), pkg.id),
             (_("Version"), pkg.version),
@@ -819,6 +1361,12 @@ class MainWindow(Adw.ApplicationWindow):
             (_("Source"), pkg.source),
             (_("Repository"), pkg.origin),
             (_("Publisher"), pkg.publisher),
+            (_("Installed"), format_install_date(pkg.install_date)),
+            (_("Location"), pkg.install_path),
+            (_("Reason"), self._INSTALL_REASON_LABELS.get(pkg.install_reason, "")),
+            (_("Required by"), str(pkg.required_by) if pkg.required_by else ""),
+            (_("License"), self._display_license(license_value)),
+            (_("Category"), self._category_for(pkg)),
             (_("Description"), pkg.description),
         ]
         body = "\n".join(f"{label}:  {value}" for label, value in rows if value)
@@ -830,7 +1378,12 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _is_app(self, pkg) -> bool:
         """Paket bir son-kullanıcı uygulaması mı (kütüphane/sistem değil)?"""
-        if pkg.source in ("flatpak", "snap", "appimage"):
+        if pkg.source == "snap":
+            # Snap'te CLI-only paketler de olabiliyor (ör. "hello-world") —
+            # gerçek bir .desktop girdisi olup olmadığına bakılır (bkz.
+            # backends/snap.py: _has_desktop_entry).
+            return pkg.has_desktop_entry is True
+        if pkg.source in ("flatpak", "appimage", "wine"):
             return True  # bu kaynaklar zaten yalnızca uygulama barındırır
         if pkg.source.startswith(("steam", "lutris", "heroic-")):
             return True  # oyunlar her zaman uygulama sayılır
@@ -849,6 +1402,7 @@ class MainWindow(Adw.ApplicationWindow):
         prefs.set("apps_only", value)
         self._filter.changed(Gtk.FilterChange.DIFFERENT)
         self._rebuild_source_dropdown()
+        self._refresh_table()
         self._update_count_label()
         self._maybe_refresh_diskmap()
 
@@ -906,6 +1460,11 @@ class MainWindow(Adw.ApplicationWindow):
             return False
         if origin and pkg.origin != origin:
             return False
+        if (
+            self._name_letter_filter is not None
+            and self._section_letter(pkg) not in self._name_letter_filter
+        ):
+            return False
         if self._search_text:
             haystack = (
                 f"{pkg.name} {pkg.id} {pkg.description} "
@@ -914,36 +1473,31 @@ class MainWindow(Adw.ApplicationWindow):
             return self._search_text in haystack
         return True
 
-    def _sort_func(self, a, b, _data=None):
-        if self._sort_mode == SORT_SIZE:
-            diff = b.pkg.size - a.pkg.size  # largest first
-            if diff:
-                return 1 if diff > 0 else -1
-        an, bn = a.pkg.name.lower(), b.pkg.name.lower()
-        return (an > bn) - (an < bn)
+    def _section_letter(self, pkg) -> str:
+        name = pkg.name.strip()
+        letter = name[:1].upper() if name else "#"
+        return letter if letter.isalpha() else "#"
+
+    def _refresh_table(self):
+        self._table.set_items(self._filtered_items())
 
     def _on_search_changed(self, entry):
-        self._exit_selection_mode()  # liste değişince konumlar kayar
         self._search_text = entry.get_text().strip().lower()
         self._filter.changed(Gtk.FilterChange.DIFFERENT)
+        self._refresh_table()
         self._update_count_label()
         self._maybe_refresh_diskmap()
 
     def _on_source_changed(self, dropdown, _pspec):
-        self._exit_selection_mode()  # liste değişince konumlar kayar
         index = dropdown.get_selected()
         if 0 <= index < len(self._source_choices):
             self._source_filter = self._source_choices[index]
         else:
             self._source_filter = (None, None)
         self._filter.changed(Gtk.FilterChange.DIFFERENT)
+        self._refresh_table()
         self._update_count_label()
         self._maybe_refresh_diskmap()
-
-    def _on_sort_changed(self, dropdown, _pspec):
-        self._exit_selection_mode()  # liste değişince konumlar kayar
-        self._sort_mode = dropdown.get_selected()
-        self._sorter.changed(Gtk.SorterChange.DIFFERENT)
 
     # ---------------- Loading ----------------
 
@@ -955,9 +1509,9 @@ class MainWindow(Adw.ApplicationWindow):
 
         def worker():
             from .games import available_game_backends
-            # Oyunlar önce gelir: kaynak dropdown'ında Pacman'ın onlarca
-            # repo alt kırılımının arkasında kaybolmasınlar, "Tüm
-            # kaynaklar"ın hemen altında görünsünler.
+            # Oyunlar önce gelir: kaynak dropdown'ında Pacman'ın
+            # onlarca repo alt kırılımının arkasında kaybolmasınlar,
+            # "Tüm kaynaklar"ın hemen altında görünsünler.
             backends = available_game_backends() + available_backends()
             packages = []
             for backend in backends:
@@ -966,26 +1520,48 @@ class MainWindow(Adw.ApplicationWindow):
                 except Exception:
                     pass  # a broken backend must not take the app down
             try:
-                icon_map, launcher_map, _categories = build_maps()
+                icon_map, launcher_map, category_map = build_maps()
             except Exception:
-                icon_map, launcher_map = {}, {}
+                icon_map, launcher_map, category_map = {}, {}, {}
+            # pacman/apt/dnf/zypper "Konum"u hiç doldurmuyor (dosyalar
+            # /usr/bin, /usr/lib, /etc gibi onlarca yere yayılıyor, TEK
+            # bir kök klasör yok) - ama .desktop girdisi olan gerçek bir
+            # uygulamaysa, ana programın kendi yolu hâlâ anlamlı bir
+            # "konum". Sadece BOŞ olanlar için, gereksiz iş yapmadan.
+            for pkg in packages:
+                if pkg.install_path:
+                    continue
+                desktop_id = launcher_map.get(pkg.id.lower()) or launcher_map.get(
+                    pkg.name.lower()
+                )
+                if desktop_id:
+                    pkg.install_path = resolve_exec_path(desktop_id)
             GLib.idle_add(
-                self._on_loaded, backends, packages, icon_map, launcher_map
+                self._on_loaded, backends, packages,
+                icon_map, launcher_map, category_map,
             )
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _on_loaded(self, backends, packages, icon_map, launcher_map):
+    def _on_loaded(self, backends, packages, icon_map, launcher_map, category_map):
         self._backends = backends
         self._icon_map = icon_map
         self._launcher_map = launcher_map
+        self._category_map = category_map
         self._items = [PackageItem(pkg) for pkg in packages]
+        # Filtreden bağımsız, sabit bir referans: bir uygulamanın toplam
+        # disk kullanımındaki payı, hangi kaynak filtresine bakıyor
+        # olursanız olun aynı kalmalı — filtrelenmiş listeye göre
+        # hesaplanırsa aynı uygulama filtre değişince farklı yüzde
+        # gösterir, bu kafa karıştırıcıdır.
+        self._total_size = sum(item.pkg.size for item in self._items) or 1
 
         self._store.remove_all()
         # splice is far faster than thousands of append() calls
         self._store.splice(0, 0, self._items)
 
         self._rebuild_source_dropdown(reset=True)
+        self._refresh_table()
 
         if self._diskmap_toggle.get_active():
             self._refresh_diskmap()
@@ -994,7 +1570,35 @@ class MainWindow(Adw.ApplicationWindow):
             self._stack.set_visible_child_name("list")
         self._set_busy(False)
         self._update_count_label()
+        self._fetch_snap_licenses()
         return GLib.SOURCE_REMOVE
+
+    def _fetch_snap_licenses(self):
+        """Snap paketlerinin lisansını arka planda, tek tek doldurur.
+
+        list_packages() bunu bilerek atlıyor — snap info paket başına
+        ~300-500ms sürüyor (mağazaya gidiyor), tüm listeyi senkron
+        yüklerken çağırmak açılışı saniyelerce geciktirirdi (doğrulandı).
+        Liste zaten görünür haldeyken burada arka planda dolduruluyor;
+        her paketin lisansı geldikçe tablo yeniden çizilir, kullanıcı
+        hiç beklemez. Bu sırada yeni bir refresh() çağrılırsa (self._items
+        değişirse) bu thread'in elindeki eski Package nesneleri artık
+        gösterilmiyor olur — zararsız, sadece boşa giden bir iş."""
+        targets = [
+            item.pkg for item in self._items
+            if item.pkg.source == "snap" and not item.pkg.license
+        ]
+        if not targets:
+            return
+
+        def worker():
+            for pkg in targets:
+                license_value = self._snap_license(pkg.id)
+                if license_value:
+                    pkg.license = license_value
+                    GLib.idle_add(self._table.queue_draw)
+
+        threading.Thread(target=worker, daemon=True).start()
 
     # ---------------- Helpers ----------------
 
@@ -1005,16 +1609,19 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _update_count_label(self):
         shown = self._filter_model.get_n_items()
+        empty = shown == 0 and len(self._items) > 0
+        self._scrolled.set_visible(not empty)
+        self._list_empty_status.set_visible(empty)
         text = _("{shown} of {total} packages").format(
             shown=shown, total=len(self._items)
         )
-        selected = self._selected_items()
+        selected = self._table.get_selected_items()
         if selected:
             total_size = sum(item.pkg.size for item in selected)
             text += "  •  " + _("{count} selected").format(count=len(selected))
             if total_size:
                 text += f" ({format_size(total_size)})"
-        if self._selection_mode:
+        if self._table.is_selection_mode():
             text = _("Selection mode (Esc to finish)") + "  •  " + text
         self._count_label.set_label(text)
 
@@ -1028,11 +1635,8 @@ class MainWindow(Adw.ApplicationWindow):
         if len(selected) != 1:
             return ""
         pkg = selected[0].pkg
-        total = sum(
-            self._filter_model.get_item(i).pkg.size
-            for i in range(self._filter_model.get_n_items())
-        ) or 1
-        percent = pkg.size / total * 100
+        percent = pkg.size / self._total_size * 100
         return _("{name} — {size} ({percent}%)").format(
-            name=pkg.name, size=format_size(pkg.size), percent=format_percent(percent),
+            name=pkg.name, size=format_size(pkg.size) or "—",
+            percent=format_percent(percent),
         )

@@ -8,9 +8,39 @@ import threading  # noqa: E402
 
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
-from . import APP_ID, VERSION, prefs  # noqa: E402
+from . import APP_ID, VERSION, host, prefs  # noqa: E402
+from .backends.selfinstall import INSTALL_DIR as SELF_INSTALL_DIR  # noqa: E402
+from .backends.selfinstall import SelfInstallBackend  # noqa: E402
 from .i18n import _  # noqa: E402
 from .window import MainWindow  # noqa: E402
+
+
+def _seed_default_ignored_packwarden():
+    """Taze bir kurulumda "Yok Sayilanlar" listesine PackWarden'in
+    KENDISINI varsayilan olarak ekler - kullanici uygulamayi ilk actiginda
+    kendi kendini "kullanilmiyor" diye onermesin. SADECE bu tek paket icin
+    ve SADECE settings.json daha once hic olusturulmamissa (bkz.
+    prefs.is_first_run()) calisir - kullanici sonradan elle "Geri al"
+    derse (yoksayilanlardan cikarirsa) bir daha GERI EKLENMEZ, cunku o
+    andan sonra dosya zaten var ve is_first_run() bir sonraki acilista
+    False doner.
+
+    Anahtar formati _pkg_key(pkg) = f"{pkg.source}:{pkg.id}" ile AYNI
+    olmali (bkz. unusedwindow.py) - burada gercek bir tarama yapmadan,
+    hangi kurulum yontemi GECERLI oldugunu doğrudan kontrol ederek
+    hesapliyoruz: Flatpak sandbox icindeyse Flatpak kimligi, degilse
+    (install.sh ile kurulduysa) kendi kurulum yolu.
+    """
+    if not prefs.is_first_run():
+        return
+    if host.IN_FLATPAK:
+        key = f"flatpak:{APP_ID}"
+    elif SelfInstallBackend().is_available():
+        key = f"{SelfInstallBackend.id}:{os.path.expanduser(SELF_INSTALL_DIR)}"
+    else:
+        return  # pacman/AUR gibi baska bir yontemle kuruldu - kendini
+        # tanimlayacak guvenilir bir anahtarimiz yok, hic dokunma.
+    prefs.set("ignored_unused_programs", {key: "PackWarden"})
 
 
 class PackWardenApp(Adw.Application):
@@ -20,6 +50,7 @@ class PackWardenApp(Adw.Application):
             flags=Gio.ApplicationFlags.DEFAULT_FLAGS,
         )
 
+        _seed_default_ignored_packwarden()
         self.apply_theme(prefs.get("theme"))
         
         about_action = Gio.SimpleAction.new("about", None)

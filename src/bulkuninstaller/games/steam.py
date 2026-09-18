@@ -1,19 +1,38 @@
 """Steam kütüphanesindeki oyunlar (yalnızca Unused Apps taraması için).
 
-Silme resmi bir CLI'ye dayanmaz — Steam'in kendisinin de yaptığı gibi
-kurulum klasörü + .acf dosyası + varsa Proton prefix'i (compatdata)
-doğrudan dosya sistemi üzerinden silinir.
+Silme, Steam'in KENDİ "steam://uninstall/<appid>" komutu üzerinden
+Steam'e devrediliyor — kullanıcı Steam'in kendi "Kaldır" penceresini
+onaylıyor, Steam de kendi dosyalarını/manifest'ini kendisi siliyor.
+Önceki yaklaşım (dosyaları biz doğrudan siliyorduk) çalışıyordu ama
+Steam'in kendisi steamapps klasörünü yalnızca açılışta okuyor - dışarıdan
+silinen bir oyun, Steam yeniden başlatılana kadar hâlâ "Oyna" gösteriyordu
+(canlı doğrulandı). Steam'in kendi kaldırma akışını kullanınca bu sorun
+hiç oluşmuyor - Steam kendi durumunu kendi güncelliyor. Windows'ta
+benzer bir araçla (kullanıcının kendi testi) karşılaştırıldı, aynı
+yaklaşımı kullandığı görüldü.
+
+Steam'in kendi kaldırıcısı Proton prefix'ini (compatdata), workshop
+içeriğini ve gölgelendirici önbelleğini silmiyor (doğrulandı: Project
+Zomboid'in workshop klasörü Steam'in kendi kaldırmasından sonra da
+duruyordu) - bunlar Steam'in onayından SONRA ayrıca temizleniyor.
 """
 
 import glob
 import os
 import re
 import shutil
+import time
 
+from .. import host
 from ..backends.base import Backend, Package, RemoveResult
 from ._safety import is_within
 from ._shortcuts import remove_matching_shortcuts
 from ._steam_metadata import studios_for
+
+# Kullanıcının Steam'in kendi "Kaldır" penceresini görüp onaylaması için
+# beklenen en uzun süre - bu sürede manifest hâlâ duruyorsa (iptal etti
+# ya da fark etmedi) kaldırma başarısız sayılır.
+_CONFIRM_TIMEOUT_SECONDS = 120
 
 STEAMAPPS_CANDIDATES = (
     "~/.steam/steam/steamapps",
@@ -206,7 +225,6 @@ class SteamGameBackend(Backend):
             # bulana kadar hepsini dener.
             steamapps = None
             manifest_path = None
-            installdir = None
             for candidate_dir in steamapps_dirs:
                 candidate_manifest = os.path.join(
                     candidate_dir, f"appmanifest_{appid}.acf"
@@ -214,13 +232,6 @@ class SteamGameBackend(Backend):
                 if os.path.isfile(candidate_manifest):
                     steamapps = candidate_dir
                     manifest_path = candidate_manifest
-                    try:
-                        text = open(
-                            manifest_path, encoding="utf-8", errors="replace"
-                        ).read()
-                        installdir = _field(text, "installdir")
-                    except OSError:
-                        pass
                     break
 
             if not steamapps:
@@ -229,28 +240,40 @@ class SteamGameBackend(Backend):
                 continue
 
             try:
-                # installdir/appid .acf dosyasından geliyor — bu, Steam
-                # dışında çalışan HERHANGİ bir yerel süreç tarafından
-                # değiştirilebilen sıradan bir metin dosyası. "../" veya
-                # mutlak bir yol içerecek şekilde kurcalanmışsa
-                # os.path.join bunu sessizce steamapps'ın dışına taşırdı
-                # (doğrulandı) — her silme öncesi gerçek sonucun hâlâ
-                # beklenen köklerin İÇİNDE olduğu kontrol ediliyor.
-                if installdir:
-                    common_root = os.path.join(steamapps, "common")
-                    common_path = os.path.join(common_root, installdir)
-                    if os.path.isdir(common_path) and is_within(common_path, common_root):
-                        shutil.rmtree(common_path)
+                host.run(["steam", f"steam://uninstall/{appid}"], timeout=10)
+            except Exception as exc:
+                failed.append(appid)
+                messages.append(f"{appid}: {exc}")
+                continue
 
+            # Steam kendi "Kaldır" penceresini açtı - kullanıcı orada
+            # onaylayana kadar bekleniyor. Manifest kalkması, Steam'in
+            # GERÇEKTEN kaldırdığının kanıtı (kullanıcı iptal ederse ya
+            # da fark etmezse zaman aşımına uğrar, başarısız sayılır).
+            deadline = time.monotonic() + _CONFIRM_TIMEOUT_SECONDS
+            confirmed = False
+            while time.monotonic() < deadline:
+                if not os.path.isfile(manifest_path):
+                    confirmed = True
+                    break
+                time.sleep(1)
+
+            if not confirmed:
+                failed.append(appid)
+                messages.append(
+                    f"{appid}: Steam'in kendi kaldırma penceresi onaylanmadı"
+                )
+                continue
+
+            try:
+                # Steam'in kendi kaldırıcısı bunları silmiyor (doğrulandı) -
+                # yol, appid'den geliyor (sıradan metin), her silme öncesi
+                # gerçek sonucun beklenen kök İÇİNDE kaldığı doğrulanıyor.
                 compat_root = os.path.join(steamapps, "compatdata")
                 compat_path = os.path.join(compat_root, appid)
                 if os.path.isdir(compat_path) and is_within(compat_path, compat_root):
                     shutil.rmtree(compat_path)
 
-                # Workshop içeriği (mod/harita vb.) ve gölgelendirici
-                # önbelleği ayrı klasörlerde tutuluyor, "common" silinince
-                # gitmiyor — doğrulandı: Project Zomboid'in workshop
-                # klasörü oyun kaldırılsa bile öylece duruyordu.
                 workshop_root = os.path.join(steamapps, "workshop", "content")
                 workshop_content = os.path.join(workshop_root, appid)
                 if os.path.isdir(workshop_content) and is_within(
@@ -271,12 +294,9 @@ class SteamGameBackend(Backend):
                 if os.path.isdir(shadercache) and is_within(shadercache, shader_root):
                     shutil.rmtree(shadercache)
 
-                if os.path.isfile(manifest_path):
-                    os.remove(manifest_path)
                 remove_matching_shortcuts(f"steam://rungameid/{appid}")
-            except OSError as exc:
-                failed.append(appid)
-                messages.append(f"{appid}: {exc}")
+            except OSError:
+                pass  # ana kaldırma (Steam onayladı) zaten başarılı sayılır
 
         if failed:
             return RemoveResult(False, "\n".join(messages), failed_ids=failed)
