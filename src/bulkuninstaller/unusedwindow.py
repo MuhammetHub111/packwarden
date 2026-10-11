@@ -636,11 +636,17 @@ class UnusedAppsWindow(Adw.Window):
         if not animate:
             self._toast_box.remove(revealer)
             return
-        # Gtk.Revealer kapanma gecisini kendi yonetiyor (SLIDE_DOWN'i
-        # tersine oynatir, kutunun toplam yuksekligi de bununla birlikte
-        # dogal olarak kucculur - elle bir "digerlerini kaydir" hesabina
-        # hic gerek yok). Gecis bitince (child-revealed False olunca)
+        # Gtk.Revealer kapanma gecisini kendi yonetiyor (kutunun toplam
+        # yuksekligi de bununla birlikte dogal olarak kucculur - elle bir
+        # "digerlerini kaydir" hesabina hic gerek yok). Acilista (bkz.
+        # _show_toast) SLIDE_DOWN kullaniliyor, ama kaybolurken kullanici
+        # "balon sonup kaybolsun gibi" istedi - CROSSFADE'e geciriyoruz,
+        # SADECE bu widget'in bu TEK kapanisinda (bir sonraki bildirimin
+        # acilisi hala SLIDE_DOWN ile baslayacak, cunku o YENI bir
+        # Gtk.Revealer). Gecis bitince (child-revealed False olunca)
         # widget'i GERCEKTEN kutudan cikariyoruz.
+        revealer.set_transition_type(Gtk.RevealerTransitionType.CROSSFADE)
+
         def _on_revealed(r, _pspec):
             if not r.get_child_revealed():
                 if r.get_parent() is self._toast_box:
