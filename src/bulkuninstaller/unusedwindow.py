@@ -395,17 +395,19 @@ class UnusedAppsWindow(Adw.Window):
             margin: 2px 12px 4px;
             transition: opacity 150ms ease;
         }
-        /* Kapanirken Gtk.Revealer'in SLIDE/CROSSFADE gecisi, pill'in kendi
-           yuksekligi de ayni anda kuculdugu icin hala "kayip gidiyor"
-           gibi gorunuyordu (CROSSFADE denendi, kullanici "ayni eski efekt"
-           dedi - cunku REZERVE EDILEN ALAN her durumda ayni anda
-           kapaniyor, saydamlasma neredeyse fark edilmiyordu). Bunun
-           yerine ONCE pill'i (hala tam boyutundayken) bu sinifla tam
-           saydam yapip KISA bir sure (150ms) bekliyoruz - "balon sonup
-           kaybolma" hissi boylece net oluyor - ANCAK O ZAMAN Revealer'i
-           kapatip rezerve alani kapatiyoruz (bkz. _remove_toast).
+        /* Acilirken/kapanirken Gtk.Revealer'in SLIDE gecisi, pill'in
+           kendi yuksekligi de ayni anda buyuyup/kuculdugu icin hala
+           "kayarak geliyor/gidiyor" gibi gorunuyordu (CROSSFADE de
+           denendi, kullanici "ayni eski efekt" dedi - cunku REZERVE
+           EDILEN ALAN her turlu o gecisle birlikte degisiyor,
+           saydamlasma neredeyse fark edilmiyordu). Bunun yerine: ONCE
+           rezerve alani ac/kapat (pill bu sinifla tam saydamken, yani
+           hicbir sey gorunur sekilde kaymiyor), ANCAK O ZAMAN pill'i
+           bu sinifi kaldirip/ekleyip CSS gecisiyle (150ms) sondurup/
+           yakip "balon patlayip belirme/sonup kaybolma" hissini
+           veriyoruz (bkz. _show_toast ve _remove_toast).
         */
-        .pw-toast-dismissing {
+        .pw-toast-hidden {
             opacity: 0;
         }
         /* libadwaita bu satira farkli bir kart rengi, yuvarlak kose ve
@@ -572,14 +574,15 @@ class UnusedAppsWindow(Adw.Window):
         # metnin uzunlugu genisligi degistirmez (bkz. ellipsize).
         box = Gtk.Box(
             orientation=Gtk.Orientation.HORIZONTAL, spacing=6,
-            css_classes=["pw-toast"], hexpand=True,
+            css_classes=["pw-toast", "pw-toast-hidden"], hexpand=True,
         )
         box.append(label)
         box.append(action_button)
         box.append(close_button)
 
         # Her bildirim kendi Gtk.Revealer'inde - bkz. _build_toast_widget
-        # icin yukaridaki genel aciklama. reveal_child=False ile baslar,
+        # icin yukaridaki genel aciklama ve .pw-toast-hidden CSS'inin
+        # yanindaki not (balon efekti). reveal_child=False ile baslar,
         # bir kare sonra True'ya cekilir ki gercek "acilma" gecisi oynasin
         # (aninda True olsaydi hic gecis olmadan dogrudan acik belirirdi).
         revealer = Gtk.Revealer(
@@ -609,7 +612,18 @@ class UnusedAppsWindow(Adw.Window):
         self._toast_box.append(revealer)
         self._toasts.append(entry)
 
+        # Ayni "once bosluk, sonra pill" mantigi kapanista da kullanildi
+        # (bkz. _remove_toast) - burada TERSI: pill hala .pw-toast-hidden
+        # ile tam saydamken ONCE rezerve alani aciyoruz (hicbir sey
+        # gorunur sekilde kaymiyor), alan TAM acildiktan (child-revealed)
+        # SONRA saydamligi kaldirip CSS gecisiyle (150ms) belirmesini
+        # sagliyoruz - "balon patlayip belirme" hissi boylece oluyor.
+        def _on_space_opened(r, _pspec):
+            if r.get_child_revealed():
+                box.remove_css_class("pw-toast-hidden")
+
         def _reveal(r=revealer):
+            r.connect("notify::child-revealed", _on_space_opened)
             r.set_reveal_child(True)
             return GLib.SOURCE_REMOVE
         GLib.idle_add(_reveal)
@@ -656,14 +670,14 @@ class UnusedAppsWindow(Adw.Window):
         # kucculuyordu - saydamlasma, "kayip giden" kutunun kuculmesinin
         # yaninda fark edilmiyordu. "Balon sonup kaybolma" hissi icin
         # ONCE pill'i (hala TAM boyutundayken) CSS ile tam saydam yapip
-        # (bkz. .pw-toast-dismissing, 150ms opacity gecisi) KISA bir sure
+        # (bkz. .pw-toast-hidden, 150ms opacity gecisi) KISA bir sure
         # bekliyoruz - icerik gozden tamamen kaybolduktan SONRA Revealer'i
         # kapatip rezerve alani kucultuyoruz. O noktada icerik zaten
         # saydam oldugu icin "kayma" hissi kalmiyor, sadece bos alan
         # sessizce kapaniyor.
         box = revealer.get_child()
         if box is not None:
-            box.add_css_class("pw-toast-dismissing")
+            box.add_css_class("pw-toast-hidden")
 
         def _collapse_after_fade():
             def _on_revealed(r, _pspec):
