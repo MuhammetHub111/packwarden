@@ -393,6 +393,20 @@ class UnusedAppsWindow(Adw.Window):
                pill'in kendi ince kenar boslugu).
             */
             margin: 2px 12px 4px;
+            transition: opacity 150ms ease;
+        }
+        /* Kapanirken Gtk.Revealer'in SLIDE/CROSSFADE gecisi, pill'in kendi
+           yuksekligi de ayni anda kuculdugu icin hala "kayip gidiyor"
+           gibi gorunuyordu (CROSSFADE denendi, kullanici "ayni eski efekt"
+           dedi - cunku REZERVE EDILEN ALAN her durumda ayni anda
+           kapaniyor, saydamlasma neredeyse fark edilmiyordu). Bunun
+           yerine ONCE pill'i (hala tam boyutundayken) bu sinifla tam
+           saydam yapip KISA bir sure (150ms) bekliyoruz - "balon sonup
+           kaybolma" hissi boylece net oluyor - ANCAK O ZAMAN Revealer'i
+           kapatip rezerve alani kapatiyoruz (bkz. _remove_toast).
+        */
+        .pw-toast-dismissing {
+            opacity: 0;
         }
         /* libadwaita bu satira farkli bir kart rengi, yuvarlak kose ve
            ince bir kenarlik veriyor (acilan bir alt-kart gibi ayirt
@@ -636,23 +650,31 @@ class UnusedAppsWindow(Adw.Window):
         if not animate:
             self._toast_box.remove(revealer)
             return
-        # Gtk.Revealer kapanma gecisini kendi yonetiyor (kutunun toplam
-        # yuksekligi de bununla birlikte dogal olarak kucculur - elle bir
-        # "digerlerini kaydir" hesabina hic gerek yok). Acilista (bkz.
-        # _show_toast) SLIDE_DOWN kullaniliyor, ama kaybolurken kullanici
-        # "balon sonup kaybolsun gibi" istedi - CROSSFADE'e geciriyoruz,
-        # SADECE bu widget'in bu TEK kapanisinda (bir sonraki bildirimin
-        # acilisi hala SLIDE_DOWN ile baslayacak, cunku o YENI bir
-        # Gtk.Revealer). Gecis bitince (child-revealed False olunca)
-        # widget'i GERCEKTEN kutudan cikariyoruz.
-        revealer.set_transition_type(Gtk.RevealerTransitionType.CROSSFADE)
+        # DUZELTME (kullanici "ayni eski efekt" dedi): Revealer'in kendi
+        # gecis tipini (SLIDE_DOWN/CROSSFADE) degistirmek yetmedi, cunku
+        # rezerve edilen alan HER turlu o gecisle birlikte aninda
+        # kucculuyordu - saydamlasma, "kayip giden" kutunun kuculmesinin
+        # yaninda fark edilmiyordu. "Balon sonup kaybolma" hissi icin
+        # ONCE pill'i (hala TAM boyutundayken) CSS ile tam saydam yapip
+        # (bkz. .pw-toast-dismissing, 150ms opacity gecisi) KISA bir sure
+        # bekliyoruz - icerik gozden tamamen kaybolduktan SONRA Revealer'i
+        # kapatip rezerve alani kucultuyoruz. O noktada icerik zaten
+        # saydam oldugu icin "kayma" hissi kalmiyor, sadece bos alan
+        # sessizce kapaniyor.
+        box = revealer.get_child()
+        if box is not None:
+            box.add_css_class("pw-toast-dismissing")
 
-        def _on_revealed(r, _pspec):
-            if not r.get_child_revealed():
-                if r.get_parent() is self._toast_box:
-                    self._toast_box.remove(r)
-        revealer.connect("notify::child-revealed", _on_revealed)
-        revealer.set_reveal_child(False)
+        def _collapse_after_fade():
+            def _on_revealed(r, _pspec):
+                if not r.get_child_revealed():
+                    if r.get_parent() is self._toast_box:
+                        self._toast_box.remove(r)
+            revealer.connect("notify::child-revealed", _on_revealed)
+            revealer.set_reveal_child(False)
+            return GLib.SOURCE_REMOVE
+
+        GLib.timeout_add(150, _collapse_after_fade)
 
     def _on_toast_action_clicked(self, entry):
         callback = entry["callback"]
