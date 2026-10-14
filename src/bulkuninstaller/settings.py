@@ -9,12 +9,15 @@ from .updater import fetch_remote_version
 
 class SettingsDialog(Adw.PreferencesDialog):
     def __init__(self, app):
-        # Kullanılmayan Programlar penceresiyle (bkz. unusedwindow.py
-        # UnusedAppsWindow default_width/default_height) AYNI boyut -
-        # kendi varsayılanıyla (içerik arttıkça büyüyen, dar bir
-        # Tercihler kutusu) bırakılınca ikisi birbirine hiç benzemiyordu.
+        # Kullanılmayan Programlar penceresiyle AYNI boyut - kendi
+        # varsayılanıyla (içerik arttıkça büyüyen, dar bir Tercihler
+        # kutusu) bırakılınca ikisi birbirine hiç benzemiyordu. 920 DEĞİL
+        # 830: UnusedAppsWindow'un default_height'ı 920 ama satır sayısına
+        # göre küçülen bir pencere (bkz. _pin_scrolled_for_row_count) -
+        # gerçek calisan pencerede KWin'den olculen GERCEK yukseklik
+        # 830px (frameGeometry.height, canli dogrulandi), 920 degil.
         super().__init__(
-            title=_("Settings"), content_width=780, content_height=920,
+            title=_("Settings"), content_width=780, content_height=830,
         )
         self._app = app
 
