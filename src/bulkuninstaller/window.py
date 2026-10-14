@@ -36,6 +36,9 @@ class MainWindow(Adw.ApplicationWindow):
         self.set_title("PackWarden")
         self.set_default_size(920, 640)
         self.maximize()
+        # _setup_css()'teki köşe/başlık-çubuğu düzleştirmesini SADECE bu
+        # pencereye hapsetmek için - bkz. _setup_css().
+        self.add_css_class("pw-main-window")
 
         self._backends = []
         self._items: list[PackageItem] = []
@@ -81,12 +84,20 @@ class MainWindow(Adw.ApplicationWindow):
         """GNOME/Adwaita'nın yuvarlatılmış pencere köşelerini ve
         gölgeli/kenarsız başlık çubuğunu düzleştirir — geleneksel
         masaüstü uygulaması görünümüne daha yakın, keskin köşeli bir
-        çerçeve."""
+        çerçeve.
+
+        SADECE ana pencereye uygulanıyor (.pw-main-window) - bu CSS
+        provider display için eklendiği için taranmadan önce bare
+        "window.background"/"headerbar" kullanılınca Kullanılmayan
+        Programlar penceresi (ayrı bir Adw.Window) de köşelerini
+        kaybediyordu, Ayarlar/Hakkında (Adw.Dialog - hiç "window" CSS
+        düğümü yok) ise etkilenmiyordu - üçü arasında tutarsız bir
+        görünüme yol açıyordu."""
         css = b"""
-        window.background {
+        window.pw-main-window.background {
             border-radius: 0px;
         }
-        headerbar {
+        window.pw-main-window headerbar {
             border-radius: 0px;
             box-shadow: none;
             border-bottom: 1px solid alpha(currentColor, 0.15);

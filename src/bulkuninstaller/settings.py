@@ -9,7 +9,13 @@ from .updater import fetch_remote_version
 
 class SettingsDialog(Adw.PreferencesDialog):
     def __init__(self, app):
-        super().__init__(title=_("Settings"))
+        # Kullanılmayan Programlar penceresiyle (bkz. unusedwindow.py
+        # UnusedAppsWindow default_width/default_height) AYNI boyut -
+        # kendi varsayılanıyla (içerik arttıkça büyüyen, dar bir
+        # Tercihler kutusu) bırakılınca ikisi birbirine hiç benzemiyordu.
+        super().__init__(
+            title=_("Settings"), content_width=780, content_height=920,
+        )
         self._app = app
 
         page = Adw.PreferencesPage(
