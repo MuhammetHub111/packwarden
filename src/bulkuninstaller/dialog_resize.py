@@ -66,7 +66,17 @@ def add_resize_grip(
         else:
             zone.set_size_request(_CORNER, _CORNER)
         zone.set_cursor(Gdk.Cursor.new_from_name(cursor_name))
-        zone.set_opacity(0.0001)  # tamamen opacity=0 bazi temalarda hit-test'i de kapatiyor
+        # opacity AYARLANMIYOR: bos bir Gtk.Box zaten hicbir sey
+        # cizmiyor, gorunmezligi icin opacity'e hic gerek yok. Onceki
+        # surumde "tam 0 hit-testi de kapatiyor" varsayimiyla 0.0001
+        # gibi sira disi bir deger kullanilmisti - dogrudan test edip
+        # bunun YANLIS oldugunu dogruladim (opacity=0 ile pick() hala
+        # dogru widget'i buluyor); sira disi, neredeyse-sifir-ama-sifir-
+        # degil bir opacity degeri, GTK'nin kompozisyon/onbellekleme
+        # yollarinda pencere yeniden boyutlanirken garip, eskimis
+        # goruntu kalintilarina yol acabilecek turden bir sey - kullanici
+        # canli olarak boyut degistirince bulanik/karismis gorsel
+        # bozulma bildirdi. Gereksiz oldugu icin kaldirildi.
 
         drag = Gtk.GestureDrag()
 
