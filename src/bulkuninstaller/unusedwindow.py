@@ -923,7 +923,20 @@ class UnusedAppsWindow(Adw.Dialog):
         # bir daha DOKUNULMUYOR.
         if self._toast_slots_pinned:
             return
-        overlay_h = self._toast_overlay.get_allocated_height()
+        # self._toast_overlay.get_allocated_height() DEGIL - su an
+        # self._scrolled (valign=START, bkz. _pin_scrolled_for_row_
+        # count) sadece KENDI pinlenmis boyutu kadar yer kaplayip
+        # fazla alani bos birakiyor, ama OVERLAY'IN KENDISI hala
+        # ToolbarView'dan DAHA FAZLA (fazlalik kadar) yukseklik
+        # aliyor - ikisi arasindaki bu fark kadar (canli olcumle
+        # dogrulandi: 818 vs 695, yani 123px) bildirimler listenin
+        # GERCEK alt kenarinin ALTINDA, bos alanda konumlaniyordu
+        # (kullanici canli ekran goruntusuyle bildirdi: bildirimler
+        # arasinda/once tutarsiz bosluk, listenin dogal gorunumunden
+        # kopuk). Bildirimler listenin KENDI alt kenarina gore
+        # konumlanmali, cevresindeki (artik daha buyuk olabilen)
+        # overlay'in alt kenarina gore degil.
+        overlay_h = self._scrolled.get_allocated_height()
         if overlay_h <= 1:
             return
         _, slot_h, _, _ = self._toast_phys_slots[0]["box"].measure(
