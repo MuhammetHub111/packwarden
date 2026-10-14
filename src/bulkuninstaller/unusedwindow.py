@@ -56,18 +56,23 @@ def _format_last_used(ts):
     return _(key).format(years=years)
 
 
-class UnusedAppsWindow(Adw.Window):
+class UnusedAppsWindow(Adw.Dialog):
     # Liste HER ZAMAN bu kadar satir gosterecek sekilde sabitlenir -
     # bkz. _pin_scrolled_for_row_count/_set_hint_banner_visible.
     _TARGET_VISIBLE_ROWS = 10
 
     def __init__(self, main_window):
+        # Adw.Window DEGIL Adw.Dialog: ayri, gercek bir pencere olarak
+        # konumunu PackWarden degil pencere yoneticisi belirliyordu, bu
+        # da Ayarlar (zaten Adw.Dialog) ile hicbir zaman ayni sekilde
+        # ortalanmiyordu (kullanici canli ekran goruntusuyle gosterdi:
+        # ust/alt bosluklar esit degildi). Adw.Dialog ana pencerenin
+        # TAM ortasina kendi kendini ortaliyor - transient_for/modal
+        # yerine content_width/content_height kullanir.
         super().__init__(
-            transient_for=main_window,
-            modal=True,
             title=_("Unused programs"),
-            default_width=780,
-            default_height=920,
+            content_width=780,
+            content_height=920,
         )
         self._main = main_window
         self._data: list[tuple[object, float | None]] = []
@@ -346,7 +351,7 @@ class UnusedAppsWindow(Adw.Window):
         toolbar_view = Adw.ToolbarView(content=self._toast_overlay)
         toolbar_view.add_top_bar(header)
         toolbar_view.add_bottom_bar(action_bar)
-        self.set_content(toolbar_view)
+        self.set_child(toolbar_view)
 
         self._update_ignored_button()
         self._scan()
@@ -354,7 +359,11 @@ class UnusedAppsWindow(Adw.Window):
         # kullanıcı burayı açık bırakıp başka bir uygulamaya geçerse, o
         # kullanım kapatıp yeniden açmaya gerek kalmadan yakalanır.
         self._rescan_source = GLib.timeout_add_seconds(2, self._on_rescan_tick)
-        self.connect("close-request", self._on_close_request)
+        # Adw.Dialog'da "close-request" (Gtk.Window sinyali) yok - en
+        # yakin karsiligi "closed" (kapanma kesinlesince ates alir,
+        # engellenemez ama zaten burada tek amac temizlik, engelleme
+        # degil).
+        self.connect("closed", self._on_close_request)
 
     def _on_rescan_tick(self):
         self._scan()
@@ -412,7 +421,7 @@ class UnusedAppsWindow(Adw.Window):
         self._scrolled_pinned_height = max(1, self._scrolled_pinned_height + delta)
         self._scrolled.set_size_request(-1, self._scrolled_pinned_height)
         self._window_pinned_height = max(1, self._window_pinned_height + delta)
-        self.set_default_size(self.get_width(), self._window_pinned_height)
+        self.set_content_height(self._window_pinned_height)
 
     def _pin_scrolled_for_row_count(self):
         # Liste icerigi (kac uygulama "kullanilmiyor" sayildigi) zamanla
@@ -472,11 +481,11 @@ class UnusedAppsWindow(Adw.Window):
         # SEFER gercek degeri okuyoruz.
         if old_scrolled_h > 1:
             win_delta = old_scrolled_h - target
-            win_h = self.get_height()
+            win_h = self.get_content_height()
             self._window_pinned_height = max(1, win_h - win_delta)
-            self.set_default_size(self.get_width(), self._window_pinned_height)
+            self.set_content_height(self._window_pinned_height)
         else:
-            self._window_pinned_height = self.get_height()
+            self._window_pinned_height = self.get_content_height()
 
         # Bu an itibariyle uyari ZATEN gorunurse (ornegin onceki
         # oturumdan "arkaplan algilama" kapali kalmis), onun alanini da

@@ -1306,10 +1306,10 @@ class MainWindow(Adw.ApplicationWindow):
         # cakisma oluyor - bkz. PackWardenApp.close_unused_if_open().
         app._unused_window = win
         win.connect(
-            "close-request",
+            "closed",
             lambda *_a: setattr(app, "_unused_window", None),
         )
-        win.present()
+        win.present(self)
 
     # ---------------- Disk haritası ----------------
 
