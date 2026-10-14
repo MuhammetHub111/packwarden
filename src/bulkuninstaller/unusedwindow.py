@@ -563,6 +563,18 @@ class UnusedAppsWindow(Adw.Dialog):
 
         old_scrolled_h = self._scrolled.get_allocated_height()
         self._scrolled.set_vexpand(False)
+        # valign hic ayarlanmamisti (varsayilan FILL) - vexpand(False)
+        # SADECE "komsulardan fazladan yer ISTEME" demek, "sana VERILEN
+        # fazladan yeri REDDET" demek degil: Gtk.Overlay'in ana cocugu
+        # (self._scrolled, Toast Overlay'in icinde) toolbar_view'dan
+        # kendi size_request'inden FAZLA alan aldiginda (dialog'un
+        # content_height'i ile header+action-bar+scrolled butcesi tam
+        # ortusmeyince hep bir miktar fazlalik oluyordu), FILL yuzunden
+        # o fazla alani da doldurmaya devam ediyordu - canli olcumle
+        # dogrulandi: 695px istenirken GERCEKTE 818px tahsis edilmisti,
+        # tam da fazladan ~2 satirlik yer. START, fazla alan varsa bile
+        # widget'i SADECE kendi istedigi boyutta tutup onu bos birakir.
+        self._scrolled.set_valign(Gtk.Align.START)
         self._scrolled.set_size_request(-1, target)
         self._scrolled_pinned_height = target
         self._row_count_pinned = True
