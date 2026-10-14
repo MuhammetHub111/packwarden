@@ -53,6 +53,7 @@ class PackWardenApp(Adw.Application):
         _seed_default_ignored_packwarden()
         self.apply_theme(prefs.get("theme"))
         self._settings_dialog = None
+        self._unused_window = None
 
         about_action = Gio.SimpleAction.new("about", None)
         about_action.connect("activate", self._on_about)
@@ -114,6 +115,7 @@ class PackWardenApp(Adw.Application):
 
     def _on_settings(self, *_args):
         from .settings import SettingsDialog
+        self.close_unused_if_open()
         self._settings_dialog = SettingsDialog(self)
         self._settings_dialog.connect(
             "closed", lambda *_a: setattr(self, "_settings_dialog", None)
@@ -131,6 +133,15 @@ class PackWardenApp(Adw.Application):
         sağlayarak bu görsel çakışmayı engeller."""
         if self._settings_dialog is not None:
             self._settings_dialog.force_close()
+
+    def close_unused_if_open(self):
+        """Kullanılmayan Programlar açılmadan ÖNCE close_settings_if_open()
+        çağrılıyor (yukarıda); bunun simetriği - Ayarlar açılmadan önce
+        TERS yönde de aynı çakışma yaşanıyordu (Kullanılmayan Programlar
+        zaten açıkken Ayarlar da açılınca, canlı doğrulandı), çünkü ikisi
+        de aynı iki konumlandırma sistemiyle çakışıyor, yön farketmiyor."""
+        if self._unused_window is not None:
+            self._unused_window.close()
 
     def _on_about(self, *_args):
         about = Adw.AboutDialog(

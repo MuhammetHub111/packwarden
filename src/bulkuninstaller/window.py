@@ -1299,8 +1299,17 @@ class MainWindow(Adw.ApplicationWindow):
         # Ayarlar aciksa once onu kapat - bkz. PackWardenApp.
         # close_settings_if_open() (ikisi ayni anda acik kalirsa
         # Ayarlar'in alt kismi bu pencerenin arkasindan tasip gorunuyordu).
-        self.get_application().close_settings_if_open()
-        UnusedAppsWindow(self).present()
+        app = self.get_application()
+        app.close_settings_if_open()
+        win = UnusedAppsWindow(self)
+        # Ayarlar TERSTEN (bu pencere zaten acikken) acilirsa da ayni
+        # cakisma oluyor - bkz. PackWardenApp.close_unused_if_open().
+        app._unused_window = win
+        win.connect(
+            "close-request",
+            lambda *_a: setattr(app, "_unused_window", None),
+        )
+        win.present()
 
     # ---------------- Disk haritası ----------------
 
