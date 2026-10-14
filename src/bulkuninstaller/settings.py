@@ -11,11 +11,18 @@ class SettingsDialog(Adw.PreferencesDialog):
     def __init__(self, app):
         # Kullanılmayan Programlar penceresiyle AYNI boyut - kendi
         # varsayılanıyla (içerik arttıkça büyüyen, dar bir Tercihler
-        # kutusu) bırakılınca ikisi birbirine hiç benzemiyordu. 920 DEĞİL
-        # 830: UnusedAppsWindow'un default_height'ı 920 ama satır sayısına
-        # göre küçülen bir pencere (bkz. _pin_scrolled_for_row_count) -
-        # gerçek calisan pencerede KWin'den olculen GERCEK yukseklik
-        # 830px (frameGeometry.height, canli dogrulandi), 920 degil.
+        # kutusu) bırakılınca ikisi birbirine hiç benzemiyordu. 830,
+        # UnusedAppsWindow'un KWin'den ölçülen gerçek (pinned) yüksekliği.
+        #
+        # NOT: Alt kenarları da tam hizalamak (sadece yükseklikleri değil)
+        # denendi ama bırakıldı - UnusedAppsWindow'un yüksekliği, o an
+        # kaç "kullanılmayan"/"yoksayılan" öğe olduğuna göre DEĞİŞEN bir
+        # değer (bkz. _pin_scrolled_for_row_count); canlı ölçümde aynı
+        # oturumda 830'dan 775'e düştüğü görüldü. Ayarlar'ın alt kenarını
+        # buna göre hesaplamak sadece o an doğru olur, liste değiştikçe
+        # tekrar kayar - kalıcı bir çözüm değil, bu yüzden sabit 830'da
+        # (iki pencerenin aynı anda hiç gösterilmediği artık zaten
+        # garanti, bkz. close_settings_if_open/close_unused_if_open).
         super().__init__(
             title=_("Settings"), content_width=780, content_height=830,
         )
