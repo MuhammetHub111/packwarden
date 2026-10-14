@@ -118,7 +118,7 @@ class UnusedAppsWindow(Adw.Dialog):
             saved_custom_days if saved_preset == 3 else PRESETS_DAYS[saved_preset]
         )
 
-        header = Adw.HeaderBar()
+        header = self._header = Adw.HeaderBar()
 
         self._threshold_row = Adw.ComboRow(
             title=_("Not used for"),
@@ -317,7 +317,7 @@ class UnusedAppsWindow(Adw.Dialog):
         )
         self._remove_button.connect("clicked", self._on_remove_clicked)
 
-        action_bar = Gtk.ActionBar()
+        action_bar = self._action_bar = Gtk.ActionBar()
         action_bar.pack_start(cancel_button)
         action_bar.pack_start(self._select_all)
         action_bar.pack_start(self._selection_label)
@@ -561,7 +561,6 @@ class UnusedAppsWindow(Adw.Dialog):
             self._TARGET_VISIBLE_ROWS * row_h
         )
 
-        old_scrolled_h = self._scrolled.get_allocated_height()
         self._scrolled.set_vexpand(False)
         # valign hic ayarlanmamisti (varsayilan FILL) - vexpand(False)
         # SADECE "komsulardan fazladan yer ISTEME" demek, "sana VERILEN
@@ -580,19 +579,22 @@ class UnusedAppsWindow(Adw.Dialog):
         self._row_count_pinned = True
 
         # Pencereyi de bu SABIT butceye gore kucult/buyut - aksi halde
-        # (ornegin varsayilan yukseklik 10'dan fazla satira yetiyorsa)
-        # listenin altinda bos, gereksiz bir alan kalirdi. BURADAN SONRA
-        # self.get_height() BIR DAHA HIC OKUNMUYOR (bkz. __init__'teki
-        # _window_pinned_height notu) - sadece bu ILK pin aninda, HENUZ
-        # hicbir kendi set_default_size() cagrimiz olmadan ONCE, TEK
-        # SEFER gercek degeri okuyoruz.
-        if old_scrolled_h > 1:
-            win_delta = old_scrolled_h - target
-            win_h = self.get_content_height()
-            self._window_pinned_height = max(1, win_h - win_delta)
-            self.set_content_height(self._window_pinned_height)
-        else:
-            self._window_pinned_height = self.get_content_height()
+        # listenin altinda bos, gereksiz bir alan kalirdi. ESKI yontem
+        # (eski/gerilmis old_scrolled_h'den FARK alip pencerenin o anki
+        # content_height'inden cikarmak) old_scrolled_h'nin KENDISI
+        # henuz valign duzeltmesinden ONCE, hala gerilmis/sismis halde
+        # olculdugu icin pencereyi gercekte gerekenden BIRAZ BUYUK
+        # birakiyordu - tam da scrolled'de duzelttigimiz sorunun aynisi,
+        # bir ust seviyede (canli ekran goruntusuyle dogrulandi: liste
+        # dogru 10 satirda duruyor ama altinda fazladan bir satirlik
+        # BOS alan kaliyordu). Bunun yerine header+actionbar'in GERCEK
+        # dogal yuksekligini dogrudan olcup target'e ekliyoruz - araya
+        # hicbir "eski deger - fark" hesaplamasi girmedigi icin fazlalik
+        # yapisal olarak olusamaz.
+        _, header_h, _, _ = self._header.measure(Gtk.Orientation.VERTICAL, -1)
+        _, actionbar_h, _, _ = self._action_bar.measure(Gtk.Orientation.VERTICAL, -1)
+        self._window_pinned_height = max(1, header_h + target + actionbar_h)
+        self.set_content_height(self._window_pinned_height)
 
         # Bu an itibariyle uyari ZATEN gorunurse (ornegin onceki
         # oturumdan "arkaplan algilama" kapali kalmis), onun alanini da
