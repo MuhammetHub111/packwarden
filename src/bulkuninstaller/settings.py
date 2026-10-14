@@ -3,6 +3,7 @@ import threading
 from gi.repository import Adw, GLib, Gtk
 
 from . import VERSION, prefs, usage_service
+from .dialog_resize import add_resize_grip
 from .i18n import _
 from .updater import fetch_remote_version
 
@@ -238,6 +239,11 @@ class SettingsDialog(Adw.PreferencesDialog):
         check_row.add_suffix(self._check_spinner)
         check_row.add_suffix(self._check_button)
         updates_group.add(check_row)
+
+        # Adw.Dialog kenardan surukleyerek boyutlandirmayi desteklemiyor
+        # (Adw.Window'un aksine, pencere yoneticisinden gelmiyordu) -
+        # kullanici bunu elle yapabilmek istedi, bkz. dialog_resize.py.
+        add_resize_grip(self)
 
     # -------------------------------------------------------------
     # Theme

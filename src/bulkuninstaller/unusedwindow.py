@@ -17,6 +17,7 @@ from gi.repository import Adw, GLib, Gtk, Pango
 
 from . import prefs, usage
 from .backends.base import format_size
+from .dialog_resize import add_resize_grip
 from .settings import SettingsDialog
 from .i18n import _
 from .removal import RemovalWindow
@@ -363,6 +364,11 @@ class UnusedAppsWindow(Adw.Dialog):
         toolbar_view.add_bottom_bar(action_bar)
         self.set_child(toolbar_view)
 
+        # Adw.Dialog kenardan surukleyerek boyutlandirmayi desteklemiyor
+        # (Adw.Window'un aksine, pencere yoneticisinden gelmiyordu) -
+        # kullanici bunu elle yapabilmek istedi, bkz. dialog_resize.py.
+        add_resize_grip(self, on_resize=self._on_manual_resize)
+
         self._update_ignored_button()
         self._scan()
         # Pencere açık kaldığı sürece periyodik olarak yeniden tara —
@@ -432,6 +438,23 @@ class UnusedAppsWindow(Adw.Dialog):
         self._scrolled.set_size_request(-1, self._scrolled_pinned_height)
         self._window_pinned_height = max(1, self._window_pinned_height + delta)
         self.set_content_height(self._window_pinned_height)
+
+    def _on_manual_resize(self, _new_width, new_height):
+        """Kullanıcı sağ-alt köşedeki tutamaçla sürükleyince (bkz.
+        dialog_resize.add_resize_grip) çağrılır. content_height'taki
+        değişimi SADECE kaydırmalı listeye yansıtıyoruz - ayar satırları
+        ve alt eylem çubuğu sabit boyutta kalıyor, fazladan/eksik alan
+        boşlukta durmak yerine listede daha fazla/az satır olarak
+        görünüyor. _window_pinned_height'ı da güncelliyoruz ki SONRADAN
+        uyarı çubuğu açılıp kapanınca (bkz. _grow_for_banner) yanlış/
+        eski bir tabandan hesaplamasın."""
+        if self._window_pinned_height is None:
+            return
+        delta = new_height - self._window_pinned_height
+        self._window_pinned_height = new_height
+        if self._scrolled_pinned_height is not None:
+            self._scrolled_pinned_height = max(1, self._scrolled_pinned_height + delta)
+            self._scrolled.set_size_request(-1, self._scrolled_pinned_height)
 
     def _pin_scrolled_for_row_count(self):
         # Liste icerigi (kac uygulama "kullanilmiyor" sayildigi) zamanla
