@@ -94,6 +94,16 @@ class UnusedAppsWindow(Adw.Dialog):
         # aksi halde çok paketli sistemde thread'ler üst üste birikebilir
         # ve sonuçlar sırasız uygulanabilirdi.
         self._scan_in_progress = False
+        # İlk (asenkron) tarama bitip pencere gerçek boyutuna (bkz.
+        # _pin_scrolled_for_row_count) oturana kadar present()'ı erteler
+        # - bkz. present_when_ready(). Adw.Window iken bu sorun
+        # görünmüyordu (varsayılan boyuttan gerçek boyuta geçiş, pencere
+        # yöneticisi tarafında, ekranda hiç görünmeden oluyordu); Adw.
+        # Dialog'a geçince aynı küçülme artık ekranda GÖRÜNÜRKEN oluyor -
+        # kullanıcı "önce büyük açılıp bir an sonra küçülüyor" diye
+        # bildirdi.
+        self._first_scan_done = False
+        self._pending_present_parent = None
 
         # Kullanıcının en son seçtiği eşik hatırlanır — pencere her
         # açıldığında 6 aya sıfırlanması can sıkıcıydı.
@@ -1209,6 +1219,38 @@ class UnusedAppsWindow(Adw.Dialog):
             self._rescan_source = None
         return False
 
+    def present_when_ready(self, parent):
+        """present(parent)'ın kendisi - ama ilk tarama sonucu işlenip
+        pencere gerçek boyutuna (bkz. _pin_scrolled_for_row_count)
+        oturana KADAR ertelenmiş hâli. İlk tarama zaten tamamlanmışsa
+        (ör. _on_rescan_tick ile) hemen gösterir; tamamlanmamışsa
+        _on_scanned ilk gerçek sonucu işleyince kendisi çağırır.
+        Güvenlik ağı: tarama 800ms içinde hiç bitmezse (beklenmedik bir
+        yavaşlık/kilitlenme), sonsuza kadar görünmez kalmasın diye yine
+        de gösterir - o durumda eski (varsayılan boyutlu) davranışa
+        geri dönülmüş olur, bu tercih edilir ama pencerenin hiç
+        açılmamasından iyidir."""
+        if self._first_scan_done:
+            self.present(parent)
+            return
+        self._pending_present_parent = parent
+
+        def _timeout_fallback():
+            if self._pending_present_parent is not None:
+                self._first_scan_done = True
+                p = self._pending_present_parent
+                self._pending_present_parent = None
+                self.present(p)
+            return GLib.SOURCE_REMOVE
+        GLib.timeout_add(800, _timeout_fallback)
+
+    def _present_if_pending(self):
+        self._first_scan_done = True
+        if self._pending_present_parent is not None:
+            parent = self._pending_present_parent
+            self._pending_present_parent = None
+            self.present(parent)
+
     # ---------------- Tarama ----------------
 
     def _scan(self):
@@ -1258,6 +1300,8 @@ class UnusedAppsWindow(Adw.Dialog):
     def _on_scanned(self, data):
         self._scan_in_progress = False
         if data is None:
+            if not self._first_scan_done:
+                self._present_if_pending()
             return  # tarama başarısız oldu; mevcut veri/liste korunur
         # İlk gerçek tarama sonucu geldiğinde Yoksayılanlar panelini de
         # tazele — __init__'te _update_ignored_button() ilk kez tarama
@@ -1275,6 +1319,8 @@ class UnusedAppsWindow(Adw.Dialog):
         new_stale_keys = frozenset(pkg_key for pkg_key, _pkg, _ts in self._stale_packages())
         if new_stale_keys != self._last_stale_keys:
             self._rebuild_list()
+        if not self._first_scan_done:
+            self._present_if_pending()
         return GLib.SOURCE_REMOVE
 
     # ---------------- Eşik ----------------

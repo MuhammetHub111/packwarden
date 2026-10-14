@@ -1309,7 +1309,11 @@ class MainWindow(Adw.ApplicationWindow):
             "closed",
             lambda *_a: setattr(app, "_unused_window", None),
         )
-        win.present(self)
+        # present() DEGIL present_when_ready() - bkz. UnusedAppsWindow.
+        # present_when_ready() (ilk tarama bitip pencere gercek boyutuna
+        # oturana kadar gostermeyi erteler, aksi halde varsayilan buyuk
+        # boyuttan gercek kucuk boyuta ekranda GORUNURKEN kuculuyordu).
+        win.present_when_ready(self)
 
     # ---------------- Disk haritası ----------------
 
