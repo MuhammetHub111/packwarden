@@ -478,6 +478,20 @@ class UnusedAppsWindow(Adw.Dialog):
             self._scrolled_pinned_height = max(1, self._scrolled_pinned_height + delta)
             self._scrolled.set_size_request(-1, self._scrolled_pinned_height)
 
+        # Bildirim slotlarinin sabit margin_top'u (bkz. _pin_toast_slot_
+        # positions) pencere YENIDEN boyutlanmadan ONCEKI yukseklige gore
+        # hesaplanmisti - pencere sonradan manuel suruklenince bu eski
+        # degerler artik YANLIS oluyordu (kullanici canli ekran
+        # goruntusuyle bildirdi: ust uste binen, "pill" seklini kaybetmis
+        # bildirimler). Su an gosterilen bir bildirim YOKSA (varsa,
+        # onlari aninda yerinden oynatmak - tam da bu bildirim sisteminin
+        # en basindan beri KACINILMASI gereken sey - bu yuzden o durumda
+        # dokunmuyoruz, bir sonraki SIFIRDAN gosterimde kendiliginden
+        # dogru hesaplanacak) yeniden hesaplanmasina izin veriyoruz.
+        if not self._toast_data:
+            self._toast_slots_pinned = False
+            GLib.idle_add(self._pin_toast_slot_positions)
+
     def _pin_scrolled_for_row_count(self):
         # Liste icerigi (kac uygulama "kullanilmiyor" sayildigi) zamanla
         # degisebilir, ama pencere/liste boyutu her degisiminde oynamasin
