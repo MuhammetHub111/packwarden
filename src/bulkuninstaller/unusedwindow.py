@@ -440,18 +440,40 @@ class UnusedAppsWindow(Adw.Dialog):
         self.set_content_height(self._window_pinned_height)
 
     def _on_manual_resize(self, _new_width, new_height):
-        """Kullanıcı sağ-alt köşedeki tutamaçla sürükleyince (bkz.
-        dialog_resize.add_resize_grip) çağrılır. content_height'taki
-        değişimi SADECE kaydırmalı listeye yansıtıyoruz - ayar satırları
-        ve alt eylem çubuğu sabit boyutta kalıyor, fazladan/eksik alan
-        boşlukta durmak yerine listede daha fazla/az satır olarak
-        görünüyor. _window_pinned_height'ı da güncelliyoruz ki SONRADAN
-        uyarı çubuğu açılıp kapanınca (bkz. _grow_for_banner) yanlış/
-        eski bir tabandan hesaplamasın."""
+        """Kullanıcı kenardan/köşeden sürükleyince (bkz. dialog_resize.
+        add_resize_grip) çağrılır. content_height'taki değişimi SADECE
+        kaydırmalı listeye yansıtıyoruz - ayar satırları ve alt eylem
+        çubuğu sabit boyutta kalıyor, fazladan/eksik alan boşlukta
+        durmak yerine listede daha fazla/az satır olarak görünüyor.
+
+        dialog_resize zaten content_height'ı HAM (satır sınırına
+        yuvarlanmamış) sürükleme değerine ayarladı - burada EN YAKIN
+        tam satır katına düzeltiyoruz, aksi halde liste tam bir satırın
+        ORTASINDA bitip son satır yarım görünüyordu (kullanıcı canlı
+        ekran görüntüsüyle bildirdi; tam da _pin_scrolled_for_row_count
+        bunun için vardı, ama manuel sürükleme onu hiç yuvarlamıyordu).
+        Çerçevenin geri kalanı (ayar satırları, varsa uyarı çubuğu) ne
+        olursa olsun, sadece satır SAYISI tam kalsın diye değişimi
+        (ham pikseli değil) en yakın satır katına yuvarlıyoruz."""
         if self._window_pinned_height is None:
             return
-        delta = new_height - self._window_pinned_height
-        self._window_pinned_height = new_height
+        row = self._list_box.get_row_at_index(0)
+        if row is not None:
+            _, row_h, _, _ = row.measure(Gtk.Orientation.VERTICAL, -1)
+        else:
+            row_h = 0
+        if row_h <= 1:
+            row_h = 56
+        raw_delta = new_height - self._window_pinned_height
+        rows_delta = round(raw_delta / row_h)
+        delta = rows_delta * row_h
+        if delta == 0:
+            # Degisim yarim satirdan az - pencereyi eski (zaten tam
+            # satir sinirinda olan) haline geri cek.
+            self.set_content_height(self._window_pinned_height)
+            return
+        self._window_pinned_height = max(1, self._window_pinned_height + delta)
+        self.set_content_height(self._window_pinned_height)
         if self._scrolled_pinned_height is not None:
             self._scrolled_pinned_height = max(1, self._scrolled_pinned_height + delta)
             self._scrolled.set_size_request(-1, self._scrolled_pinned_height)
