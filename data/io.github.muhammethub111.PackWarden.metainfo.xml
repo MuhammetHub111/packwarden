@@ -41,6 +41,33 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.15.1" date="2026-10-14">
+      <description>
+        <p>New:</p>
+        <ul>
+          <li>Redesigned the main window's top bar with a traditional title bar and a classic File / Tools / Help menu bar.</li>
+          <li>Added the ability to ignore individual programs from the Unused Programs list, with a dedicated panel to review and restore them later.</li>
+          <li>Added column visibility toggle and a name filter panel, both from a right-click on a column header.</li>
+          <li>Added a "Location" column showing the real path to a program's main executable.</li>
+          <li>Added support for Windows programs installed through Wine as a new package source, with real icons, desktop shortcuts, and dedicated leftover categories.</li>
+          <li>Added automatic license detection from GitHub for Flatpak apps that don't publish one through their store listing.</li>
+        </ul>
+        <p>Improved:</p>
+        <ul>
+          <li>Lutris games now show their real icon and which store they came from, matching Steam and Heroic games.</li>
+          <li>Launching an app now reports a real reason when it fails, instead of failing silently.</li>
+          <li>The in-app language setting now also applies to GTK/Adwaita's own built-in interface text.</li>
+        </ul>
+        <p>Fixed:</p>
+        <ul>
+          <li>Background usage detection (Settings → Privacy) didn't actually work when PackWarden was installed via install.sh; the background service was never set up.</li>
+          <li>Removing a Steam game could leave it still showing as installed in Steam until Steam was restarted.</li>
+          <li>GOG and Amazon games listed through Heroic were read from the wrong file.</li>
+          <li>Removing an Epic game through Heroic never actually worked, due to a wrong config path.</li>
+          <li>Heroic games weren't detected at all on some installations, such as Arch Linux's heroic-games-launcher package.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.14.1" date="2026-08-31">
       <description>
         <p>New:</p>

@@ -33,7 +33,17 @@ from ._shortcuts import remove_matching_shortcuts
 CONFIG_DIR = "~/.config/heroic"
 
 _BIN_CANDIDATES = (
+    # Resmi .deb/.rpm/AppImage paketleri Electron uygulamasını
+    # /opt/<AppName>/ altına kurar.
     "/opt/Heroic/resources/app.asar.unpacked/build/bin/x64/linux",
+    # Arch/CachyOS'un "heroic-games-launcher" paketi (pacman -Ql ile
+    # canli dogrulandi) ayni app.asar.unpacked agacini BUNUN yerine
+    # /usr/lib/heroic-games-launcher/ altina koyuyor - /opt/Heroic hic
+    # var olmuyor, bu yuzden is_available() HER ZAMAN False donuyordu
+    # (kullanici "liste gorunmuyor" diye bildirdi, canli bu makinede
+    # kesin olarak dogrulandi: /opt/Heroic yok, legendary/gogdl/nile
+    # PATH'te de yok, gercek ikili dosyalar SADECE bu yolda).
+    "/usr/lib/heroic-games-launcher/app.asar.unpacked/build/bin/x64/linux",
 )
 
 
@@ -42,11 +52,11 @@ def _bin_path(tool: str) -> str | None:
         path = os.path.join(base, tool)
         if os.path.isfile(path) and os.access(path, os.X_OK):
             return path
-    # _BIN_CANDIDATES yalnızca native (AUR/deb/rpm) Heroic kurulumunu
-    # kapsıyor; Flatpak Heroic'in gerçek iç yolu bu makinede kurulu
-    # olmadığı için doğrulanamadı - tahmin edip sabit kodlamak yerine
-    # PATH'te aynı adla bir araç varsa (ör. ayrı bir AUR paketinden)
-    # ona düşülüyor, hiçbir şeye güvenmemekten daha iyi.
+    # _BIN_CANDIDATES bilinen birkac native (deb/rpm/AppImage, Arch)
+    # Heroic kurulumunu kapsiyor; Flatpak Heroic'in gercek ic yolu bu
+    # makinede kurulu olmadigi icin dogrulanamadi - tahmin edip sabit
+    # kodlamak yerine PATH'te ayni adla bir arac varsa (or. ayri bir
+    # paketten) ona dusuluyor, hicbir seye guvenmemekten daha iyi.
     return shutil.which(tool)
 
 

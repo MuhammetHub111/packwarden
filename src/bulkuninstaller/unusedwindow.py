@@ -57,6 +57,10 @@ def _format_last_used(ts):
 
 
 class UnusedAppsWindow(Adw.Window):
+    # Liste HER ZAMAN bu kadar satir gosterecek sekilde sabitlenir -
+    # bkz. _pin_scrolled_for_row_count/_set_hint_banner_visible.
+    _TARGET_VISIBLE_ROWS = 10
+
     def __init__(self, main_window):
         super().__init__(
             transient_for=main_window,
@@ -229,8 +233,8 @@ class UnusedAppsWindow(Adw.Window):
         # (duz pencere rengi), bildirimler acikken listenin son satiri ile
         # bildirim alani arasinda ayri, koyu bir "bosluk" gibi goze
         # batiyordu (kullanici ekran goruntusuyle gosterdi). Satirlarla
-        # AYNI rengi vererek (bkz. _toast_spacer/_empty_status/_toast_box
-        # icin ayni cozum) bu bosluk goze batmiyor.
+        # AYNI rengi vererek (bkz. _empty_status icin ayni cozum) bu
+        # bosluk goze batmiyor.
         self._scrolled = Gtk.ScrolledWindow(
             child=clamp, vexpand=True, css_classes=["pw-row-bg-fill"],
         )
@@ -259,6 +263,25 @@ class UnusedAppsWindow(Adw.Window):
         # Kullanici (ya da programatik olarak biz) listeyi en alta kadar
         # kaydirmis mi - bkz. _on_scroll_value_changed/_snap_scrolled_bottom.
         self._pinned_to_bottom = False
+        # Liste HER ZAMAN (arkaplan algilama uyarisi acilsin/kapansin
+        # fark etmeksizin) ayni sayida ("_TARGET_VISIBLE_ROWS") satir
+        # gosterecek sekilde SABITLENIR - bkz. _pin_scrolled_for_row_
+        # count. Uyari çubuğu (bkz. _set_hint_banner_visible) bu sabit
+        # butceden CALMAZ, bunun yerine pencerenin kendisi o kadar
+        # buyur/kucculur.
+        self._row_count_pinned = False
+        self._row_count_pin_pending = False
+        self._scrolled_pinned_height = None
+        # Pencerenin "su an ne kadar olmasini istedigimiz" yuksekligi -
+        # self.get_height() TEKRAR TEKRAR OKUNMUYOR cunku art arda hizli
+        # set_default_size() cagrilarindan hemen sonra (gercek pencere
+        # henuz yeniden boyutlanmadan) 0 dondugu canli olarak dogrulandi
+        # (PWDEBUG log'u: "new_window_h=-67" gibi imkansiz degerler) -
+        # bu da hesaplarin birikerek bozulmasina yol aciyordu. Bunun
+        # yerine SADECE BIR KERE (ilk pin aninda) gercek degeri okuyup
+        # bundan sonra TAMAMEN kendi degerimizi (saf aritmetikle) takip
+        # ediyoruz - bkz. _pin_scrolled_for_row_count/_grow_for_banner.
+        self._window_pinned_height = None
         vadjustment = self._scrolled.get_vadjustment()
         vadjustment.connect("notify::value", self._on_scroll_value_changed)
         vadjustment.connect("notify::upper", self._on_scroll_area_changed)
@@ -286,21 +309,42 @@ class UnusedAppsWindow(Adw.Window):
 
         self._build_toast_widget()
 
-        # Bildirimler artik bir Gtk.Overlay ile listenin UZERINE binen
-        # yuzen kutular DEGIL - ToolbarView'in kendi "bottom bar" yigi-
-        # nina, icerik (scrolled) ile alt eylem cubugu (action_bar)
-        # ARASINA eklenen GERCEK, akis-ici bir satir (bkz. _build_toast_
-        # widget). Bu sayede varligi/yuksekligi GTK'nin kendi box
-        # duzeni tarafindan hesaplaniyor - "+" tikladiginda alttaki
-        # satirlarin +/- dugmelerini kapatan/erisilemez yapan bir yuzen-
-        # kutu-uzerinde-liste tasarimi tamamen ortadan kalkiyor, cunku
-        # bildirim artik listenin BİR PARCASI degil, ayri, kendi
-        # yerini alan bir alan. Bos oldugunda (hic bildirim yokken)
-        # dogal yuksekligi 0'a doner (bkz. Gtk.Revealer kullanimi,
-        # _show_toast/_remove_toast), yani bos alan da kalmiyor.
-        toolbar_view = Adw.ToolbarView(content=scrolled)
+        # Pencere boyutu bildirimlerle BIRLIKTE degismesin istendi
+        # (kullanici: yoksayilandan bir program cikarinca pencere
+        # buyuyordu, bu istenmiyor). Onceki tasarim (bkz. git log)
+        # bildirimi ToolbarView'in bottom-bar yiginina gercek bir satir
+        # olarak ekleyip PENCERENIN KENDISINI buyutup kucultuyordu - bu,
+        # "altindaki bildirim yukari kayar" davranisini (gercek piksel
+        # testiyle dogrulanmis) korumanin TEK yolu olarak bulunmustu,
+        # ama tam da bu yuzden pencere boyu her bildirimde oynuyordu.
+        # Simdi bildirim alanini (bkz. asagida self._toast_phys_slots)
+        # bir Gtk.Overlay ile listenin (scrolled) UZERINE yuzduruyoruz:
+        # pencere VE listenin kendi boyutu artik HICBIR ZAMAN degismiyor
+        # (overlay katmani normal duzen hesabina katilmiyor).
+        # Kullanici hem "yeni bildirimler asagidan yukari buyusun (en
+        # eski altta sabit kalir, var olanlar yeni biri eklenince yer
+        # degistirmez)" HEM DE "hangi bildirimin X'ine basarsam basayim,
+        # ALTINDAKILER yukari kayip bosalan yeri doldursun" istedi - bu
+        # IKISI, TEK bir Gtk.Box + TEK sabit kenarla (ALTTAN veya USTTEN)
+        # AYNI ANDA SAGLANAMIYOR (bu oturumda COK sayida bagimsiz
+        # yontemle kanitlandi). Bu yuzden self._toast_phys_slots (bkz.
+        # _build_toast_widget) ARTIK TEK bir kutunun cocuklari DEGIL -
+        # overlay'in AYRI, BIRBIRINDEN TAMAMEN BAGIMSIZ cocuklari, her
+        # biri KENDI SABIT margin_top'una (bkz. _pin_toast_slot_
+        # positions) GORE konumlaniyor. Boylece "kapatma" artik WIDGET
+        # KONUMLARINI degistirmiyor - sadece hangi fiziksel slotun hangi
+        # veriyi gosterdigini (bkz. _dismiss_slot) guncelliyor, bu da
+        # HER IKI davranisi da ayni anda dogru sekilde saglamaya yetiyor.
+        self._toast_overlay = Gtk.Overlay()
+        self._toast_overlay.set_child(scrolled)
+        for slot in self._toast_phys_slots:
+            slot["revealer"].set_halign(Gtk.Align.FILL)
+            slot["revealer"].set_valign(Gtk.Align.START)
+            slot["revealer"].set_hexpand(True)
+            self._toast_overlay.add_overlay(slot["revealer"])
+
+        toolbar_view = Adw.ToolbarView(content=self._toast_overlay)
         toolbar_view.add_top_bar(header)
-        toolbar_view.add_bottom_bar(self._toast_box)
         toolbar_view.add_bottom_bar(action_bar)
         self.set_content(toolbar_view)
 
@@ -314,101 +358,244 @@ class UnusedAppsWindow(Adw.Window):
 
     def _on_rescan_tick(self):
         self._scan()
-        self._hint_banner.set_visible(
+        self._set_hint_banner_visible(
             not prefs.get("background_usage_detection")
         )
         return GLib.SOURCE_CONTINUE
+
+    # Kullanici: "arkaplan algilama" ayarini kapatinca ustte cikan sari
+    # uyari, listenin aynı pencerede gorunen satir sayisini ("ritim")
+    # degistiriyordu - uyari ACILINCA 1-2 satir daha az sigiyordu. Bu
+    # yuzden uyarinin kendi gorunurlugunu DOGRUDAN set_visible() ile
+    # degil, bu yardimciyla degistiriyoruz: uyarinin kapladigi alani
+    # olcup AYNI miktarda pencereyi buyutup/kucultuyoruz (bkz.
+    # _grow_for_banner) - liste HER ZAMAN ayni (_TARGET_VISIBLE_ROWS)
+    # sayida satir gosteriyor, uyari bunun disinda, "ekstra" olarak
+    # ekleniyor.
+    def _set_hint_banner_visible(self, visible):
+        if self._hint_banner.get_visible() == visible:
+            return
+        if not self._row_count_pinned:
+            self._hint_banner.set_visible(visible)
+            return
+        # ONEMLI: .measure() de GORUNMEYEN bir widget icin (0, 0) doner -
+        # icerigine gore dogal boyutu bilse bile, GTK gizli widget'lari
+        # yerlesim hesabina hic katmiyor. Bu yuzden olcumu HER ZAMAN
+        # widget GERCEKTEN gorunurken yapmak gerekiyor: gizlerken ONCE
+        # (hala gorunurken) olc SONRA gizle; gosterirken ONCE goster
+        # SONRA (artik gorunur oldugu icin) olc - .measure() senkron
+        # calistigi icin (bir onceki surumde idle_add ile denenen "gorunur
+        # olana kadar bosta-bekleme turlerinde bekle" yaklasimi, art arda
+        # hizli turlerde GERCEK bir tahsis/cerceve turu hic olusmadigindan
+        # hep 0 donuyordu) ek bir bekleme turuna gerek yok.
+        spacing = self._content.get_spacing()
+        if not visible:
+            _, natural, _, _ = self._hint_banner.measure(
+                Gtk.Orientation.VERTICAL, -1
+            )
+            self._hint_banner.set_visible(False)
+            delta = natural + spacing if natural > 0 else 0
+            if delta > 0:
+                self._grow_for_banner(-delta)
+            return
+        self._hint_banner.set_visible(True)
+        _, natural, _, _ = self._hint_banner.measure(
+            Gtk.Orientation.VERTICAL, -1
+        )
+        delta = natural + spacing if natural > 0 else 0
+        if delta > 0:
+            self._grow_for_banner(delta)
+
+    def _grow_for_banner(self, delta):
+        if self._scrolled_pinned_height is None or self._window_pinned_height is None:
+            return
+        self._scrolled_pinned_height = max(1, self._scrolled_pinned_height + delta)
+        self._scrolled.set_size_request(-1, self._scrolled_pinned_height)
+        self._window_pinned_height = max(1, self._window_pinned_height + delta)
+        self.set_default_size(self.get_width(), self._window_pinned_height)
+
+    def _pin_scrolled_for_row_count(self):
+        # Liste icerigi (kac uygulama "kullanilmiyor" sayildigi) zamanla
+        # degisebilir, ama pencere/liste boyutu her degisiminde oynamasin
+        # diye bu SADECE BIR KERE (ilk gercek satirlar olustugunda)
+        # calisir - bkz. _row_count_pinned/_row_count_pin_pending.
+        if self._row_count_pinned or self._row_count_pin_pending:
+            return
+        self._row_count_pin_pending = True
+
+        # get_allocated_height() DEGIL, .measure() - ONEMLI: ilk denemede
+        # get_allocated_height() + idle_add retry kullanilmisti, ama
+        # gercek uygulamada bu HER ZAMAN 40 bosta-bekleme turunde bile 0/
+        # gecersiz kaldi (canli raporla dogrulandi: pin hic devreye
+        # girmedi, liste eski "ekrana gore degisken" haline geri dustu,
+        # kullanici 10'dan FAZLA satir gordugunu bildirdi) - gercek bir
+        # tahsis/cerceve turu gerektiriyor, ard arda hizli bosta-bekleme
+        # turlerinde hic olusmuyor (bkz. _set_hint_banner_visible'daki
+        # ayni kesif). .measure() ise widget GORUNURKEN icerigine gore
+        # dogal boyutu HER ZAMAN senkron, aninda verir - bosta-bekleme
+        # turune hic gerek yok, _rebuild_list satirlari ekledigi ANDA
+        # cagrilabilir.
+        _, settings_h, _, _ = self._settings_group.measure(
+            Gtk.Orientation.VERTICAL, -1
+        )
+        row = self._list_box.get_row_at_index(0)
+        if row is not None:
+            _, row_h, _, _ = row.measure(Gtk.Orientation.VERTICAL, -1)
+        else:
+            row_h = 0
+        if row_h <= 1:
+            row_h = 56
+        spacing = self._content.get_spacing()
+        # SADECE margin_top - margin_bottom listenin GERCEK sonunda
+        # (satir 10 DEGIL, varsa 11, 12... hatta 20. satirdan SONRA)
+        # yer aliyor. Onu da burada sayarsak (satir 10'u "icerigin sonu"
+        # sanip) 12px'lik FAZLADAN alan aciliyor - canli ekran
+        # goruntusuyle dogrulandi: tam bu kadarlik bir sizinti, 11.
+        # satirin bir parcasi gorunur kaliyordu.
+        margins = self._content.get_margin_top()
+        target = margins + settings_h + spacing + (
+            self._TARGET_VISIBLE_ROWS * row_h
+        )
+
+        old_scrolled_h = self._scrolled.get_allocated_height()
+        self._scrolled.set_vexpand(False)
+        self._scrolled.set_size_request(-1, target)
+        self._scrolled_pinned_height = target
+        self._row_count_pinned = True
+
+        # Pencereyi de bu SABIT butceye gore kucult/buyut - aksi halde
+        # (ornegin varsayilan yukseklik 10'dan fazla satira yetiyorsa)
+        # listenin altinda bos, gereksiz bir alan kalirdi. BURADAN SONRA
+        # self.get_height() BIR DAHA HIC OKUNMUYOR (bkz. __init__'teki
+        # _window_pinned_height notu) - sadece bu ILK pin aninda, HENUZ
+        # hicbir kendi set_default_size() cagrimiz olmadan ONCE, TEK
+        # SEFER gercek degeri okuyoruz.
+        if old_scrolled_h > 1:
+            win_delta = old_scrolled_h - target
+            win_h = self.get_height()
+            self._window_pinned_height = max(1, win_h - win_delta)
+            self.set_default_size(self.get_width(), self._window_pinned_height)
+        else:
+            self._window_pinned_height = self.get_height()
+
+        # Bu an itibariyle uyari ZATEN gorunurse (ornegin onceki
+        # oturumdan "arkaplan algilama" kapali kalmis), onun alanini da
+        # simdi ekliyoruz - aksi halde ilk anda 10 satirlik butce
+        # uyariyla PAYLASILMIS olurdu.
+        if self._hint_banner.get_visible():
+            _, banner_h, _, _ = self._hint_banner.measure(
+                Gtk.Orientation.VERTICAL, -1
+            )
+            if banner_h > 1:
+                self._grow_for_banner(banner_h + spacing)
 
     # Ayni anda en fazla bu kadar bildirim ust uste yigilabilir — 4.'su
     # gelince en eskisi (kullanicinin "Geri al" sansi olmadan) dusurulur.
     _MAX_TOASTS = 3
 
     def _build_toast_widget(self):
-        # Bildirimler artik Gtk.Overlay uzerinde listenin USTUNE binen
-        # yuzen kutular DEGIL - ToolbarView'in bottom-bar yiginina
-        # (bkz. __init__) icerik (scrolled) ile alt eylem cubugu
-        # (action_bar) ARASINA eklenen GERCEK, akis-ici bir Gtk.Box
-        # (self._toast_box). Her bildirim kendi Gtk.Revealer'i icinde bu
-        # kutuya append/remove edilir - GTK'nin kendi box duzeni bildirim
-        # sayisina gore dogal olarak buyur/kucculur (hic bildirim yokken
-        # self._toast_box'un 0 cocugu var, dogal yuksekligi 0 - kalici
-        # bos alan yok), elle rank/translateY hesabina hic gerek yok.
-        #
-        # Eski tasarim (bkz. git log) Gtk.Overlay + rank tabanli CSS
-        # transform kullaniyordu: bildirim listenin UZERINE biniyor,
-        # +/- dugmelerini hem gorsel hem tiklama olarak erisilemez
-        # yapiyordu. Bunu once "rezerv" (listenin altina kalici bos
-        # alan ayirma) ile, sonra "kaydirma telafisi" (listeyi bildirim
-        # yuksekligi kadar yukari kaydirma) ile cozmeye calisildi - ikisi
-        # de bir sekilde calisti ama ikisi de temelde YANLIS katmanda
-        # (liste/scroll) bir "listenin UZERINE binen ayri bir katman"
-        # sorununu duzeltmeye calisiyordu. Kullanici defalarca ekran
-        # goruntusuyle "hala ust uste biniyor" bildirdi (uzun listelerde,
-        # art arda/coklu bildirimde, farkli senaryolarda) - kok neden HER
-        # ZAMAN ayniydi: bildirim, PENCERE DUZENININ bir parcasi degil,
-        # ondan bagimsiz yuzen bir katmandi. Simdi bildirim de dogrudan
-        # duzenin (ToolbarView) bir parcasi - liste onun icin GERCEKTEN
-        # yer aciyor, cakisma yapisal olarak imkansiz (bkz. GTK'nin kendi
-        # box/toolbarview yerlesim mantigi).
-        #
         # Adw.Toast/ToastOverlay KULLANILMIYOR — libadwaita'nin kendi
         # kayma animasyonu private/ic bir efekt, disaridan sadece GTK'nin
         # genel "animasyonlari etkinlestir" ayariyla (uygulamadaki HER
         # animasyonu etkiler, ör. Yoksayilanlar perdesi) kapatilabiliyor.
         # Kendi basit bildirim widget'imizi yazmak, konum/davranis
         # uzerinde tam kontrol sagliyor.
-        self._toasts = []  # en eski once: [{"revealer","timeout_id","callback"}, ...]
-        # pw-row-bg-fill: bu kutunun kendi arkaplani stilsizdi (duz
-        # pencere rengi/varsayilan), pill'lerin kendi CSS margin'i
-        # (bkz. .pw-toast) disinda kalan kucuk
-        # seritlerde bu duz renk gorunuyordu - tam da listenin son
-        # satirinin ayirici cizgisinin bitip bildirim alaninin basladigi
-        # sinirda, ekran goruntusu + piksel olcumuyle dogrulandi (satir
-        # rengi rgb(52,52,55) -> bu kutunun stilsiz rengi rgb(32,32,36)
-        # -> pill rgb(46,46,50): ayirici cizginin "ic" tarafi kayboluyor,
-        # dogrudan bildirimin kendi renginmis gibi goruniyordu). Satirlarla
-        # AYNI hesaplanmis rengi vererek (bkz. _toast_spacer/_empty_status
-        # icin ayni cozum) bu sinirdaki ayirici cizgi normal/tam gorunuyor.
-        self._toast_box = Gtk.Box(
-            orientation=Gtk.Orientation.VERTICAL, css_classes=["pw-row-bg-fill"],
-        )
+        #
+        # MIMARI (bu surum): TEK bir Gtk.Box'ta dinamik olarak
+        # olusturulan/yok edilen slotlar YERINE, _MAX_TOASTS adet
+        # KALICI, sabit ekran konumuna (margin_top, bkz. _pin_toast_
+        # slot_positions) iGNE ile TUTTURULMUS fiziksel slot var
+        # (self._toast_phys_slots[0]=en alt/giris noktasi, ...[-1]=en
+        # ust). Bunun nedeni: Gtk.Box + TEK sabit kenar (ust YA DA alt)
+        # ile "bildirimler asagidan yukari buyusun (en eski altta sabit)"
+        # VE "HANGI bildirimi kapatirsam kapatayim, ALTINDAKILER yukari
+        # kayar" ayni anda SAGLANAMIYOR - kanitlandi (bkz. kullaniciyla
+        # yapilan uzun tartisma, git log): bir ucu sabit tutan TEK bir
+        # kutuda, "en yeniyi" (hep DIGER uctaki, sayimla kayan nokta)
+        # kapatinca kimsenin kaymasi MATEMATIKSEL olarak imkansiz. Her
+        # slotun KENDI BAGIMSIZ, sabit piksel konumu olunca (overlay'in
+        # AYRI cocuklari, box-reflow'a hic girmiyorlar) bu kisit ortadan
+        # kalkiyor: kapatma islemi SADECE "hangi slot'un icerigi hangi
+        # veriye ait" eslemesini (bkz. _dismiss_slot) degistiriyor,
+        # WIDGET'LARIN KENDI KONUMLARI hic degismiyor.
+        self._toast_data = []  # [{"title","button_label","on_action","timeout","timeout_id"}, ...] - gelis sirasina (en eski once) gore
+        self._toast_phys_slots = [
+            self._create_toast_phys_slot() for _ in range(self._MAX_TOASTS)
+        ]  # [{"revealer","box","label","action_button","close_button","occupant"}, ...]
+        self._toast_slots_pinned = False
 
         css = b"""
         .pw-toast {
             background-color: rgba(46, 46, 50, 0.92);
             color: white;
-            padding: 6px 6px 6px 16px;
+            padding: 8px 8px 8px 16px;
             border-radius: 9999px;
             box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
+            /* opacity/transform'un ACIK (implicit/initial degere
+               guvenilmeyen) "normal" degerleri - minimal, izole bir
+               ekran-goruntusu testiyle dogrulandi: GTK'nin CSS motoru,
+               bir sinif kaldirilinca "hicbir kural kalmadi, initial
+               degere don" durumunu guvenilir sekilde ANIMASYONLU
+               oynatmiyor (sessizce ANINDA atliyor) - gecisin hem "nereden"
+               hem "nereye" tarafinin ACIKCA bir kuralda yazili olmasi
+               gerekiyor.
+            */
+            opacity: 1;
+            transform: none;
             /* Ust/alt bosluk (komsu bildirimler + icerik/eylem cubugu
-               arasi) VE yan bosluk (icerigin kendi 12px kenar payiyla
-               hizali) burada, PILL'in kendi CSS'inde - self._toast_box'un
-               UZERINDE degil. Boylece 0 bildirim varken kutunun 0 cocugu
-               = 0 gorunur yukseklik + 0 margin (bos alan kalmiyor); her
-               bildirim VARKEN kendi boslugunu kendi tasiyor.
+               arasi) VE yan bosluk burada, PILL'in kendi CSS'inde - her
+               fiziksel slotun KENDI revealer'inda degil. Boylece 0
+               bildirim varken revealer'in 0 gorunur yukseklik + 0 margin
+               (bos alan kalmiyor); her bildirim VARKEN kendi boslugunu
+               kendi tasiyor.
                Ust bosluk (listenin bitisiyle ilk bildirim arasi) bilerek
                ALTTAN daha kucuk - kullanici ekran goruntusuyle "bildirim
                biraz daha yukari gelsin" dedi (ustteki uzun bos dikdortgen
                bug'iyla ilgisi yok, o ayri ve zaten cozuldu - bu sadece
                pill'in kendi ince kenar boslugu).
+               Yan bosluk (56px): kullanici ekran goruntusuyle bildirim
+               pill'inin, UZERINE bindigi Yoksayilanlar satirlarindan
+               (nested row) cok daha genis oldugunu isaretledi ("kirp,
+               daralt, uygulamaya denk gelsin") - canli piksel olcumuyle
+               dogrulandi: nested satir x=56..723 (genislik 667), pill ise
+               x=12..768 idi (genislik 756) - pill her iki yanda da ~44-56px
+               fazla tasiyordu. 56px pill'i nested satirin GERCEK x
+               sinirlarina hizaliyor.
             */
-            margin: 2px 12px 4px;
-            transition: opacity 150ms ease;
+            margin: 1px 56px 3px;
         }
-        /* Acilirken/kapanirken Gtk.Revealer'in SLIDE gecisi, pill'in
-           kendi yuksekligi de ayni anda buyuyup/kuculdugu icin hala
-           "kayarak geliyor/gidiyor" gibi gorunuyordu (CROSSFADE de
-           denendi, kullanici "ayni eski efekt" dedi - cunku REZERVE
-           EDILEN ALAN her turlu o gecisle birlikte degisiyor,
-           saydamlasma neredeyse fark edilmiyordu). Bunun yerine: ONCE
-           rezerve alani ac/kapat (pill bu sinifla tam saydamken, yani
-           hicbir sey gorunur sekilde kaymiyor), ANCAK O ZAMAN pill'i
-           bu sinifi kaldirip/ekleyip CSS gecisiyle (150ms) sondurup/
-           yakip "balon patlayip belirme/sonup kaybolma" hissini
-           veriyoruz (bkz. _show_toast ve _remove_toast).
+        /* Dugmeler ARTIK kompaktlastirilmiyor (eski gerekce: bildirim
+           pencereyi buyutuyordu, bu yuzden kucuk tutulmasi gerekiyordu -
+           bkz. git log). Bildirimler artik pencereyi hic buyutmuyor
+           (bkz. __init__'teki Gtk.Overlay), bu yuzden kullanicinin
+           istedigi gibi normal boyutlarinda (standart Adwaita dugme
+           yuksekligi) kalabiliyorlar - kullanici ekran goruntusuyle
+           pill'in bir UYGULAMA SATIRI kadar yer kaplamasini istedi,
+           kucultulmus dugmeler bunu engelliyordu.
         */
+        .pw-toast > button.circular {
+            /* Bu gecis SADECE belirme (bkz. _show_toast) icin kullaniliyor
+               artik - pill kucuk/saydamken (.pw-toast-hidden) "geri yayli"
+               (back-ease-out) egriyle kisa bir asiri-buyume (overshoot)
+               yapip tam boyutuna oturuyor, yani "baloncuk sisip patlama"
+               hissi veriyor, konumu hic degismeden. Kapanista (bkz.
+               _remove_toast_at) ARTIK BU GECIS OYNAMIYOR - pill, tiklanir
+               tiklanmaz dogrudan kutudan kaldiriliyor (bkz. asagidaki
+               not): kullanici art arda 3 bildirimi "Geri al"/X ile
+               kapatirken bir onceki bildirim 220ms'lik sonme suresi
+               boyunca hala yerinde durdugu icin bir SONRAKI bildirimin
+               dugmesi bosalan (ust) yere henuz kaymiyordu - fareyi oraya
+               tasimasi gerekiyordu ("iki hamle" dedigi buydu). Komsunun
+               ANINDA yerine kaymasi, kapanis icin uzun bir sonme
+               animasyonundan daha onemli - "bom patlar gibi" zaten ani
+               bir sey, uzun bir sonme turu degil.
+            */
+            transition: opacity 220ms cubic-bezier(0.34, 1.56, 0.64, 1),
+                        transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
         .pw-toast-hidden {
             opacity: 0;
+            transform: scale(0.45);
         }
         /* libadwaita bu satira farkli bir kart rengi, yuvarlak kose ve
            ince bir kenarlik veriyor (acilan bir alt-kart gibi ayirt
@@ -547,16 +734,20 @@ class UnusedAppsWindow(Adw.Window):
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
         )
 
-    def _show_toast(self, title, button_label=None, on_action=None, timeout=5):
-        # Zaten 3 bildirim yigilmisken 4.'su gelirse, en eskisini
-        # (listenin basindaki, kullanici onu okuma/geri alma sansi
-        # olmadan) sessizce dusuruyoruz — sinirsiz yigilmasin.
-        if len(self._toasts) >= self._MAX_TOASTS:
-            self._discard_toast(self._toasts[0])
-
+    # TASARIM: her biri self._toast_overlay'in AYRI, BAGIMSIZ bir cocugu
+    # olan _MAX_TOASTS adet KALICI fiziksel slot (bkz. __init__'teki
+    # buyuk tasarim notu) - hicbiri hic yok edilmiyor, sadece icerik
+    # (hangi veriye ait oldugu, "occupant") ve gorunurluk (reveal_child)
+    # degisiyor. Genislik: SABIT bir piksel degeri (640) once denendi
+    # ama pencere o kadar genis olmayabiliyor - bildirim diyalogun kendi
+    # sinirini tasip arkadaki ana pencereye biniyordu (kullanici ekran
+    # goruntusuyle gosterdi). hexpand=True kullaniyoruz: bildirim HER
+    # ZAMAN o an hangi pencerede/genislikte gosteriliyorsa onun
+    # genisligine gore olculur - asla tasmaz, metnin uzunlugu genisligi
+    # degistirmez (bkz. ellipsize).
+    def _create_toast_phys_slot(self):
         label = Gtk.Label(
-            label=title, xalign=0, hexpand=True,
-            ellipsize=Pango.EllipsizeMode.END,
+            xalign=0, hexpand=True, ellipsize=Pango.EllipsizeMode.END,
         )
         action_button = Gtk.Button(css_classes=["flat"])
         close_button = Gtk.Button(
@@ -564,14 +755,6 @@ class UnusedAppsWindow(Adw.Window):
             css_classes=["flat", "circular"],
             tooltip_text=_("Close"),
         )
-        # Genislik: SABIT bir piksel degeri (640) once denendi ama pencere
-        # o kadar genis olmayabiliyor - bildirim diyalogun kendi sinirini
-        # tasip arkadaki ana pencereye biniyordu (kullanici ekran
-        # goruntusuyle gosterdi). hexpand=True kullaniyoruz: bildirim HER
-        # ZAMAN o an hangi pencerede/genislikte gosteriliyorsa onun
-        # genisligine gore olculur - asla tasamaz, ama yine de her
-        # bildirim ayni (o pencereye gore standart) genislikte olur,
-        # metnin uzunlugu genisligi degistirmez (bkz. ellipsize).
         box = Gtk.Box(
             orientation=Gtk.Orientation.HORIZONTAL, spacing=6,
             css_classes=["pw-toast", "pw-toast-hidden"], hexpand=True,
@@ -579,122 +762,230 @@ class UnusedAppsWindow(Adw.Window):
         box.append(label)
         box.append(action_button)
         box.append(close_button)
-
-        # Her bildirim kendi Gtk.Revealer'inde - bkz. _build_toast_widget
-        # icin yukaridaki genel aciklama ve .pw-toast-hidden CSS'inin
-        # yanindaki not (balon efekti). reveal_child=False ile baslar,
-        # bir kare sonra True'ya cekilir ki gercek "acilma" gecisi oynasin
-        # (aninda True olsaydi hic gecis olmadan dogrudan acik belirirdi).
+        # transition_type=NONE: alan ACILIP KAPANMASI her zaman TEK
+        # KAREDE/ani - canli coklu-bildirim testi SLIDE_DOWN kullanildiginda
+        # bunun komsu bildirimleri 200ms boyunca kare kare "kaydirdigini"
+        # gosterdi. Gorunen TUM animasyon pill'in kendi transform+opacity
+        # gecisinde (bkz. CSS) - revealer'in gorevi sadece ani alan ac/kapat.
         revealer = Gtk.Revealer(
-            transition_type=Gtk.RevealerTransitionType.SLIDE_DOWN,
-            transition_duration=200,
+            transition_type=Gtk.RevealerTransitionType.NONE,
             child=box,
         )
-
-        entry = {
-            "revealer": revealer, "timeout_id": None, "callback": on_action,
+        # can_target=False: KULLANILMAYAN bir slot kapaliyken (reveal_
+        # child=False, dogal yuksekligi 0) bile GTK, overlay'in BAGIMSIZ
+        # bir cocugu olan bu revealer'in KENDI margin_top'unu (bkz.
+        # _pin_toast_slot_positions) hala "tiklanabilir alan" sayabiliyor
+        # - canli pick() testiyle dogrulandi: listenin alt satirlarindan
+        # bazilarina tiklama, GORUNMEYEN bu revealer'a TAKILIP alttaki
+        # ActionRow'a hic ulasmiyordu (kullanici "en alttaki 3 uygulamaya
+        # tiklayamiyorum" diye bildirdi). can_target=False, KULLANILMAYAN
+        # slotu hit-testing'den TAMAMEN cikariyor - alttaki listeye
+        # tiklamalar dogrudan geciyor. Slot gercekten bir bildirim
+        # gosterirken (bkz. _show_toast) True'ya donuyor.
+        revealer.set_can_target(False)
+        slot = {
+            "revealer": revealer, "box": box, "label": label,
+            "action_button": action_button, "close_button": close_button,
+            "occupant": None,
         }
-        if button_label:
-            action_button.set_label(button_label)
-            action_button.set_visible(True)
-        else:
-            action_button.set_visible(False)
         action_button.connect(
-            "clicked", lambda _b, e=entry: self._on_toast_action_clicked(e)
+            "clicked", lambda _b, s=slot: self._on_slot_action_clicked(s)
         )
         close_button.connect(
-            "clicked", lambda _b, e=entry: self._remove_toast(e)
+            "clicked", lambda _b, s=slot: self._on_slot_close_clicked(s)
         )
+        return slot
 
-        # append(): yeni bildirim, dikey kutunun EN SONUNA (gorsel olarak
-        # en ALTTA, eylem cubuguna en yakin) eklenir - onceki bildirimler
-        # oldugu yerde kalir, elle bir konum/rank hesabina gerek yok.
-        self._toast_box.append(revealer)
-        self._toasts.append(entry)
+    def _pin_toast_slot_positions(self):
+        # Her fiziksel slota SABIT bir margin_top atayarak ekrandaki
+        # konumunu KALICI olarak oturtuyoruz - bkz. __init__'teki buyuk
+        # tasarim notu. Overlay'in cocuklari birbirinden BAGIMSIZ
+        # oldugu icin (normal bir Gtk.Box'un aksine) bu, HERHANGI bir
+        # slotun gorunurlugunden/boyutundan ETKILENMIYOR - slot[i]'nin
+        # margin_top'u SADECE i'ye (fiziksel sira) bagli, kac tanesinin
+        # o an dolu oldugundan BAGIMSIZ. Bu yuzden BIR KERE hesaplanip
+        # bir daha DOKUNULMUYOR.
+        if self._toast_slots_pinned:
+            return
+        overlay_h = self._toast_overlay.get_allocated_height()
+        if overlay_h <= 1:
+            return
+        _, slot_h, _, _ = self._toast_phys_slots[0]["box"].measure(
+            Gtk.Orientation.VERTICAL, -1
+        )
+        if slot_h <= 1:
+            slot_h = 54
+        n = len(self._toast_phys_slots)
+        for i, slot in enumerate(self._toast_phys_slots):
+            slot["revealer"].set_margin_top(
+                max(0, overlay_h - (i + 1) * slot_h)
+            )
+        self._toast_slots_pinned = True
 
-        # Ayni "once bosluk, sonra pill" mantigi kapanista da kullanildi
-        # (bkz. _remove_toast) - burada TERSI: pill hala .pw-toast-hidden
-        # ile tam saydamken ONCE rezerve alani aciyoruz (hicbir sey
-        # gorunur sekilde kaymiyor), alan TAM acildiktan (child-revealed)
-        # SONRA saydamligi kaldirip CSS gecisiyle (150ms) belirmesini
-        # sagliyoruz - "balon patlayip belirme" hissi boylece oluyor.
-        def _on_space_opened(r, _pspec):
-            if r.get_child_revealed():
-                box.remove_css_class("pw-toast-hidden")
+    def _collapse_slot(self, slot):
+        # Kapanista gecis OYNAMIYOR (bkz. asagidaki _dismiss_slot notu) -
+        # pill aninda kucuk/saydam durumuna donup reveal_child=False
+        # oluyor, boylece tekrar kullanildiginda (bkz. _show_toast) yine
+        # "balon patlayip belirme" ile acilabiliyor. can_target=False:
+        # bkz. _create_toast_phys_slot'taki tiklama-engelleme notu - slot
+        # artik bos oldugu icin yine hit-testing'den cikariliyor.
+        slot["box"].add_css_class("pw-toast-hidden")
+        slot["revealer"].set_reveal_child(False)
+        slot["revealer"].set_can_target(False)
 
-        def _reveal(r=revealer):
-            r.connect("notify::child-revealed", _on_space_opened)
-            r.set_reveal_child(True)
+    def _apply_slot_content(self, slot, data):
+        slot["label"].set_label(data["title"])
+        if data["button_label"]:
+            slot["action_button"].set_label(data["button_label"])
+            slot["action_button"].set_visible(True)
+        else:
+            slot["action_button"].set_visible(False)
+
+    def _pop_in_slot(self, slot):
+        # ONCE (ayni karede) rezerve alani ani olarak aciyoruz - pill o an
+        # hala .pw-toast-hidden ile kucuk/saydam oldugu icin bu sicrama
+        # hic fark edilmiyor. Alan actiktan bir SONRAKI bosta-bekleme
+        # karesinde (ayri bir stil-yeniden-hesaplama turu olsun diye)
+        # sinifi kaldirip pill'in kendi "sisme" (scale+opacity, geri
+        # yayli) gecisini tetikliyoruz - boylece gercekten "balon
+        # patlayip belirme" hissi, konum hic degismeden olusuyor.
+        box = slot["box"]
+
+        def _pop_in():
+            box.remove_css_class("pw-toast-hidden")
             return GLib.SOURCE_REMOVE
-        GLib.idle_add(_reveal)
+
+        def _open_space(r=slot["revealer"]):
+            r.set_reveal_child(True)
+            GLib.idle_add(_pop_in)
+            return GLib.SOURCE_REMOVE
+        GLib.idle_add(_open_space)
+
+    def _show_toast(self, title, button_label=None, on_action=None, timeout=5):
+        data = {
+            "title": title, "button_label": button_label,
+            "on_action": on_action, "timeout": timeout, "timeout_id": None,
+        }
+        # Zaten 3 bildirim yigilmisken 4.'su gelirse, en eskisini
+        # (listenin basindaki, kullanici onu okuma/geri alma sansi
+        # olmadan) sessizce dusuruyoruz — sinirsiz yigilmasin. Bu,
+        # kullanicinin "X" ile kapatmasiyla AYNI yolu (bkz. _dismiss_slot)
+        # kullanir - en eskinin fiziksel slotunu bulup kapatmak, digerlerini
+        # dogru sekilde kaydirir/yeniden duzenler.
+        if len(self._toast_data) >= self._MAX_TOASTS:
+            oldest = self._toast_data[0]
+            for slot in self._toast_phys_slots:
+                if slot["occupant"] is oldest:
+                    self._dismiss_slot(slot)
+                    break
+
+        self._toast_data.append(data)
+        self._pin_toast_slot_positions()
+        # En alttaki (giris noktasi) BOS fiziksel slotu buluyoruz - bkz.
+        # __init__'teki buyuk tasarim notu: yeni bildirim HER ZAMAN en
+        # alttan baslayip yukari dogru yerlesir, var olanlar ETKILENMEZ.
+        target_slot = None
+        for slot in self._toast_phys_slots:
+            if slot["occupant"] is None:
+                target_slot = slot
+                break
+        if target_slot is None:
+            return
+        target_slot["occupant"] = data
+        # can_target=True: bkz. _create_toast_phys_slot'taki tiklama-
+        # engelleme notu - slot artik gercekten bir bildirim gosterdigi
+        # icin (Geri Al/X dugmeleri de dahil) yeniden hit-testing'e
+        # dahil ediliyor.
+        target_slot["revealer"].set_can_target(True)
+        # Widget onceden baska bir veri gosteriyor olabilirdi (bkz.
+        # yukaridaki tasma durumu) - yeniden "balon patlat" ki kullanici
+        # yeni bildirimin GELDIGINI fark etsin.
+        self._apply_slot_content(target_slot, data)
+        target_slot["box"].add_css_class("pw-toast-hidden")
+        self._pop_in_slot(target_slot)
 
         if timeout:
-            entry["timeout_id"] = GLib.timeout_add_seconds(
-                timeout, lambda e=entry: self._on_toast_timeout(e)
+            data["timeout_id"] = GLib.timeout_add_seconds(
+                timeout, lambda d=data: self._on_toast_data_timeout(d)
             )
 
-    def _on_toast_timeout(self, entry):
-        entry["timeout_id"] = None
-        self._remove_toast(entry)
+    def _on_toast_data_timeout(self, data):
+        data["timeout_id"] = None
+        for slot in self._toast_phys_slots:
+            if slot["occupant"] is data:
+                self._dismiss_slot(slot)
+                break
         return GLib.SOURCE_REMOVE
 
-    def _discard_toast(self, entry):
-        # _remove_toast'un ANIMASYONSUZ hali - sadece kaydi ve widget'i
-        # siler. SADECE _show_toast'un 4. bildirim gelince en eskiyi
-        # dusurdugu yerde kullanilir (kullaniciya gecis/kapanma
-        # animasyonu gostermeye deger bir eylem degil, arka planda
-        # sessizce kapaniyor).
-        if entry["timeout_id"] is not None:
-            GLib.source_remove(entry["timeout_id"])
-            entry["timeout_id"] = None
-        if entry in self._toasts:
-            self._toasts.remove(entry)
-        revealer = entry["revealer"]
-        if revealer.get_parent() is self._toast_box:
-            self._toast_box.remove(revealer)
-
-    def _remove_toast(self, entry, animate=True):
-        if entry not in self._toasts:
+    # Kullanici: "hangi bildirimin uzerindeki X'e basarsam basayim,
+    # ALTINDAKI bildirimler yukari kayarak bosalan yeri doldursun" -
+    # bunu SAGLAMANIN TEK yolu (bkz. __init__'teki buyuk tasarim notu,
+    # cok sayida bagimsiz kanitla dogrulandi) her slotun BAGIMSIZ, sabit
+    # bir ekran konumuna sahip olmasi VE kapatma isleminde icerigin
+    # (widget'larin KENDI konumlari DEGIL) dogru yonde kaydirilmasidir:
+    #
+    # - Kapatilan slotun USTUNDE (fiziksel olarak daha yukarida, index
+    #   daha buyuk) dolu bir slot VARSA: o VE ustundeki TUM dolu slotlar
+    #   birer ASAGI kayar (icerikleri bir alt slota kopyalanir), en
+    #   USTTEKI (artik fazlalik) slot bosalir. Bu, "Console/Alacritty"
+    #   testinde zaten DOGRU calisan, mevcut davranistir.
+    # - Kapatilan slotun USTUNDE dolu slot YOKSA (yani kapatilan, su an
+    #   en USTTEKI/en yeni bildirimse): bu sefer ALTINDAKI TUM dolu
+    #   slotlar birer YUKARI kayar (icerikleri bir ust slota kopyalanir),
+    #   en ALTTAKI (giris noktasi) slot bosalir. Kullanicinin "Okular"
+    #   senaryosu tam olarak budur: Console bir ust (Okular'in eski)
+    #   slota, Alacritty de Console'un eski slotuna kayar.
+    #
+    # Her iki yonde de WIDGET'LARIN KENDI margin_top'u (bkz. _pin_toast_
+    # slot_positions) HIC DEGISMEZ - sadece "occupant" (hangi veri hangi
+    # fiziksel slotta gorunuyor) eslemesi guncellenir, bu da fare
+    # imlecinin SABIT bir ekran koordinatinda art arda tiklayarak
+    # sirayla TUM bildirimleri kapatabilmesini saglar (kapattigi slotun
+    # konumuna HER ZAMAN bir "sonraki" bildirim gelir, en son bildirim
+    # kapanana kadar).
+    def _dismiss_slot(self, slot):
+        data = slot["occupant"]
+        if data is None:
             return
-        if entry["timeout_id"] is not None:
-            GLib.source_remove(entry["timeout_id"])
-            entry["timeout_id"] = None
-        self._toasts.remove(entry)
-        revealer = entry["revealer"]
-        if not animate:
-            self._toast_box.remove(revealer)
+        if data["timeout_id"] is not None:
+            GLib.source_remove(data["timeout_id"])
+        self._toast_data.remove(data)
+
+        slots = self._toast_phys_slots
+        n = len(slots)
+        idx = slots.index(slot)
+        above_occupied = any(
+            slots[j]["occupant"] is not None for j in range(idx + 1, n)
+        )
+        if above_occupied:
+            i = idx
+            while i + 1 < n and slots[i + 1]["occupant"] is not None:
+                mover = slots[i + 1]["occupant"]
+                slots[i]["occupant"] = mover
+                self._apply_slot_content(slots[i], mover)
+                i += 1
+        else:
+            i = idx
+            while i - 1 >= 0 and slots[i - 1]["occupant"] is not None:
+                mover = slots[i - 1]["occupant"]
+                slots[i]["occupant"] = mover
+                self._apply_slot_content(slots[i], mover)
+                i -= 1
+        slots[i]["occupant"] = None
+        self._collapse_slot(slots[i])
+
+    def _on_slot_action_clicked(self, slot):
+        data = slot["occupant"]
+        if data is None:
             return
-        # DUZELTME (kullanici "ayni eski efekt" dedi): Revealer'in kendi
-        # gecis tipini (SLIDE_DOWN/CROSSFADE) degistirmek yetmedi, cunku
-        # rezerve edilen alan HER turlu o gecisle birlikte aninda
-        # kucculuyordu - saydamlasma, "kayip giden" kutunun kuculmesinin
-        # yaninda fark edilmiyordu. "Balon sonup kaybolma" hissi icin
-        # ONCE pill'i (hala TAM boyutundayken) CSS ile tam saydam yapip
-        # (bkz. .pw-toast-hidden, 150ms opacity gecisi) KISA bir sure
-        # bekliyoruz - icerik gozden tamamen kaybolduktan SONRA Revealer'i
-        # kapatip rezerve alani kucultuyoruz. O noktada icerik zaten
-        # saydam oldugu icin "kayma" hissi kalmiyor, sadece bos alan
-        # sessizce kapaniyor.
-        box = revealer.get_child()
-        if box is not None:
-            box.add_css_class("pw-toast-hidden")
-
-        def _collapse_after_fade():
-            def _on_revealed(r, _pspec):
-                if not r.get_child_revealed():
-                    if r.get_parent() is self._toast_box:
-                        self._toast_box.remove(r)
-            revealer.connect("notify::child-revealed", _on_revealed)
-            revealer.set_reveal_child(False)
-            return GLib.SOURCE_REMOVE
-
-        GLib.timeout_add(150, _collapse_after_fade)
-
-    def _on_toast_action_clicked(self, entry):
-        callback = entry["callback"]
-        self._remove_toast(entry)
+        callback = data["on_action"]
+        self._dismiss_slot(slot)
         if callback is not None:
             callback()
+
+    def _on_slot_close_clicked(self, slot):
+        if slot["occupant"] is not None:
+            self._dismiss_slot(slot)
 
     # Bildirimin kendi kayma gecisinden (200ms) daha uzun - debounce
     # penceresi, gecis TAMAMEN bitip sessizlik olana kadar gercek
@@ -757,6 +1048,22 @@ class UnusedAppsWindow(Adw.Window):
             self._scrolled.set_margin_bottom(0)
 
     def _snap_scrolled_bottom(self):
+        # Liste artik _pin_scrolled_for_row_count ile SABIT bir butceye
+        # (ayar satirlari + tam N satir, HICBIR kalinti/leftover OLMADAN)
+        # gore boyutlandiriliyor - bu YAPISAL OLARAK zaten her zaman tam
+        # bir satir sinirinda bitiyor. Asagidaki eski mantik (kaydirma
+        # degerini "leftover" piksellere gore ayarlamak) BASKA, dinamik
+        # boyutlu bir liste icin tasarlanmisti ve kendi (biraz farkli
+        # olcum yontemiyle hesapladigi) "chrome" degeriyle benim SIFIR
+        # kalintili butcemi CAKISTIRIP gereksiz bir kaydirma uyguluyordu -
+        # canli ekran goruntusuyle dogrulandi: tam 10 satir varken 11.
+        # satirin (bir sonraki uygulamanin) kucuk bir parcasi sizdiriyordu
+        # (tam da "uzun bos dikdortgen" hatasinin kuzeni bir varyant).
+        # Pinlenmisken bu fonksiyonun yapacak hicbir isi yok.
+        if self._row_count_pinned:
+            if self._scrolled.get_margin_bottom() != 0:
+                self._scrolled.set_margin_bottom(0)
+            return
         vadjustment = self._scrolled.get_vadjustment()
         # Icerik (ayar satirlari + liste) kaydirma gerektirmeden viewport'a
         # ZATEN sigiyorsa (upper, su anki margin'i geri eklenmis "dogal"
@@ -1062,6 +1369,7 @@ class UnusedAppsWindow(Adw.Window):
 
         self._select_all.set_sensitive(True)
         self._update_selection()
+        self._pin_scrolled_for_row_count()
 
     def _remove_row(self, key):
         """Tüm listeyi yeniden kurmadan tek bir satırı çıkarır — bkz.
