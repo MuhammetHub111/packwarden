@@ -1296,6 +1296,10 @@ class MainWindow(Adw.ApplicationWindow):
         threading.Thread(target=worker, daemon=True).start()
 
     def _open_unused_apps(self, *_args):
+        # Ayarlar aciksa once onu kapat - bkz. PackWardenApp.
+        # close_settings_if_open() (ikisi ayni anda acik kalirsa
+        # Ayarlar'in alt kismi bu pencerenin arkasindan tasip gorunuyordu).
+        self.get_application().close_settings_if_open()
         UnusedAppsWindow(self).present()
 
     # ---------------- Disk haritası ----------------

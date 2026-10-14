@@ -52,7 +52,8 @@ class PackWardenApp(Adw.Application):
 
         _seed_default_ignored_packwarden()
         self.apply_theme(prefs.get("theme"))
-        
+        self._settings_dialog = None
+
         about_action = Gio.SimpleAction.new("about", None)
         about_action.connect("activate", self._on_about)
         self.add_action(about_action)
@@ -113,7 +114,23 @@ class PackWardenApp(Adw.Application):
 
     def _on_settings(self, *_args):
         from .settings import SettingsDialog
-        SettingsDialog(self).present(self.props.active_window)
+        self._settings_dialog = SettingsDialog(self)
+        self._settings_dialog.connect(
+            "closed", lambda *_a: setattr(self, "_settings_dialog", None)
+        )
+        self._settings_dialog.present(self.props.active_window)
+
+    def close_settings_if_open(self):
+        """Kullanılmayan Programlar gibi ayrı (gerçek) bir pencere
+        üzerine açılmadan ÖNCE çağrılır - Ayarlar, ana pencerenin
+        İÇİNE gömülü bir panel olduğu için konumu/boyutu Kullanılmayan
+        Programlar'ınkiyle (ayrı bir pencere, konumunu pencere yöneticisi
+        belirliyor) tam örtüşmüyor; ikisi aynı anda açık kalırsa Ayarlar'ın
+        alt kısmı Kullanılmayan Programlar'ın arkasından taşıp görünüyordu
+        (canlı doğrulandı). İkisinin asla aynı anda görünmemesini
+        sağlayarak bu görsel çakışmayı engeller."""
+        if self._settings_dialog is not None:
+            self._settings_dialog.force_close()
 
     def _on_about(self, *_args):
         about = Adw.AboutDialog(
