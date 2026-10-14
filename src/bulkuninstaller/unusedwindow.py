@@ -1225,13 +1225,19 @@ class UnusedAppsWindow(Adw.Dialog):
         oturana KADAR ertelenmiş hâli. İlk tarama zaten tamamlanmışsa
         (ör. _on_rescan_tick ile) hemen gösterir; tamamlanmamışsa
         _on_scanned ilk gerçek sonucu işleyince kendisi çağırır.
-        Güvenlik ağı: tarama 800ms içinde hiç bitmezse (beklenmedik bir
-        yavaşlık/kilitlenme), sonsuza kadar görünmez kalmasın diye yine
-        de gösterir - o durumda eski (varsayılan boyutlu) davranışa
-        geri dönülmüş olur, bu tercih edilir ama pencerenin hiç
-        açılmamasından iyidir."""
+
+        Güvenlik ağı 800ms DEĞİL 6 saniye: canlı olarak doğrulandı -
+        gerçek, büyük bir paket listesinde (1502 paket) ilk tarama
+        800ms'den UZUN sürebiliyor, bu da pencerenin "Programlar
+        taranıyor…" yer tutucusuyla, henüz sabitlenmemiş haliyle
+        gösterilip tarama bitince küçülmesine yol açıyordu (kullanıcı
+        canlı iki ekran görüntüsüyle bildirdi) - tam da bu fonksiyonun
+        önlemesi gereken şey. 6 saniye, taramanın normalde bitmesi
+        gereken süreden çok daha uzun - sadece gerçek bir kilitlenme/
+        donma durumunda devreye girsin diye var, günlük kullanımda hiç
+        tetiklenmemesi beklenir."""
         if self._first_scan_done:
-            self.present(parent)
+            self._present_no_anim(parent)
             return
         self._pending_present_parent = parent
 
@@ -1240,16 +1246,39 @@ class UnusedAppsWindow(Adw.Dialog):
                 self._first_scan_done = True
                 p = self._pending_present_parent
                 self._pending_present_parent = None
-                self.present(p)
+                self._present_no_anim(p)
             return GLib.SOURCE_REMOVE
-        GLib.timeout_add(800, _timeout_fallback)
+        GLib.timeout_add(6000, _timeout_fallback)
 
     def _present_if_pending(self):
         self._first_scan_done = True
         if self._pending_present_parent is not None:
             parent = self._pending_present_parent
             self._pending_present_parent = None
-            self.present(parent)
+            self._present_no_anim(parent)
+
+    def _present_no_anim(self, parent):
+        # present() normalde libadwaita'nin kendi "floating dialog"
+        # giris animasyonunu (kisa bir buyuyerek belirme) oynatiyor -
+        # bu animasyonun ilk karesi, iceriğin HENÜZ content_height
+        # kisitlamasini tam oturtmamis "dogal" (daha buyuk) olculerine
+        # gore baslayip SONRA gercek (kucuk, bizim set_content_height
+        # ile zaten ayarladigimiz) boyuta kuculuyor gibi davraniyordu -
+        # kullanici canli olarak "bir anlik buyuk acilip kuculuyor" diye
+        # bildirdi, content_height OKUNDUGUNDA (bkz. present_when_ready)
+        # zaten dogru deger gorunse bile (yani SORUN, GTK ozelliginde
+        # degil, GORSEL/animasyon katmaninda). Animasyonu SADECE bu
+        # cagri sirasinda (global ayari gecici kapatip hemen geri acarak)
+        # devre disi birakmak, ilk karenin DOGRUDAN nihai boyutta
+        # cizilmesini sagliyor - geri acma SENKRON, present() cagrisindan
+        # hemen sonra oldugu icin baska hicbir animasyonu etkilemiyor.
+        settings = Gtk.Settings.get_default()
+        had_anim = settings.get_property("gtk-enable-animations")
+        if had_anim:
+            settings.set_property("gtk-enable-animations", False)
+        self.present(parent)
+        if had_anim:
+            settings.set_property("gtk-enable-animations", True)
 
     # ---------------- Tarama ----------------
 
