@@ -439,6 +439,35 @@ class UnusedAppsWindow(Adw.Dialog):
         self._window_pinned_height = max(1, self._window_pinned_height + delta)
         self.set_content_height(self._window_pinned_height)
 
+    def _row_height(self):
+        row = self._list_box.get_row_at_index(0)
+        if row is not None:
+            _, row_h, _, _ = row.measure(Gtk.Orientation.VERTICAL, -1)
+        else:
+            row_h = 0
+        return row_h if row_h > 1 else 56
+
+    def _current_chrome_height(self):
+        """_scrolled icindeki, "satir" SAYILMAYAN kisimlarin (ayar
+        satirlari + varsa uyari cubugu + aralarindaki bosluklar) O ANKI
+        GERCEK yuksekligi - bkz. _on_manual_resize. Pin anindan beri
+        (banner ac/kapa, yoksayilan sayisi degisimi vb.) degismis
+        olabilir; her seferinde SIFIRDAN olcup kullanmak, eski/kalinti
+        bir degere gore biriken sapmayi (kullanici canli ekran
+        goruntusuyle bildirdi: son satirin yarim kesilmesi) engeller."""
+        _, settings_h, _, _ = self._settings_group.measure(
+            Gtk.Orientation.VERTICAL, -1
+        )
+        spacing = self._content.get_spacing()
+        chrome = self._content.get_margin_top() + settings_h + spacing
+        if self._hint_banner.get_visible():
+            _, banner_h, _, _ = self._hint_banner.measure(
+                Gtk.Orientation.VERTICAL, -1
+            )
+            if banner_h > 1:
+                chrome += banner_h + spacing
+        return chrome
+
     def _on_manual_resize(self, _new_width, new_height):
         """Kullanıcı kenardan/köşeden sürükleyince (bkz. dialog_resize.
         add_resize_grip) çağrılır. content_height'taki değişimi SADECE
@@ -446,37 +475,34 @@ class UnusedAppsWindow(Adw.Dialog):
         çubuğu sabit boyutta kalıyor, fazladan/eksik alan boşlukta
         durmak yerine listede daha fazla/az satır olarak görünüyor.
 
-        dialog_resize zaten content_height'ı HAM (satır sınırına
-        yuvarlanmamış) sürükleme değerine ayarladı - burada EN YAKIN
-        tam satır katına düzeltiyoruz, aksi halde liste tam bir satırın
-        ORTASINDA bitip son satır yarım görünüyordu (kullanıcı canlı
-        ekran görüntüsüyle bildirdi; tam da _pin_scrolled_for_row_count
-        bunun için vardı, ama manuel sürükleme onu hiç yuvarlamıyordu).
-        Çerçevenin geri kalanı (ayar satırları, varsa uyarı çubuğu) ne
-        olursa olsun, sadece satır SAYISI tam kalsın diye değişimi
-        (ham pikseli değil) en yakın satır katına yuvarlıyoruz."""
+        ÖNEMLİ: fark (delta) üzerinden DEĞİL, her seferinde ÇERÇEVEYİ
+        (bkz. _current_chrome_height) SIFIRDAN ölçüp mutlak satır
+        sayısını hesaplayarak yapıyoruz. İlk sürümde (sadece ham
+        pikseli en yakın satıra yuvarlayan fark tabanlı hesap) birkaç
+        boyutlandırma + uyarı çubuğu aç/kapa sonrası küçük kalıntılar
+        birikebiliyordu - kullanıcı canlı ekran görüntüsüyle, listenin
+        tam 10 değil 11 tam + 1 yarım satır gösterdiğini bildirdi.
+        Sıfırdan ölçüp mutlak satır sayısına yuvarlamak, önceki
+        durumdan BAĞIMSIZ olduğu için böyle bir birikme yapısal olarak
+        imkânsız hale geliyor."""
         if self._window_pinned_height is None:
             return
-        row = self._list_box.get_row_at_index(0)
-        if row is not None:
-            _, row_h, _, _ = row.measure(Gtk.Orientation.VERTICAL, -1)
-        else:
-            row_h = 0
-        if row_h <= 1:
-            row_h = 56
-        raw_delta = new_height - self._window_pinned_height
-        rows_delta = round(raw_delta / row_h)
-        delta = rows_delta * row_h
+        row_h = self._row_height()
+        chrome = self._current_chrome_height()
+        raw_scrolled = max(
+            1, (self._scrolled_pinned_height or 0) + (new_height - self._window_pinned_height)
+        )
+        usable = max(0, raw_scrolled - chrome)
+        rows = max(1, round(usable / row_h))
+        snapped_scrolled = chrome + rows * row_h
+        delta = snapped_scrolled - (self._scrolled_pinned_height or snapped_scrolled)
         if delta == 0:
-            # Degisim yarim satirdan az - pencereyi eski (zaten tam
-            # satir sinirinda olan) haline geri cek.
             self.set_content_height(self._window_pinned_height)
             return
+        self._scrolled_pinned_height = snapped_scrolled
+        self._scrolled.set_size_request(-1, snapped_scrolled)
         self._window_pinned_height = max(1, self._window_pinned_height + delta)
         self.set_content_height(self._window_pinned_height)
-        if self._scrolled_pinned_height is not None:
-            self._scrolled_pinned_height = max(1, self._scrolled_pinned_height + delta)
-            self._scrolled.set_size_request(-1, self._scrolled_pinned_height)
 
         # Bildirim slotlarinin sabit margin_top'u (bkz. _pin_toast_slot_
         # positions) pencere YENIDEN boyutlanmadan ONCEKI yukseklige gore
