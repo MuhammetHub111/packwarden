@@ -14,6 +14,10 @@
 |---|
 | ![Main window: the full list of installed applications with name, version, size, publisher, source, and other columns](data/screenshots/main.png) |
 
+| Unused programs, with the Ignored list expanded |
+|---|
+| ![Unused programs dialog listing apps untouched for months, with an Ignored section showing previously-excluded apps](data/screenshots/unused-programs.png) |
+
 ## Features
 
 - **See everything installed, in one place.** PackWarden lists applications
