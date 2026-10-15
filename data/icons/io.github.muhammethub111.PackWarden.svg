@@ -6,7 +6,7 @@
       <stop offset="1" stop-color="#a51d2d"/>
     </linearGradient>
   </defs>
-  <rect x="8" y="8" width="112" height="112" rx="26" fill="url(#bg)"/>
+  <rect x="0" y="0" width="128" height="128" rx="30" fill="url(#bg)"/>
   <!-- stacked boxes = bulk packages -->
   <g fill="#ffffff" opacity="0.35">
     <rect x="30" y="70" width="24" height="24" rx="4"/>
