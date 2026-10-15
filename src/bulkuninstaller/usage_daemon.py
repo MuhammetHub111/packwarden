@@ -52,7 +52,19 @@ def _load_packages():
     return packages, launcher_map
 
 
+def _set_process_name(name: str) -> None:
+    # bkz. __main__.py - aynı sebep: python3 ile başlayan süreçler
+    # sistem monitöründe kendi adıyla değil "python3" diye görünür.
+    try:
+        import ctypes
+        libc = ctypes.CDLL(None)
+        libc.prctl(15, name.encode(), 0, 0, 0)  # 15 = PR_SET_NAME
+    except Exception:
+        pass
+
+
 def main() -> int:
+    _set_process_name("packwarden-usage-daemon")
     signal.signal(signal.SIGTERM, _handle_stop)
     signal.signal(signal.SIGINT, _handle_stop)
 
