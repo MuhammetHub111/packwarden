@@ -374,7 +374,12 @@ class UnusedAppsWindow(Adw.Dialog):
         # Pencere açık kaldığı sürece periyodik olarak yeniden tara —
         # kullanıcı burayı açık bırakıp başka bir uygulamaya geçerse, o
         # kullanım kapatıp yeniden açmaya gerek kalmadan yakalanır.
-        self._rescan_source = GLib.timeout_add_seconds(2, self._on_rescan_tick)
+        # 2sn çok agresifti: her tur /proc'taki TÜM süreçlerin environ'ını
+        # okuyup (Steam eşleşmesi için) ayrıca bir "flatpak ps" süreci
+        # başlatıyor - sürekli yüksek CPU'ya yol açtığı ölçüldü. Özelliğin
+        # amacı ay ölçeğinde kullanılmayanları yakalamak, birkaç saniyelik
+        # gecikme bu amaç için önemsiz - 8sn CPU yükünü orantılı azaltır.
+        self._rescan_source = GLib.timeout_add_seconds(8, self._on_rescan_tick)
         # Adw.Dialog'da "close-request" (Gtk.Window sinyali) yok - en
         # yakin karsiligi "closed" (kapanma kesinlesince ates alir,
         # engellenemez ama zaten burada tek amac temizlik, engelleme
