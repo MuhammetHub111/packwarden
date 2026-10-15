@@ -5,8 +5,7 @@
 <h1 align="center">PackWarden</h1>
 
 <p align="center">
-  View, manage, and remove the applications installed on your Linux system —
-  from every package source, in one window.
+  View, manage, and remove the applications installed on your Linux system, from every package source, in one window.
 </p>
 
 ## Screenshots
