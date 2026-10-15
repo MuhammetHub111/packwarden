@@ -66,44 +66,6 @@ def _clean_unused_flatpak_data() -> None:
         pass
 
 
-def _installed_flatpak_ids() -> set:
-    try:
-        proc = host.run(
-            ["flatpak", "list", "--app", "--columns=application"], timeout=15
-        )
-        return {line.strip() for line in proc.stdout.splitlines() if line.strip()}
-    except Exception:
-        return set()
-
-
-def _clean_unused_flatpak_data() -> None:
-    """Kaldırılan Flatpak paketlerinin arkasında kalan paylaşımlı, artık
-    yetim runtime'ları ve OSTree depo nesnelerini temizler (Bazaar'ın
-    "Trash Data" dediği şey — bkz. 7050a23, 96dc5ee, e4c0366). Daha önce
-    ayrı bir Araçlar menü öğesiydi, kafa karıştırdığı için kaldırılıp
-    kaldırma akışının içine gömülmesi planlanmıştı: bir paket kaldırılırken
-    Flatpak kaynaklıysa bu adım otomatik ve sessizce çalışır, ayrı bir
-    onay istemez — çağıran taraf (worker) before/after kurulu-uygulama
-    listesini kıyaslayıp yan etki olursa kullanıcıyı ayrıca uyarır."""
-    try:
-        host.run(["flatpak", "uninstall", "--unused", "-y"], timeout=120)
-    except Exception:
-        pass
-    try:
-        import gi
-        gi.require_version("Flatpak", "1.0")
-        from gi.repository import Flatpak
-        for make_installation in (
-            Flatpak.Installation.new_system, Flatpak.Installation.new_user,
-        ):
-            try:
-                make_installation().prune_local_repo()
-            except Exception:
-                pass
-    except Exception:
-        pass
-
-
 class RemovalWindow(Adw.Window):
     def __init__(self, main_window, items):
         super().__init__(
