@@ -244,7 +244,39 @@ def _resolve_install_path(prefix: str, entry: dict, exe_path: str | None) -> str
     return ""
 
 
-def _force_remove(prefix: str, entry: dict) -> bool:
+def _is_safe_install_dir(prefix: str, path: str) -> bool:
+    """`path`in GERÇEK (sembolik bağlantılar çözülmüş) hâli, bu prefix'in
+    drive_c'sinin GERÇEK bir alt klasörü mü?
+
+    `_resolve_install_path()`'in döndürdüğü yol, registry'deki
+    InstallLocation/DisplayIcon değerinden üretilir - bu değer kurulumu
+    yapan .exe'nin yazdığı, bizim doğrulamadığımız bir metindir. İçinde
+    ".." varsa (bozuk bir kayıt, ya da - Wine ile kurulan programların
+    çoğu denetimsiz/korsan kurulumlar olduğundan - kötü niyetli bir
+    installer) os.path.join bunu TEMİZLEMEZ; dosya sistemi, silme ANINDA
+    bunu çözüp prefix'in dışına, hatta ev dizini dışına çıkabilir.
+
+    Yalnızca metinsel önek karşılaştırması ("".startswith(prefix)")
+    YETERLİ DEĞİL: "/home/user/.wine-other", "/home/user/.wine" ile
+    harf harf başlar ama tamamen farklı bir dizindir - bu yüzden
+    ayırıcı dahil karşılaştırılır. prefix'in veya drive_c'nin KENDİSİ de
+    reddedilir - boş/kök gibi dejenere bir değer ("InstallLocation=C:")
+    tüm drive_c'nin (yani kurulu her Wine programının) silinmesine yol
+    açmasın diye; hedef her zaman drive_c'nin GERÇEK bir alt klasörü
+    olmalı, drive_c'nin kendisi değil."""
+    if not path:
+        return False
+    real_prefix = os.path.realpath(prefix)
+    real_drive_c = os.path.join(real_prefix, "drive_c")
+    real_path = os.path.realpath(path)
+    if real_path in (real_prefix, real_drive_c):
+        return False
+    return real_path.startswith(real_drive_c + os.sep)
+
+
+def _force_remove(
+    prefix: str, entry: dict, warnings: list[str] | None = None
+) -> bool:
     """UninstallString'i calistirmak basarisiz olursa devreye giren yedek.
 
     Wine'in kendi "wine" surec cikis kodu, altindaki Windows programinin
@@ -254,16 +286,30 @@ def _force_remove(prefix: str, entry: dict) -> bool:
     sonra kayit hala registry'deyse buraya dusuluyor: kurulum klasoru
     elle silinir, registry anahtari da "wine reg delete" ile kaldirilir
     (system.reg dosyasini calisirken elle duzenlemek yerine wineserver
-    uzerinden - yarisla bozulma riski yok)."""
+    uzerinden - yarisla bozulma riski yok).
+
+    warnings: verilirse, güvenlik nedeniyle silme reddedildiğinde
+    kullanıcıya gösterilecek anlaşılır bir metin buraya eklenir -
+    aksi halde arayan taraf bunu "Wine'ın kendi kaldırıcısı
+    tamamlanamamış olabilir" gibi yanlış bir nedene bağlayabilirdi."""
     ok = True
     display_icon = entry.get("DisplayIcon")
     exe_path = _windows_path_to_unix(prefix, display_icon) if display_icon else None
     install_dir = _resolve_install_path(prefix, entry, exe_path)
-    if install_dir and os.path.isdir(install_dir):
-        try:
-            shutil.rmtree(install_dir)
-        except OSError:
+    if install_dir:
+        if _is_safe_install_dir(prefix, install_dir):
+            if os.path.isdir(install_dir):
+                try:
+                    shutil.rmtree(install_dir)
+                except OSError:
+                    ok = False
+        else:
             ok = False
+            if warnings is not None:
+                warnings.append(
+                    "kurulum klasörü güvenlik nedeniyle silinmedi "
+                    "(beklenmedik/geçersiz bir yola işaret ediyordu)"
+                )
     reg_path = entry.get("_reg_path")
     if reg_path:
         try:
@@ -536,17 +582,24 @@ class WineBackend(Backend):
             # basari, her sey bittikten SONRA kaydin registry'den gercekten
             # kalkip kalkmadigina bakilarak anlasiliyor.
             reg_path_file = os.path.join(prefix, "system.reg")
+            force_warnings: list[str] = []
             if _key_exists(reg_path_file, key):
-                _force_remove(prefix, entry)
+                _force_remove(prefix, entry, force_warnings)
             if _key_exists(reg_path_file, key):
                 failed.append(pkg_id)
                 # Ham Wine çıktısı (fixme/err satırları) HER çağrıda çıkan
                 # rutin gürültü, kullanıcıya anlamlı bir şey söylemiyor -
                 # asıl neden burada net olarak yazılıyor; removal.py bu
                 # satırı gösterirken gürültüyü zaten filtreliyor.
+                # force_warnings doluysa (ör. güvenlik nedeniyle silme
+                # reddedildi) gerçek nedeni gösterir - aksi halde "Wine'ın
+                # kendi kaldırıcısı" diye yanlış bir sebebe bağlanmasın.
+                reason = (
+                    "; ".join(force_warnings) if force_warnings
+                    else "Wine'ın kendi kaldırıcısı tamamlanamamış olabilir"
+                )
                 outputs.append(
                     f"{entry.get('DisplayName', key)}: kaldırma denemesi "
-                    f"sonrası paket kaydı hâlâ sistemde duruyor "
-                    f"(Wine'ın kendi kaldırıcısı tamamlanamamış olabilir)"
+                    f"sonrası paket kaydı hâlâ sistemde duruyor ({reason})"
                 )
         return RemoveResult(ok=not failed, output="\n".join(outputs), failed_ids=failed)
