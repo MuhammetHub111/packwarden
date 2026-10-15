@@ -14,9 +14,13 @@
 |---|
 | ![Main window: the full list of installed applications with name, version, size, publisher, source, and other columns](data/screenshots/main.png) |
 
-| Unused programs, with the Ignored list expanded | Disk map | Settings |
-|---|---|---|
-| ![Unused programs dialog listing apps untouched for months, with an Ignored section showing previously-excluded apps](data/screenshots/unused-programs.png) | ![Disk map: a treemap of installed applications sized by disk usage and colored by source](data/screenshots/diskmap.png) | ![Settings dialog with package list, safety, privacy, language and appearance options](data/screenshots/settings.png) |
+| Unused programs, with the Ignored list expanded |
+|---|
+| ![Unused programs dialog listing apps untouched for months, with an Ignored section showing previously-excluded apps](data/screenshots/unused-programs.png) |
+
+| Disk map | Settings |
+|---|---|
+| ![Disk map: a treemap of installed applications sized by disk usage and colored by source](data/screenshots/diskmap.png) | ![Settings dialog with package list, safety, privacy, language and appearance options](data/screenshots/settings.png) |
 
 ## Features
 
