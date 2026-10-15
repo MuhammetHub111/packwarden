@@ -23,6 +23,15 @@ class XbpsBackend(Backend):
             parts = line.split(None, 2)
             if len(parts) < 2:
                 continue
+            # xbps-query -l yalnızca tam kurulu paketleri değil, "uu"
+            # (açılmış ama yapılandırılmamış), "hr" (yarı kaldırılmış,
+            # xbps-remove ile TAMAMLANMASI gereken) ve "??" (bilinmeyen)
+            # durumdaki kayıtları da listeleyebilir (bkz. xbps-query(1)).
+            # Bunlar gerçek, çalışır bir uygulama değil - normal listeye
+            # alınırsa kullanıcı zaten bozuk/yarım bir kaydı sağlıklı bir
+            # uygulamaymış gibi kaldırmaya çalışabilir.
+            if parts[0] != "ii":
+                continue
             pkgver = parts[1]
             name, _, version = pkgver.rpartition("-")
             if not name:
