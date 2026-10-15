@@ -27,14 +27,14 @@
 - **See everything installed, in one place.** PackWarden lists applications
   from pacman, APT, DNF, Zypper, APK, XBPS, Portage, Nix, Flatpak, Snap and
   AppImage, plus games from Steam, Heroic Games Launcher (Epic, GOG, Amazon)
-  and Lutris, and Windows apps installed through Wine — all in a single
-  table, with real icons, versions, sizes, publishers and install sources.
-  Sources are detected automatically; nothing extra to configure.
+  and Lutris, and Windows apps installed through Wine, all in a single
+  table with real icons, versions, sizes, publishers and install sources.
+  Sources are detected automatically, with nothing extra to configure.
 - **Remove many applications at once.** Select with Ctrl, Shift, drag, or
   tap-and-hold, then confirm once. Before anything is deleted, PackWarden
   shows the leftover settings, caches and data each app left behind, with
-  their sizes, so you can tick exactly what to clean up — and it saves a
-  backup first, and warns you before touching critical system packages.
+  their sizes, so you can tick exactly what to clean up. It also saves a
+  backup first and warns you before touching critical system packages.
 - **Find what you don't use anymore.** The Unused programs view flags apps
   you haven't opened in 3 months, 6 months, a year, or a custom period.
   Turning on optional background usage detection makes this more accurate
@@ -55,11 +55,11 @@
 ## Designed for Everyday Linux Use
 
 - **One place for everything you've installed.** No more checking your
-  package manager, then Flatpak, then your games launcher separately —
+  package manager, then Flatpak, then your games launcher separately.
   PackWarden brings them all into a single list.
-- **Clearer removal.** You see what a removal actually touches — leftover
-  files, their sizes, related data — before you confirm it, instead of
-  guessing afterward.
+- **Clearer removal.** You see what a removal actually touches, including
+  leftover files, their sizes, and related data, before you confirm it,
+  instead of guessing afterward.
 - **You decide what stays.** Unused-program detection is a suggestion, not
   an automatic cleanup: ignore what you want to keep, and nothing is ever
   removed without your confirmation.
