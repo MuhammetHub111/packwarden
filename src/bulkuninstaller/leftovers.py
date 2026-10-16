@@ -27,6 +27,14 @@ SCAN_BASES = (
 
 FLATPAK_DATA_BASE = "~/.var/app"
 
+# Snap, her paketin kullanıcı verisini (SNAP_USER_DATA/SNAP_USER_COMMON)
+# SCAN_BASES'in hiçbirinin altında değil, ~/snap/<ad>/ altında tutar -
+# "snap remove --purge" (bkz. backends/snap.py remove_argv) snapd'nin
+# KENDİ otomatik yedek anlık görüntüsünü bilerek devre dışı bırakıyor;
+# bu veri buraya eklenmezse PackWarden'ın "Yedekle ve Kaldır" seçeneği
+# de bu veriyi hiç görmez - iki güvenlik ağı da devre dışı kalırdı.
+SNAP_DATA_BASE = "~/snap"
+
 # Bazı uygulamalar ilk çalıştırmada, kendi adını taşımayan, standart
 # tarama konumlarının (SCAN_BASES) dışında büyük bir ek SDK/araç seti
 # indiriyor — genel ad-eşleştirmeli tarama bunu hiç yakalayamaz (ör.
@@ -250,6 +258,25 @@ def _find_wine_shortcut_leftovers(packages: list[Package], safe) -> list[Leftove
     return items
 
 
+def _is_safe_snap_data_dir(snap_base_real: str, path: str) -> bool:
+    """`path`'in GERÇEK hâli, ~/snap'in GERÇEKTEN bir alt klasörü mü?
+
+    Yalnızca `safe()`'in ev-dizini kontrolüne güvenilmez - o yalnızca
+    "ev dizini altında mı" diye bakar, "~/snap altında mı" diye değil;
+    paket adı (kullanıcı girdisi gibi ele alınıyor, gerçekte snap
+    adları yalnızca küçük harf/rakam/tire içerebilse de) teorik olarak
+    ".." içerseydi sonuç hâlâ ev dizini altında ama ~/snap DIŞINDA bir
+    yere (ör. ~/baska_klasor) çıkabilirdi. ~/snap'in KENDİSİ de
+    reddedilir - tüm snap'lerin ortak kökü, tek bir paketin verisi
+    gibi gösterilmemeli/silinmemeli."""
+    if not path:
+        return False
+    real_path = os.path.realpath(path)
+    if real_path == snap_base_real:
+        return False
+    return real_path.startswith(snap_base_real + os.sep)
+
+
 def _find_wine_registry_leftovers(packages: list[Package]) -> list[Leftover]:
     """Kaldırılacak Wine paketlerinin ana registry (kayıt defteri)
     girdisini de kalıntı listesine ekler.
@@ -294,11 +321,26 @@ def find_package_leftovers(
     """
     names = set()
     flatpak_ids = set()
+    snap_ids = set()
     for pkg in packages:
         if pkg.source == "flatpak":
             flatpak_ids.add(pkg.id)
             names.add(_normalize(pkg.name))
+        elif pkg.source == "packwarden":
+            # SelfInstallBackend'in kendisi - bu genel ad-eşleştirmeli
+            # taramaya hiç katılmaz. pkg.name "PackWarden" normalize
+            # edilince "packwarden" olur; ~/.local/share altında (zaten
+            # SCAN_BASES'te taranan bir kök) aynen bu adı taşıyan klasör
+            # uygulamanın KENDİ TÜM KAYNAK KODU - kaldırma betiğinin
+            # (install.sh remove) zaten koşulsuz sildiği bu klasörü ayrı
+            # bir "kalıntı" gibi göstermek yanıltıcı olurdu (işareti
+            # kaldırmak hiçbir şeyi kurtarmaz) ve betik onu sildikten
+            # sonra burada tekrar silinmeye çalışılıp gereksiz bir hata
+            # üretebilirdi.
+            pass
         else:
+            if pkg.source == "snap":
+                snap_ids.add(pkg.id)
             names.add(_normalize(pkg.id))
             names.add(_normalize(pkg.name))
 
@@ -338,6 +380,20 @@ def find_package_leftovers(
     if items:
         items.sort(key=lambda item: -item.size)
         result.append(("Flatpak data", items))
+
+    snap_base_real = os.path.realpath(os.path.expanduser(SNAP_DATA_BASE))
+    items = []
+    for snap_id in snap_ids:
+        path = os.path.join(snap_base_real, snap_id)
+        if (
+            os.path.lexists(path)
+            and _is_safe_snap_data_dir(snap_base_real, path)
+            and safe(path)
+        ):
+            items.append(Leftover(path=path, size=_tree_size(path)))
+    if items:
+        items.sort(key=lambda item: -item.size)
+        result.append(("Snap data", items))
 
     extra_by_category: dict[str, list[Leftover]] = {}
     for pkg in packages:
@@ -387,6 +443,7 @@ def remove_leftovers(leftovers: list[Leftover]) -> list[str]:
     home = os.path.realpath(os.path.expanduser("~"))
     protected = {os.path.realpath(os.path.expanduser(b)) for b in SCAN_BASES}
     protected.add(os.path.realpath(os.path.expanduser(FLATPAK_DATA_BASE)))
+    protected.add(os.path.realpath(os.path.expanduser(SNAP_DATA_BASE)))
     protected.add(home)
     permanent = prefs.get("leftover_delete_mode") == "permanent"
 

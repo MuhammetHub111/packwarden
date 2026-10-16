@@ -41,6 +41,35 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.15.2" date="2026-10-16">
+      <description>
+        <p>
+          An improvement and bug-fix release, focused on making updates and
+          app removal more reliable and more honest about what actually
+          happened.
+        </p>
+        <p>Improved:</p>
+        <ul>
+          <li>Snap apps' own saved data, stored outside the usual cache and settings folders, is now found and included when choosing to back up before removal.</li>
+          <li>The Cancel button can no longer be clicked while a removal is in progress, so it never gives the false impression that it stopped something.</li>
+          <li>If removing packages through one package manager is cancelled or denied, apps that were successfully removed through a different package manager in the same batch are now reported correctly, instead of the whole operation being marked as cancelled.</li>
+          <li>If every app is removed successfully but cleaning up a single leftover file fails, PackWarden now says that clearly, instead of implying the apps themselves failed to be removed.</li>
+          <li>Removing a Flatpak app that's installed both system-wide and per-user no longer triggers an incorrect "an installed app was affected" warning.</li>
+          <li>A Wine program's registry entry is now clearly marked in the interface as always removed together with the program and never included in a backup.</li>
+          <li>"Check for Updates" is no longer shown when PackWarden wasn't installed through its own installer, since it wouldn't be able to update that copy anyway.</li>
+        </ul>
+        <p>Fixed:</p>
+        <ul>
+          <li>Package names that include an architecture or slot suffix weren't correctly matched against the critical-system-package protection list.</li>
+          <li>PackWarden's own installation folder was sometimes listed as a leftover of itself.</li>
+          <li>Some Nix package version numbers with more than one hyphen were parsed incorrectly.</li>
+        </ul>
+        <p>Security:</p>
+        <ul>
+          <li>The built-in updater now keeps your previous installation safely aside while installing an update, and automatically restores it if the update fails or is interrupted partway through.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.15.1" date="2026-10-14">
       <description>
         <p>New:</p>

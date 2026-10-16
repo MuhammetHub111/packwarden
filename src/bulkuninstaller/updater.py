@@ -31,6 +31,8 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
+import time
 import urllib.request
 
 from . import VERSION
@@ -42,6 +44,12 @@ REPO_URL = f"https://github.com/{REPO}"
 RELEASES_URL = REPO_URL + "/releases"
 LATEST_RELEASE_API = f"https://api.github.com/repos/{REPO}/releases/latest"
 INSTALL_DIR = os.path.expanduser("~/.local/share/packwarden")
+
+# İki eşzamanlı download_and_install() çağrısını (ör. açılıştaki otomatik
+# denetim VE Ayarlar'dan elle "Denetle" aynı anda açık iki UpdateWindow
+# üretip ikisinde de "Güncelle"ye basılırsa) engeller - ikisi de aynı
+# INSTALL_DIR'ı hedefler, eşzamanlı çalışmaları yarış durumu yaratır.
+_install_lock = threading.Lock()
 
 
 def _fetch_latest_release(timeout: int = 15) -> dict | None:
@@ -93,13 +101,153 @@ def _fetch_checksum(tag: str, timeout: int = 15) -> str | None:
     return match.group(0).lower() if match else None
 
 
+def _backup_dir() -> str:
+    # Fonksiyon olarak tutuluyor (sabit değil) - testler INSTALL_DIR'ı
+    # taklit ettiğinde bu da her çağrıda GÜNCEL değeri okumalı.
+    return INSTALL_DIR + ".update-backup"
+
+
+def _is_valid_install(path: str) -> bool:
+    """`path`nin çalışan bir PackWarden kurulumu gibi göründüğünü ucuzca
+    doğrular - install.sh ve asıl paket dizini var mı diye bakar. Dosya
+    bütünlüğünün tam garantisi değildir, sadece bir dizini SİLMEDEN/
+    ÜZERİNE YAZMADAN önce "burada bariz şekilde eksik/yarım bir şey mi
+    var" sorusuna güvenle cevap vermek için yeterlidir."""
+    return os.path.isfile(os.path.join(path, "install.sh")) and os.path.isdir(
+        os.path.join(path, "src", "bulkuninstaller")
+    )
+
+
+def _reconcile_install_and_backup(log) -> None:
+    """Her download_and_install() çağrısının EN BAŞINDA çalışır.
+
+    Önceki bir güncelleme _activate_new_install()'ın iki `os.rename`'i
+    ARASINDA kesilmiş olabilir (süreç öldürüldü, güç kesildi - Python
+    kodu bunu YAKALAYAMAZ). Bu durumda INSTALL_DIR eksik/bozuk ama
+    yedek sağlam kalır - burada GERİ yüklenir. INSTALL_DIR zaten
+    sağlıklıysa yedek artık gereksiz debris'tir (önceki güncelleme
+    tamamlanmış ama temizlik adımı kesilmiş olabilir), temizlenir.
+    İKİSİ de güvenilmez görünüyorsa KÖRÜ KÖRÜNE silinmez - hangisinin
+    ne olduğuna bakmadan asla üzerine yazma/silme kararı verilmez;
+    yedek benzersiz bir adla kenara alınır ki bu çağrı kendi ismini
+    kullanabilsin ama hiçbir veri kaybolmasın.
+
+    SINIR: bu yalnızca Python süreci GERÇEKTEN başlayabildiyse işe
+    yarar. INSTALL_DIR'ın KENDİSİ tamamen eksikse ve uygulamanın
+    başlatıcısı (.desktop/PYTHONPATH) doğrudan o yola bakıyorsa,
+    uygulama hiç açılamaz ve bu kod hiç çalışma şansı bulamaz - bu en
+    kötü durumda kurtarma yalnızca kullanıcının yedeği elle geri
+    taşımasıyla mümkündür.
+    """
+    backup = _backup_dir()
+    if not os.path.exists(backup):
+        return
+
+    install_ok = os.path.isdir(INSTALL_DIR) and _is_valid_install(INSTALL_DIR)
+    if install_ok:
+        shutil.rmtree(backup, ignore_errors=True)
+        return
+
+    if _is_valid_install(backup):
+        log("Found an interrupted update - restoring the previous version…")
+        if os.path.isdir(INSTALL_DIR):
+            shutil.rmtree(INSTALL_DIR, ignore_errors=True)
+        os.rename(backup, INSTALL_DIR)
+        return
+
+    quarantine = f"{backup}.unrecognized-{int(time.time())}"
+    log(
+        "Found a leftover update backup that doesn't look valid - moved "
+        f"it aside to {quarantine} instead of deleting it."
+    )
+    os.rename(backup, quarantine)
+
+
+def _staging_parent() -> str:
+    """Mümkünse INSTALL_DIR ile AYNI dosya sistemindeki üst dizin -
+    devreye alma adımının gerçek bir atomik `os.rename` olabilmesi
+    için (bkz. _activate_new_install). Üst dizin yazılabilir değilse
+    tempfile'ın kendi varsayılanına (genelde /tmp, ayrı bir dosya
+    sistemi OLABİLİR) düşülür; devreye alma o zaman da ÇALIŞIR
+    (shutil.move'un kopya+sil geri dönüşüne düşer) ama atomik olmaz."""
+    parent = os.path.dirname(INSTALL_DIR)
+    if os.path.isdir(parent) and os.access(parent, os.W_OK):
+        return parent
+    return tempfile.gettempdir()
+
+
+def _activate_new_install(source_root: str) -> None:
+    """`source_root`u INSTALL_DIR'a GÜVENLİ biçimde devreye alır.
+
+    Mevcut kurulum SİLİNMEDEN önce yedek konumuna taşınır (aynı dosya
+    sisteminde atomik bir `os.rename`); devreye alma herhangi bir
+    adımda BAŞARISIZ olursa eski kurulum GERİ yüklenir ve istisna
+    yeniden fırlatılır - çağıran taraf "hiçbir şey kaybolmadı" diyebilir.
+
+    ATOMİKLİK SINIRI: `os.rename(INSTALL_DIR, backup)` ile
+    `os.rename(source_root, INSTALL_DIR)` İKİ AYRI sistem çağrısıdır.
+    Süreç tam bu ikisi ARASINDA öldürülürse/güç kesilirse, INSTALL_DIR
+    kısa bir süre için gerçekten YOK olur - bu, Python'un
+    try/except'iyle YAKALANAMAZ. Bir sonraki download_and_install()
+    çağrısı _reconcile_install_and_backup() ile bunu düzeltir, AMA
+    uygulamanın kendisi o an açılamıyorsa (bkz. o fonksiyonun SINIR
+    notu) bu kurtarma hiç tetiklenemez. Bu fonksiyon riski ORTADAN
+    KALDIRMAZ, sadece "neredeyse her zaman" kurtarılabilir hâle getirir
+    ve normal (öldürülmeyen) hata yollarında %100 geri dönüşü garanti eder.
+    """
+    backup = _backup_dir()
+    had_previous = os.path.isdir(INSTALL_DIR)
+    if had_previous:
+        # _reconcile_install_and_backup() zaten çalışmış olmalı (yedek
+        # burada olmamalı) - savunma amaçlı yine de kontrol ediyoruz,
+        # körü körüne üzerine yazmıyoruz.
+        if os.path.exists(backup):
+            shutil.rmtree(backup, ignore_errors=True)
+        os.rename(INSTALL_DIR, backup)
+
+    try:
+        try:
+            os.rename(source_root, INSTALL_DIR)
+        except OSError:
+            # Staging alanı farklı bir dosya sisteminde kaldıysa (bkz.
+            # _staging_parent) - hâlâ çalışır, sadece atomik değildir.
+            shutil.move(source_root, INSTALL_DIR)
+    except Exception:
+        if had_previous:
+            if os.path.isdir(INSTALL_DIR):
+                shutil.rmtree(INSTALL_DIR, ignore_errors=True)
+            os.rename(backup, INSTALL_DIR)
+        raise
+
+    if had_previous:
+        shutil.rmtree(backup, ignore_errors=True)
+
+
 def download_and_install(progress, log, cancelled) -> bool:
-    """Güncellemeyi indirip kurar.
+    """Güncellemeyi indirip GÜVENLİ biçimde kurar (bkz. _activate_new_install).
+
+    Eşzamanlı iki çağrıya karşı bir kilitle korunur - hem açılıştaki
+    otomatik denetim hem Ayarlar'dan elle tetiklenen akış bu fonksiyonu
+    çağırır (ikisi de UpdateWindow._on_update() üzerinden); aynı anda
+    ikisinde de "Güncelle"ye basılırsa ikinci çağrı hemen "zaten sürüyor"
+    diye başarısız olur, INSTALL_DIR'a hiç dokunmaz.
 
     progress(fraction|None, done_bytes, total_bytes|None) her parça
     sonrası çağrılır; log(str) günlük satırı ekler; cancelled() True
     dönerse işlem iptal edilir. Başarıysa True döner.
     """
+    if not _install_lock.acquire(blocking=False):
+        log("An update is already in progress.")
+        return False
+    try:
+        return _download_and_install_locked(progress, log, cancelled)
+    finally:
+        _install_lock.release()
+
+
+def _download_and_install_locked(progress, log, cancelled) -> bool:
+    _reconcile_install_and_backup(log)
+
     release = _fetch_latest_release()
     if not release:
         log("Could not reach GitHub to check the latest release.")
@@ -156,7 +304,9 @@ def download_and_install(progress, log, cancelled) -> bool:
     log("Checksum OK.")
 
     log("Extracting…")
-    workdir = tempfile.mkdtemp(prefix="packwarden-update-")
+    # Mümkünse INSTALL_DIR ile AYNI dosya sisteminde - bkz. _staging_parent
+    # docstring'i (devreye alma adımının gerçek bir atomik rename olması için).
+    workdir = tempfile.mkdtemp(prefix="packwarden-update-", dir=_staging_parent())
     try:
         with tarfile.open(tmp.name) as tar:
             # "data" filtresi olmadan extractall, üye adlarındaki "../"
@@ -176,9 +326,14 @@ def download_and_install(progress, log, cancelled) -> bool:
 
         log("Installing…")
         source_root = os.path.join(workdir, entries[0])
-        if os.path.isdir(INSTALL_DIR):
-            shutil.rmtree(INSTALL_DIR)
-        shutil.move(source_root, INSTALL_DIR)
+        try:
+            _activate_new_install(source_root)
+        except Exception as exc:
+            log(
+                f"Error while installing the update: {exc}. The previous "
+                "version was restored, nothing was lost."
+            )
+            return False
     finally:
         os.unlink(tmp.name)
         shutil.rmtree(workdir, ignore_errors=True)

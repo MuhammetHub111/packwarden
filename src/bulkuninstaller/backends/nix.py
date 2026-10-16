@@ -1,5 +1,20 @@
+import re
+
 from .. import host
 from .base import Backend, Package
+
+# Nix'in kendi resmi kuralı: ad/sürüm sınırı, HARF OLMAYAN (rakamla
+# başlayan) bir tireden sonra başlar - "sağdan ilk tire" değil,
+# "soldan ilk UYGUN tire". nixpkgs kuralı sürümün rakamla başlamasını
+# zorunlu kılar, ama sürümün KENDİSİ de tire içerebilir (resmi örnekler:
+# "1.17.1-unstable-2025-05-24", "2.42-67") - bu yüzden sağdan tek tire
+# ile bölmek (rpartition) bu tür sürümleri yanlış keser. Soldan ilk
+# "tire+rakam" konumunu arayıp oradan sona kadarını sürüm saymak,
+# Nix'in belgelenmiş algoritmasının birebir karşılığı - ad kaç tire
+# içerirse içersin (ör. "git-minimal", "systemd-minimal-libs") doğru
+# çalışır, çünkü ad kısmında tireden hemen sonra rakam gelmez (bu da
+# nixpkgs'in kendi kuralı).
+_VERSION_RE = re.compile(r"-(\d.*)$")
 
 
 class NixBackend(Backend):
@@ -24,8 +39,14 @@ class NixBackend(Backend):
             line = line.strip()
             if not line:
                 continue
-            name, _, version = line.rpartition("-")
-            if not name or not version[:1].isdigit():
+            match = _VERSION_RE.search(line)
+            if match and match.start() > 0:
+                # match.start() == 0 satırın TAMAMEN "-rakam..." ile
+                # başladığı anlamına gelir - ad kısmı boş kalırdı,
+                # bu da anlamsız; bu durumda tüm satır ada düşer.
+                name = line[: match.start()]
+                version = match.group(1)
+            else:
                 name, version = line, ""
             packages.append(Package(
                 id=name or line,

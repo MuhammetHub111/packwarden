@@ -27,6 +27,7 @@ TR = {
     "Uninstall {count} selected…": "Seçilen {count} uygulamayı kaldır…",
     "Cancel": "Vazgeç",
     "Some packages could not be removed": "Bazı paketler kaldırılamadı",
+    "Some leftover files could not be removed": "Bazı kalıntı dosyalar silinemedi",
     "No further details": "Başka ayrıntı yok",
     "Installed apps were affected": "Kurulu uygulamalar etkilendi",
     "Cleaning up unused Flatpak data also removed these "
@@ -37,6 +38,25 @@ TR = {
     "OK": "Tamam",
     "Authorization was cancelled": "Yetkilendirme iptal edildi",
     "Uninstalled {count} packages": "{count} paket kaldırıldı",
+    "Uninstalled {count} of {total} packages":
+        "{total} paketten {count} tanesi kaldırıldı",
+    "{count} removal(s) were cancelled": "{count} kaldırma işlemi iptal edildi",
+    "Removal is in progress and cannot be stopped":
+        "Kaldırma işlemi sürüyor, durdurulamaz",
+    "Always removed together with the package - cannot be backed up "
+    "or skipped separately":
+        "Her durumda paketle birlikte silinir - ayrıca yedeklenemez veya "
+        "atlanamaz",
+    "not included in the backup": "yedeğe dahil edilmez",
+    "Update from where you installed PackWarden":
+        "PackWarden'ı kurduğun yerden güncelle",
+    "This copy wasn't installed with PackWarden's own "
+    "installer script, so the built-in updater can't "
+    "update it. Use Flatpak, your package manager, or "
+    "your software center instead.":
+        "Bu kopya PackWarden'ın kendi kurulum betiğiyle kurulmadı, bu "
+        "yüzden yerleşik güncelleyici onu güncelleyemez. Bunun yerine "
+        "Flatpak'ı, paket yöneticini veya yazılım merkezini kullan.",
     "Closed {count} running app(s) before removal":
         "Kaldırmadan önce {count} çalışan uygulama kapatıldı",
     "Backup failed — nothing was removed":
@@ -184,6 +204,7 @@ TR = {
     "App data": "Uygulama verileri",
     "State logs": "Durum kayıtları",
     "Flatpak data": "Flatpak verileri",
+    "Snap data": "Snap verileri",
     "Installer file": "Kurulum dosyası",
     "Desktop shortcut": "Masaüstü kısayolu",
     "Registry entry": "Kayıt Defteri girdisi",

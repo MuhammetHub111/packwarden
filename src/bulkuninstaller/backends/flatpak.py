@@ -27,7 +27,7 @@ class FlatpakBackend(Backend):
             [
                 "env", "LC_ALL=C",
                 "flatpak", "list", "--app",
-                "--columns=application,name,version,size,description,origin",
+                "--columns=application,name,version,size,description,origin,installation",
             ],
             timeout=300,
         )
@@ -41,6 +41,21 @@ class FlatpakBackend(Backend):
                 continue
             rows.append(parts)
 
+        # Aynı uygulama hem sistem hem kullanıcı kurulumunda AYNI ANDA
+        # kurulu olabilir (Flatpak'ın resmi, desteklenen bir özelliği) -
+        # "installation" sütunu eklenmeden önce ikisi de aynı application
+        # id'sini veriyordu, arayüzde ayırt edilemeyen iki özdeş satır
+        # oluşuyordu. Yalnızca GERÇEKTEN çakışan id'lerde (name_counts>1)
+        # ve kurulum bilgisi gerçekten doluysa "app_id:installation"
+        # biçimine geçiliyor - tek kurulumlu sıradan uygulamaların id'si
+        # hiç değişmiyor. Flatpak uygulama kimlikleri yalnızca
+        # [A-Z][a-z][0-9]_ ve son bileşende "-" içerebilir (resmi Flathub
+        # kuralı) - ":" HİÇBİR ZAMAN geçerli bir id karakteri değil, bu
+        # yüzden ayraç olarak güvenle kullanılabilir.
+        app_id_counts: dict[str, int] = {}
+        for parts in rows:
+            app_id_counts[parts[0]] = app_id_counts.get(parts[0], 0) + 1
+
         # Flathub'ın kendi API'si gerçek geliştirici adını veriyor —
         # yalnızca oradan gelen uygulamalar için sorgulanır, üçüncü
         # parti depolardakiler ters-DNS tahminine düşer (aşağıda).
@@ -53,10 +68,14 @@ class FlatpakBackend(Backend):
         packages = []
         for parts in rows:
             app_id = parts[0]
+            installation = parts[6] if len(parts) > 6 else ""
+            display_id = app_id
+            if app_id_counts[app_id] > 1 and installation:
+                display_id = f"{app_id}:{installation}"
             publisher = developers.get(app_id) or self._publisher(app_id)
             packages.append(Package(
-                id=app_id,
-                name=parts[1] or app_id,
+                id=display_id,
+                name=parts[1] or display_id,
                 version=parts[2] if len(parts) > 2 else "",
                 size=parse_human_size(parts[3]) if len(parts) > 3 else 0,
                 description=parts[4] if len(parts) > 4 else "",
@@ -143,4 +162,40 @@ class FlatpakBackend(Backend):
         return f"{parts[1]}.{parts[0]}"
 
     def remove_argv(self, ids: list[str]) -> list[str]:
-        return ["flatpak", "uninstall", "-y", "--noninteractive"] + ids
+        # list_packages() yalnızca gerçekten çakışan id'leri
+        # "app_id:installation" biçiminde etiketler - burada bu etiket
+        # geri çözülüp doğru --system/--user/--installation=AD bayrağına
+        # çevrilir. "system"/"user" DIŞINDAKİ bir değer, /etc/flatpak/
+        # installations.d altında tanımlanan ÖZEL ADLANDIRILMIŞ bir
+        # sistem kurulumu olabilir (resmi belge: "--installation=NAME").
+        #
+        # Bayrak yalnızca TÜM id'ler etiketliyse VE hepsi AYNI kuruluma
+        # işaret ediyorsa eklenir - "flatpak uninstall" tek bir çağrıda
+        # tek bir kapsamla çalışır, bu yüzden etiketsiz (çakışmayan,
+        # normal) bir id'yle etiketli birini AYNI çağrıda karıştırmak,
+        # etiketsiz olana YANLIŞLIKLA yanlış bir kapsam dayatabilirdi.
+        # Böyle karışık/belirsiz bir durumda bayrak HİÇ eklenmez - bu,
+        # düzeltmeden ÖNCEki davranışla aynıdır (flatpak kendi
+        # belgelenmiş "birden fazla kurulumda varsa hata ver" güvenlik
+        # önlemine düşer, yanlış bir kopyayı sessizce hedeflemez).
+        bare_ids = []
+        scopes = set()
+        all_tagged = True
+        for id_ in ids:
+            app_id, sep, scope = id_.partition(":")
+            bare_ids.append(app_id)
+            if sep and scope:
+                scopes.add(scope)
+            else:
+                all_tagged = False
+
+        argv = ["flatpak", "uninstall", "-y", "--noninteractive"]
+        if all_tagged and len(scopes) == 1:
+            scope = next(iter(scopes))
+            if scope == "system":
+                argv.append("--system")
+            elif scope == "user":
+                argv.append("--user")
+            else:
+                argv.append(f"--installation={scope}")
+        return argv + bare_ids

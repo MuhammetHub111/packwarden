@@ -38,6 +38,31 @@ def _installed_flatpak_ids() -> set:
         return set()
 
 
+def _filter_leftovers_to_packages(
+    leftovers: list, packages: list
+) -> list:
+    """`leftovers`'ı yalnızca `packages` için YENİDEN bulunabilen bir alt
+    kümeyle sınırlar.
+
+    Karma backend'li bir toplu kaldırmada bir backend iptal/başarısız
+    olup diğeri başarılı olursa, kullanıcının işaretlediği kalıntılar
+    HÂLÂ kaldırılmamış paketlere ait olabilir (ör. pacman iptal edildi -
+    o paket hâlâ kurulu - ama onun yapılandırma klasörü yine de
+    silinirse hâlâ kullanılan bir uygulamanın ayarları kaybolur). Leftover
+    nesnesinin hangi paketten geldiğine dair bir geri referansı yok, bu
+    yüzden en güvenli yol: kalıntı taramasını SADECE gerçekten kaldırılan
+    paketlerle tekrar çalıştırıp, kullanıcının işaretlediği kalıntılardan
+    yalnızca bu yeni sonuçta da çıkanları silinecek olarak kabul etmek."""
+    if not packages:
+        return []
+    valid_paths = {
+        item.path
+        for _category, items in find_package_leftovers(packages)
+        for item in items
+    }
+    return [item for item in leftovers if item.path in valid_paths]
+
+
 def _clean_unused_flatpak_data() -> None:
     """Kaldırılan Flatpak paketlerinin arkasında kalan paylaşımlı, artık
     yetim runtime'ları ve OSTree depo nesnelerini temizler (Bazaar'ın
@@ -130,8 +155,8 @@ class RemovalWindow(Adw.Window):
         self._list_box.append(self._scan_row)
 
         # Alt çubuk
-        cancel_button = Gtk.Button(label=_("Cancel"))
-        cancel_button.connect("clicked", lambda *_a: self.close())
+        self._cancel_button = Gtk.Button(label=_("Cancel"))
+        self._cancel_button.connect("clicked", lambda *_a: self.close())
 
         self._select_all = Gtk.CheckButton(label=_("Select all"), sensitive=False)
         self._select_all.connect("toggled", self._on_select_all)
@@ -148,7 +173,7 @@ class RemovalWindow(Adw.Window):
         self._spinner = Gtk.Spinner()
 
         action_bar = Gtk.ActionBar()
-        action_bar.pack_start(cancel_button)
+        action_bar.pack_start(self._cancel_button)
         action_bar.pack_start(self._select_all)
         action_bar.pack_start(self._selection_label)
         action_bar.pack_end(self._backup_button)
@@ -197,11 +222,35 @@ class RemovalWindow(Adw.Window):
             expander = Adw.ExpanderRow(title=_(category), subtitle=subtitle)
             expander.set_expanded(True)
             for item in items:
-                check = Gtk.CheckButton(valign=Gtk.Align.CENTER, active=True)
+                is_registry = item.kind == "registry"
+                # Bu kayıt WineBackend.remove() tarafından paketin kendisi
+                # kaldırılırken HER DURUMDA silinir - işareti kaldırılsa
+                # da, "Yedekle ve Kaldır" seçilse de (bkz. backends/wine.py
+                # _force_remove, leftovers.py _find_wine_registry_leftovers
+                # docstring'i). Ayrıca GERÇEK bir dosya yolu olmadığından
+                # (bkz. Leftover.path burada sentetik bir metin) backup.py
+                # _archive() bunu arşive HİÇ EKLEYEMEZ - sessizce atlar.
+                # Burada SAHTE bir seçim sunmak (işareti kaldırmak/
+                # yedeklemek hiçbir şeyi değiştirmiyor) yerine, bunu
+                # AÇIKÇA kilitli ve etiketli gösteriyoruz.
+                check = Gtk.CheckButton(
+                    valign=Gtk.Align.CENTER, active=True,
+                    sensitive=not is_registry,
+                )
+                if is_registry:
+                    check.set_tooltip_text(_(
+                        "Always removed together with the package - "
+                        "cannot be backed up or skipped separately"
+                    ))
                 check.connect("toggled", lambda *_a: self._update_selection())
+                subtitle = item.path
+                if is_registry:
+                    subtitle += "  •  " + _(
+                        "not included in the backup"
+                    )
                 row = Adw.ActionRow(
                     title=os.path.basename(item.path),
-                    subtitle=item.path,
+                    subtitle=subtitle,
                     activatable_widget=check,
                 )
                 row.add_prefix(check)
@@ -265,6 +314,22 @@ class RemovalWindow(Adw.Window):
             self._show_protection_warning(make_backup)
             return
         if make_backup:
+            # Kilit, klasör seçme diyaloğu AÇILMADAN ÖNCE alınır - bu
+            # diyalog asenkron (kullanıcı cevap verene kadar bu fonksiyon
+            # çoktan geri dönmüş olur) ve kendisi tam o aralıkta
+            # `self._busy`yi hiç değiştirmiyordu. GTK'nın kendi modal
+            # ablukası normalde ikinci bir tıklamayı engeller, ama buna
+            # körü körüne güvenmek yerine (bkz. canlı doğrulanan
+            # yarış durumu) burada da kendi kilidimizi alıyoruz - ayrı
+            # bir bayrak yerine mevcut `_busy`yi kullanmak daha az
+            # değişiklik ve daha güvenli: zaten test edilmiş
+            # `_set_busy()` hem düğmeleri hem "Vazgeç"i (bkz. Aşama 1,
+            # madde 1) devre dışı bırakıyor, YENİ bir durum/değişken
+            # eklemiyor. Kullanıcının bu noktada kaybettiği GERÇEK bir
+            # yetenek yok: iyi davranan bir modal diyalogda "Vazgeç"e
+            # zaten ulaşamıyordu; tek fark, diyalog kapanıp iptal/hata
+            # dönünce kilidi KENDİMİZİN bırakması gerekmesi (aşağıda).
+            self._set_busy(True)
             # Yedeğin nereye kaydedileceğini kullanıcı seçer
             dialog = Gtk.FileDialog(title=_("Choose where to save the backup"))
             dialog.set_initial_folder(
@@ -306,7 +371,13 @@ class RemovalWindow(Adw.Window):
         try:
             folder = dialog.select_folder_finish(result)
         except GLib.Error:
-            return  # kullanıcı seçim penceresini kapattı; hiçbir şey yapma
+            # Kullanıcı seçim penceresini kapattı YA DA diyalog bir hata
+            # verdi (GLib.Error ikisini de aynı şekilde taşır) - her iki
+            # durumda da _on_remove()'un yukarıda aldığı kilit GERİ
+            # bırakılmalı, yoksa pencere kalıcı olarak "busy" kalır ve
+            # kullanıcı bir daha hiç kaldırma başlatamaz.
+            self._set_busy(False)
+            return
         self._start(backup_base=folder.get_path())
 
     def _start(self, backup_base):
@@ -318,8 +389,19 @@ class RemovalWindow(Adw.Window):
             groups.setdefault(pkg.source, []).append(pkg.id)
 
         removes_flatpak = any(pkg.source == "flatpak" for pkg in self._pkgs)
+        # FlatpakBackend.list_packages(), yalnızca GERÇEKTEN çakışan
+        # (hem sistem hem kullanıcı kurulumunda bulunan) uygulamaları
+        # "app_id:kurulum" biçiminde etiketler (bkz. ilgili düzeltme).
+        # _installed_flatpak_ids() ise HER ZAMAN çıplak app_id döner
+        # ("flatpak list --columns=application" sonucu) - etiket hiç
+        # soyulmazsa, kullanıcının BİLEREK kaldırdığı çift-kapsamlı bir
+        # uygulama, aşağıdaki affected_flatpak_apps farkında yanlışlıkla
+        # "yan etkiyle etkilendi" diye görünürdü. Flatpak uygulama
+        # kimlikleri ":" hiç içermez (yalnızca harf/rakam/alt çizgi ve
+        # son bileşende "-"), bu yüzden ":" öncesini almak güvenlidir.
         removed_flatpak_ids = {
-            pkg.id for pkg in self._pkgs if pkg.source == "flatpak"
+            pkg.id.partition(":")[0]
+            for pkg in self._pkgs if pkg.source == "flatpak"
         }
 
         def worker():
@@ -339,20 +421,41 @@ class RemovalWindow(Adw.Window):
             # silinse bile uygulama arkada açık/kullanılabilir kalıyorsa
             # bu amaca ulaşılmamış demektir. Silmeden önce çalışan
             # süreçleri kapatmayı dene (reddetse bile kaldırma sürer).
+            #
+            # "packwarden" (SelfInstallBackend) BURADA ATLANIYOR: canlı
+            # doğrulandı - bu paketin "çalışan süreci", PackWarden'ın
+            # KENDİSİ. close_running() bunu bulup SIGTERM/SIGKILL
+            # gönderirdi - yani PackWarden kendi kaldırma işlemi
+            # SÜRERKEN kendini öldürürdü, aşağıdaki backend.remove()
+            # döngüsüne (install.sh remove'u asıl çalıştıracak adım)
+            # hiç ulaşamadan - hem kendisi hem de AYNI toplu seçimdeki
+            # diğer tüm paketler kaldırılmadan kalırdı. install.sh
+            # remove zaten kendi ilgili servislerini doğru şekilde
+            # durduruyor, bu genel mekanizmaya hiç ihtiyacı yok.
             closed_running = [
                 pkg.name for pkg in self._pkgs
-                if usage.close_running(pkg, self._main._launcher_map)
+                if pkg.source != "packwarden"
+                and usage.close_running(pkg, self._main._launcher_map)
             ]
 
+            # Her backend'in sonucu BAĞIMSIZ değerlendirilir - tek bir
+            # paylaşılan "cancelled" bayrağı kullanmak, karma backend'li
+            # bir toplu kaldırmada (ör. pacman + flatpak birlikte) BİR
+            # backend'in pkexec'i reddedilince DİĞER backend'in gerçekten
+            # başarmış olduğu kaldırmayı da "iptal edildi" diye raporlar,
+            # ona ait kalıntıları hiç temizlemez ve pencereyi/listeyi
+            # güncellemeden bırakırdı (canlı: RemoveResult.cancelled
+            # yalnızca kendi backend'i için anlamlıdır, bkz. backends/base.py).
             errors = []
-            cancelled = False
+            cancelled_backend_ids: set[str] = set()
+            succeeded_backend_ids: set[str] = set()
             for backend in self._main._backends:
                 ids = groups.get(backend.id)
                 if not ids:
                     continue
                 result = backend.remove(ids)
                 if result.cancelled:
-                    cancelled = True
+                    cancelled_backend_ids.add(backend.id)
                 elif not result.ok:
                     lines = [
                         line for line in result.output.strip().splitlines()
@@ -360,13 +463,37 @@ class RemovalWindow(Adw.Window):
                     ]
                     tail = "\n".join(lines[-8:]) if lines else _("No further details")
                     errors.append(f"{backend.display_name}:\n{tail}")
+                else:
+                    succeeded_backend_ids.add(backend.id)
 
+            succeeded_pkgs = [
+                pkg for pkg in self._pkgs if pkg.source in succeeded_backend_ids
+            ]
+            removed_count = len(succeeded_pkgs)
+            cancelled_count = sum(
+                1 for pkg in self._pkgs if pkg.source in cancelled_backend_ids
+            )
+
+            leftovers_to_remove = []
             leftover_errors = []
-            if checked and not cancelled:
-                leftover_errors = remove_leftovers(checked)
+            if checked:
+                # Tam başarıda (her şey kaldırıldı) kullanıcının işaretlediği
+                # kalıntılar zaten doğru kümedir - gereksiz bir yeniden
+                # tarama yapmaya değmez. Kısmi başarıda ise SADECE gerçekten
+                # kaldırılan paketlere ait olduğu yeniden doğrulanan
+                # kalıntılar silinir (bkz. _filter_leftovers_to_packages).
+                if len(succeeded_pkgs) == len(self._pkgs):
+                    leftovers_to_remove = checked
+                else:
+                    leftovers_to_remove = _filter_leftovers_to_packages(
+                        checked, succeeded_pkgs
+                    )
+                if leftovers_to_remove:
+                    leftover_errors = remove_leftovers(leftovers_to_remove)
+            cleaned_count = len(leftovers_to_remove) - len(leftover_errors)
 
             affected_flatpak_apps = set()
-            if removes_flatpak and not cancelled and not errors:
+            if removes_flatpak and "flatpak" in succeeded_backend_ids:
                 _clean_unused_flatpak_data()
                 after_flatpak = _installed_flatpak_ids()
                 # Kendi kaldırdığımız paketler zaten "eksik" olacak — asıl
@@ -378,7 +505,8 @@ class RemovalWindow(Adw.Window):
 
             GLib.idle_add(
                 self._on_done,
-                errors, leftover_errors, cancelled, backup_path, len(checked),
+                errors, leftover_errors, removed_count, cancelled_count,
+                backup_path, cleaned_count,
                 closed_running, affected_flatpak_apps,
             )
 
@@ -395,16 +523,10 @@ class RemovalWindow(Adw.Window):
         return GLib.SOURCE_REMOVE
 
     def _on_done(
-        self, errors, leftover_errors, cancelled, backup_path, cleaned,
-        closed_running=(), affected_flatpak_apps=(),
+        self, errors, leftover_errors, removed_count, cancelled_count,
+        backup_path, cleaned, closed_running=(), affected_flatpak_apps=(),
     ):
         self._set_busy(False)
-
-        if cancelled:
-            self._toast_overlay.add_toast(
-                Adw.Toast(title=_("Authorization was cancelled"))
-            )
-            return GLib.SOURCE_REMOVE
 
         if closed_running:
             self._main._toast_overlay.add_toast(Adw.Toast(
@@ -416,13 +538,30 @@ class RemovalWindow(Adw.Window):
             self._main._toast_overlay.add_toast(
                 Adw.Toast(title=_("Backup saved: {path}").format(path=backup_path))
             )
+
         if errors or leftover_errors:
+            # Paket kaldırma hatası ile kalıntı silme hatası AYRI başlıklarla
+            # gösterilir — paketler zaten başarıyla kaldırılmışken (sadece
+            # bir kalıntı dosyası silinemediğinde) "paketler kaldırılamadı"
+            # demek yanlış ve yanıltıcıdır.
+            heading = (
+                _("Some packages could not be removed")
+                if errors else _("Some leftover files could not be removed")
+            )
             dialog = Adw.AlertDialog(
-                heading=_("Some packages could not be removed"),
+                heading=heading,
                 body="\n\n".join(errors + leftover_errors),
             )
             dialog.add_response("ok", _("OK"))
             dialog.present(self._main)
+        elif removed_count == 0:
+            # Hiçbir backend hata vermedi ama hiçbir şey de kaldırılamadı -
+            # tek açıklama, en az birinin yetkilendirmesinin iptal
+            # edilmesidir (errors boşken removed_count==0 olmasının tek yolu
+            # bu, bkz. worker() döngüsü).
+            self._main._toast_overlay.add_toast(
+                Adw.Toast(title=_("Authorization was cancelled"))
+            )
         elif affected_flatpak_apps:
             dialog = Adw.AlertDialog(
                 heading=_("Installed apps were affected"),
@@ -435,9 +574,24 @@ class RemovalWindow(Adw.Window):
             dialog.add_response("ok", _("OK"))
             dialog.present(self._main)
         else:
-            self._main._toast_overlay.add_toast(Adw.Toast(
-                title=_("Uninstalled {count} packages").format(count=len(self._pkgs))
-            ))
+            if cancelled_count:
+                # Kısmi başarı: bir kısmı kaldırıldı, bir kısmının
+                # yetkilendirmesi iptal edildi - ikisini de ayrı ayrı
+                # bildir, hiçbirini gizleme.
+                title = _("Uninstalled {count} of {total} packages").format(
+                    count=removed_count, total=len(self._pkgs)
+                )
+            else:
+                title = _("Uninstalled {count} packages").format(
+                    count=removed_count
+                )
+            self._main._toast_overlay.add_toast(Adw.Toast(title=title))
+            if cancelled_count:
+                self._main._toast_overlay.add_toast(Adw.Toast(
+                    title=_("{count} removal(s) were cancelled").format(
+                        count=cancelled_count
+                    )
+                ))
             if cleaned:
                 if prefs.get("leftover_delete_mode") == "permanent":
                     title = _("Permanently deleted {count} leftover items").format(
@@ -449,6 +603,11 @@ class RemovalWindow(Adw.Window):
                     )
                 self._main._toast_overlay.add_toast(Adw.Toast(title=title))
 
+        # Liste yenileme ve pencerenin kapanması artık HER durumda
+        # (tam başarı / kısmi başarı / tam iptal / hata) tutarlı şekilde
+        # çalışır - eskiden "cancelled" durumunda burası hiç çalışmıyordu,
+        # bu da gerçekte kaldırılmış paketler listede eski görünmeye devam
+        # ediyordu (bkz. karma backend + iptal senaryosu).
         self._main.refresh()
         self.close()
         return GLib.SOURCE_REMOVE
@@ -458,3 +617,13 @@ class RemovalWindow(Adw.Window):
         self._spinner.set_spinning(busy)
         self._backup_button.set_sensitive(not busy)
         self._nobackup_button.set_sensitive(not busy)
+        # "Vazgeç" kaldırma başladıktan sonra da tıklanabilir kalıyordu ve
+        # arka plandaki işlemi hiç durdurmadan sadece pencereyi kapatıyordu
+        # (gerçek bir iptal MEKANİZMASI yok - backend.remove() zaten
+        # başlamışsa geri alınamaz). Kullanıcıya "iptal ettim" yanılgısı
+        # vermemek için, işlem sürerken düğme devre dışı bırakılır; spinner
+        # zaten işlemin sürdüğünü gösteriyor, araç ipucu bunu netleştiriyor.
+        self._cancel_button.set_sensitive(not busy)
+        self._cancel_button.set_tooltip_text(
+            _("Removal is in progress and cannot be stopped") if busy else ""
+        )

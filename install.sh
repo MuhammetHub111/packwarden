@@ -60,7 +60,43 @@ $GET "$REPO/archive/refs/heads/main.tar.gz" | tar -xz -C "$DIR" --strip-componen
 
 cat > "$BIN/packwarden" << LAUNCHER
 #!/bin/sh
-exec env PYTHONPATH="$DIR/src" python3 -m bulkuninstaller "\$@"
+# Bu betik, PackWarden'in kendi Python kodu HENUZ calismadan once
+# calisir - bu yuzden kurtarma mantigi burada, saf POSIX shell'de.
+# Bir guncelleme iki "rename" arasinda kesilirse (surec oldurulur,
+# guc kesilir), DIR kaybolup BACKUP_DIR saglam kalabilir; DIR icindeki
+# Python kodu (updater.py) bu durumda hic calisma sansi bulamaz,
+# cunku calismasi gereken kod da DIR'in icinde kaybolmustur.
+DIR="$DIR"
+BACKUP_DIR="\$DIR.update-backup"
+
+is_valid_install() {
+    [ -f "\$1/install.sh" ] && [ -d "\$1/src/bulkuninstaller" ]
+}
+
+if ! is_valid_install "\$DIR"; then
+    if is_valid_install "\$BACKUP_DIR"; then
+        # Bozuk hedefi DOGRUDAN silmek yerine benzersiz bir karantina
+        # adina tasi - geri alinabilir kalsin.
+        quarantine=""
+        if [ -e "\$DIR" ] || [ -L "\$DIR" ]; then
+            quarantine="\$DIR.broken-\$\$"
+            mv "\$DIR" "\$quarantine" 2>/dev/null
+        fi
+        if mv "\$BACKUP_DIR" "\$DIR" 2>/dev/null; then
+            echo "PackWarden: an interrupted update was detected and the previous version was restored." >&2
+        else
+            echo "PackWarden: could not restore the previous version from \$BACKUP_DIR. Please check it manually." >&2
+            [ -n "\$quarantine" ] && mv "\$quarantine" "\$DIR" 2>/dev/null
+            exit 1
+        fi
+    else
+        echo "PackWarden: the install at \$DIR is missing or broken, and no usable backup was found." >&2
+        echo "Reinstall with: curl -fsSL https://raw.githubusercontent.com/MuhammetHub111/packwarden/main/install.sh | sh" >&2
+        exit 1
+    fi
+fi
+
+exec env PYTHONPATH="\$DIR/src" python3 -m bulkuninstaller "\$@"
 LAUNCHER
 chmod +x "$BIN/packwarden"
 

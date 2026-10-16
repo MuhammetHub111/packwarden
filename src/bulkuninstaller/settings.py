@@ -2,7 +2,8 @@ import threading
 
 from gi.repository import Adw, GLib, Gtk
 
-from . import VERSION, prefs, usage_service
+from . import VERSION, host, prefs, usage_service
+from .backends.selfinstall import SelfInstallBackend
 from .dialog_resize import add_resize_grip
 from .i18n import _
 from .updater import fetch_remote_version
@@ -204,41 +205,66 @@ class SettingsDialog(Adw.PreferencesDialog):
         )
         updates_group.add(running_row)
 
-        auto_update_row = Adw.SwitchRow(
-            title=_("Automatic Updates"),
-            subtitle=_(
-                "Automatically checks for a new version on startup and "
-                "opens the update dialog when one is found"
-            ),
-            active=bool(prefs.get("auto_update")),
-        )
-        auto_update_row.connect(
-            "notify::active",
-            lambda row, _p: prefs.set(
-                "auto_update",
-                row.get_active(),
-            ),
-        )
-        updates_group.add(auto_update_row)
+        # Kendiliğinden güncelleme (updater.py: download_and_install/
+        # restart_app) yalnızca install.sh ile yapılan self-install kurulumu
+        # için tasarlandı - ~/.local/share/packwarden'ı doğrudan üzerine
+        # yazıyor. Flatpak içinde bu yol sandbox'ta yönlendirilir (gerçek
+        # /app ağacına hiç dokunmaz - build-aux/*.PackWarden.yaml, Flatpak'ın
+        # GERÇEK bir dağıtım kanalı olduğunu doğruluyor) ve "Yeniden
+        # Başlat" aynı eski sürümü açar; aynı şekilde pacman/AUR gibi bir
+        # dağıtım paketiyle kurulduğunda da (SelfInstallBackend.is_available()
+        # False) bu yol o kurulumla hiç ilişkili olmayan, ayrı bir kopya
+        # oluşturur. İkisinde de "Güncelleme kuruldu" diyen akış hiçbir şey
+        # değiştirmez - kullanıcıyı gerçek dağıtım kanalına yönlendirmek
+        # daha doğru. application.py:_seed_default_ignored_packwarden()
+        # zaten aynı host.IN_FLATPAK ayrımını kullanıyor.
+        if host.IN_FLATPAK or not SelfInstallBackend().is_available():
+            info_row = Adw.ActionRow(
+                title=_("Update from where you installed PackWarden"),
+                subtitle=_(
+                    "This copy wasn't installed with PackWarden's own "
+                    "installer script, so the built-in updater can't "
+                    "update it. Use Flatpak, your package manager, or "
+                    "your software center instead."
+                ),
+            )
+            updates_group.add(info_row)
+        else:
+            auto_update_row = Adw.SwitchRow(
+                title=_("Automatic Updates"),
+                subtitle=_(
+                    "Automatically checks for a new version on startup and "
+                    "opens the update dialog when one is found"
+                ),
+                active=bool(prefs.get("auto_update")),
+            )
+            auto_update_row.connect(
+                "notify::active",
+                lambda row, _p: prefs.set(
+                    "auto_update",
+                    row.get_active(),
+                ),
+            )
+            updates_group.add(auto_update_row)
 
-        self._check_button = Gtk.Button(
-            label=_("Check for Updates"),
-            valign=Gtk.Align.CENTER,
-            css_classes=["suggested-action"],
-        )
-        self._check_button.connect(
-            "clicked",
-            self._on_check_updates,
-        )
+            self._check_button = Gtk.Button(
+                label=_("Check for Updates"),
+                valign=Gtk.Align.CENTER,
+                css_classes=["suggested-action"],
+            )
+            self._check_button.connect(
+                "clicked",
+                self._on_check_updates,
+            )
 
-        self._check_spinner = Gtk.Spinner(
-            valign=Gtk.Align.CENTER,
-        )
+            self._check_spinner = Gtk.Spinner(
+                valign=Gtk.Align.CENTER,
+            )
 
-        check_row = Adw.ActionRow(title="")
-        check_row.add_suffix(self._check_spinner)
-        check_row.add_suffix(self._check_button)
-        updates_group.add(check_row)
+            check_row = Adw.ActionRow(title="")
+            check_row.add_suffix(self._check_spinner)
+            check_row.add_suffix(self._check_button)
+            updates_group.add(check_row)
 
         # Adw.Dialog kenardan surukleyerek boyutlandirmayi desteklemiyor
         # (Adw.Window'un aksine, pencere yoneticisinden gelmiyordu) -
