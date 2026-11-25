@@ -10,6 +10,7 @@ BIN="$HOME/.local/bin"
 APPS="$HOME/.local/share/applications"
 SYSTEMD_USER="$HOME/.config/systemd/user"
 USAGE_SERVICE="packwarden-usage-daemon.service"
+CONFIG_DIR="$HOME/.config/bulkuninstaller"
 
 desktop_dir() {
     if command -v xdg-user-dir >/dev/null 2>&1; then
@@ -27,6 +28,16 @@ if [ "$1" = "remove" ] || [ "$1" = "--remove" ]; then
         "$APPS/io.github.muhammethub111.PackWarden.desktop" \
         "$SYSTEMD_USER/$USAGE_SERVICE"
     rm -f "$(desktop_dir)/packwarden.desktop" "$(desktop_dir)/io.github.muhammethub111.PackWarden.desktop"
+    # Ayarlar ve kullanım geçmişi (settings.json, usage.json) KALICI
+    # silinmez - uygulamanın kendi kalıntı silme varsayılanıyla (çöp
+    # kutusu, bkz. leftovers.py) tutarlı olarak çöp kutusuna taşınır;
+    # "gio" yoksa ya da taşıma başarısız olursa dokunulmaz, kullanıcıya
+    # nerede olduğu söylenir - izinsiz kalıcı silme yok.
+    if [ -d "$CONFIG_DIR" ]; then
+        if ! { command -v gio >/dev/null 2>&1 && gio trash "$CONFIG_DIR" 2>/dev/null; }; then
+            echo "Note: your settings and usage history are still at $CONFIG_DIR — remove them yourself if you don't need them."
+        fi
+    fi
     command -v systemctl >/dev/null 2>&1 && systemctl --user daemon-reload 2>/dev/null || true
     command -v kbuildsycoca6 >/dev/null 2>&1 && kbuildsycoca6 2>/dev/null || true
     command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$APPS" 2>/dev/null || true

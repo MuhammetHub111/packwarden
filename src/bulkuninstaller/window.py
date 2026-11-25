@@ -1296,24 +1296,48 @@ class MainWindow(Adw.ApplicationWindow):
         threading.Thread(target=worker, daemon=True).start()
 
     def _open_unused_apps(self, *_args):
-        # Ayarlar aciksa once onu kapat - bkz. PackWardenApp.
-        # close_settings_if_open() (ikisi ayni anda acik kalirsa
-        # Ayarlar'in alt kismi bu pencerenin arkasindan tasip gorunuyordu).
+        # Bu pencere VE Ayarlar artik ikisi de gercek, bagimsiz birer
+        # Adw.Window (bkz. PackWarden 0.15.3) - eski tek-dialog-slotu
+        # cakismasi yapisal olarak ortadan kalkti, ikisi ayni anda
+        # acik kalabiliyor; birbirini kapatmaya gerek yok.
+        #
+        # Eylem art arda iki kez tetiklenirse (ör. menu ogesine cift
+        # tiklama) BURADA bir koruma yoksa iki ayri UnusedAppsWindow
+        # aciliyordu - D-Bus uzerinden art arda iki Activate cagrisiyla
+        # canli olarak dogrulandi ve tekrar uretildi. Zaten acik bir
+        # pencere varsa onu one getirip tekrar olusturmuyoruz.
         app = self.get_application()
-        app.close_settings_if_open()
+        if app._unused_window is not None:
+            app._unused_window.present()
+            return
         win = UnusedAppsWindow(self)
-        # Ayarlar TERSTEN (bu pencere zaten acikken) acilirsa da ayni
-        # cakisma oluyor - bkz. PackWardenApp.close_unused_if_open().
         app._unused_window = win
+
+        def _on_closing(*_a):
+            # "destroy" SINYALI DEGIL, kasitli olarak "close-request" -
+            # pencere kapanmaya baslarken (WM'den gelen gercek kapanma
+            # istegine tepki olarak) EN ERKEN, senkron noktada ateslenir;
+            # GObject'in kendi "destroy" sinyali bundan BIRAZ SONRA
+            # gelir. Referansi SADECE "destroy"da temizlemek, nadir bir
+            # yaris durumuna yol aciyordu: kapanma suruyorken (referans
+            # hala eski pencereyi gosterirken) ayni pencereyi yeniden
+            # acma istegi gelirse, henuz tam yok edilmemis ama artik
+            # kapanmakta olan pencereye .present() cagriliyor - canli
+            # testte nadiren (40 dongude 1) "Gtk-WARNING: A window is
+            # shown after it has been destroyed" uretti. Referansi
+            # BURADA (en erken) temizlemek, bir SONRAKI acma istegine
+            # dogru sekilde YENI bir pencere actiriyor. Asagidaki
+            # "destroy" baglantisi, ileride bir veto eklenirse (su an
+            # close-request hic engellenmiyor) diye sadece bir yedek.
+            app._unused_window = None
+            return False
+
+        win.connect("close-request", _on_closing)
         win.connect(
-            "closed",
+            "destroy",
             lambda *_a: setattr(app, "_unused_window", None),
         )
-        # present() DEGIL present_when_ready() - bkz. UnusedAppsWindow.
-        # present_when_ready() (ilk tarama bitip pencere gercek boyutuna
-        # oturana kadar gostermeyi erteler, aksi halde varsayilan buyuk
-        # boyuttan gercek kucuk boyuta ekranda GORUNURKEN kuculuyordu).
-        win.present_when_ready(self)
+        win.present()
 
     # ---------------- Disk haritası ----------------
 

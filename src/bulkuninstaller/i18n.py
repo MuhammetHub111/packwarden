@@ -101,6 +101,12 @@ TR = {
         "Bu kapalıyken, PackWarden kapalı olduğu sürece uygulama "
         "kullanımı güncellenmez, bu da Kullanılmayan Programlar "
         "listesinin yanlış sonuçlar vermesine yol açabilir",
+    "Background usage detection isn't available":
+        "Arkaplanda kullanım algılama kullanılamıyor",
+    "This needs PackWarden's own installer script. It isn't available "
+    "for a Flatpak or distro-package install.":
+        "Bu özellik PackWarden'ın kendi kurulum betiğini gerektiriyor. "
+        "Flatpak veya dağıtım paketiyle yapılan kurulumlarda kullanılamaz.",
     "Enable background detection for more accurate results":
         "Daha doğru sonuçlar için Ayarlar'dan arka plan algılamayı aç",
     "Open Settings": "Ayarları Aç",
@@ -206,7 +212,8 @@ TR = {
     "Flatpak data": "Flatpak verileri",
     "Snap data": "Snap verileri",
     "Installer file": "Kurulum dosyası",
-    "Desktop shortcut": "Masaüstü kısayolu",
+    "Shortcut": "Kısayol",
+    "Icon cache": "Simge önbelleği",
     "Registry entry": "Kayıt Defteri girdisi",
     "Android SDK": "Android SDK",
     "Filtering": "Filtreleme",
@@ -315,6 +322,12 @@ TR = {
         "Bu kapalıyken, PackWarden kapalı olduğu sürece uygulama "
         "kullanımı güncellenmez, bu da Kullanılmayan Programlar "
         "listesinin yanlış sonuçlar vermesine yol açabilir",
+    "Background usage detection isn't available":
+        "Arkaplanda kullanım algılama kullanılamıyor",
+    "This needs PackWarden's own installer script. It isn't available "
+    "for a Flatpak or distro-package install.":
+        "Bu özellik PackWarden'ın kendi kurulum betiğini gerektiriyor. "
+        "Flatpak veya dağıtım paketiyle yapılan kurulumlarda kullanılamaz.",
     "Enable background detection for more accurate results":
         "Daha doğru sonuçlar için Ayarlar'dan arka plan algılamayı aç",
     "Open Settings": "Ayarları Aç",

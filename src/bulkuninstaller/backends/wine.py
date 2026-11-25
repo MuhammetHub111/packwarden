@@ -105,6 +105,25 @@ def _parse_uninstall_entries(reg_path: str) -> list[dict]:
     return entries
 
 
+def _uninstall_string(entry: dict) -> str | None:
+    """Bir kayıt defteri girdisinin KULLANILACAK kaldırma komutu -
+    varsa QuietUninstallString (sessiz/etkileşimsiz), yoksa düz
+    UninstallString (etkileşimli olabilir).
+
+    Canlı doğrulandı (Notepad++ 8.9.9.1, gerçek NSIS kurulumu): çoğu
+    modern installer HER İKİSİNİ de yazıyor -
+    QuietUninstallString="...uninstall.exe" /S (otomasyon için
+    tasarlanmış, kullanıcı etkileşimi beklemez) ve düz
+    UninstallString="...uninstall.exe" (/S'siz - NSIS şablonuna göre
+    bir onay penceresi gösterebilir). PackWarden toplu/otomatik bir
+    araç olduğu için, varsa HER ZAMAN sessiz olanı tercih etmeli -
+    aksi halde kaldırma, hiç kimsenin tıklamayacağı bir onay penceresinin
+    arkasında süresiz bekleyebilir (bkz. host.run()'daki 600 saniyelik
+    timeout - kullanıcı başka bir işle meşgulse bu süre dolana kadar
+    "kaldırılıyor" gibi görünüp aslında hiçbir şey yapmıyor olabilirdi)."""
+    return entry.get("QuietUninstallString") or entry.get("UninstallString")
+
+
 def _key_exists(reg_path_file: str, key: str) -> bool:
     return any(e.get("_key") == key for e in _parse_uninstall_entries(reg_path_file))
 
@@ -459,6 +478,24 @@ def launch_argv(pkg_id: str) -> list[str] | None:
     return ["env", f"WINEPREFIX={prefix}", "wine", resolved]
 
 
+def icon_cache_path(pkg_id: str) -> str | None:
+    """pkg_id için list_packages()'ın kullandığı AYNI formülle
+    hesaplanan ikon önbellek dosyasının yolu - diskte varsa.
+
+    leftovers.py'nin, kaldırılmış bir Wine paketinin ikon önbellek
+    dosyasını (varsa) kalıntı olarak bulabilmesi için - _extract_icon
+    sonucu kalıcı olarak önbelleğe alınır ama hiçbir yerde silinmez;
+    paket registry'den kaldırıldıktan sonra bu dosya öylece kalır
+    (canlı doğrulandı: SteelSeries GG, Totalcmd64, foobar2000_x64 gibi
+    çoktan kaldırılmış paketlerin ikon PNG'leri hâlâ diskteydi)."""
+    prefix, sep, key = pkg_id.partition("::")
+    if not sep:
+        return None
+    cache_key = re.sub(r"[^\w.-]+", "_", f"{prefix}_{key}")
+    path = os.path.join(_ICON_CACHE_DIR, f"{cache_key}.png")
+    return path if os.path.isfile(path) else None
+
+
 def exec_basename(pkg_id: str) -> str | None:
     """pkg_id'nin çözülen .exe'sinin dosya adı, küçük harf; yoksa None.
 
@@ -497,7 +534,7 @@ class WineBackend(Backend):
                     continue
                 if "ParentKeyName" in entry:
                     continue
-                if not entry.get("UninstallString"):
+                if not _uninstall_string(entry):
                     continue
                 size_kb = entry.get("EstimatedSize")
                 icon_path = ""
@@ -552,9 +589,10 @@ class WineBackend(Backend):
             return ["true"]
         prefix, _sep, key = ids[0].partition("::")
         entry = self._find_entry(prefix, key)
-        if not entry or not entry.get("UninstallString"):
+        uninstall_string = _uninstall_string(entry) if entry else None
+        if not uninstall_string:
             return ["true"]
-        return self._wine_argv(prefix, entry["UninstallString"])
+        return self._wine_argv(prefix, uninstall_string)
 
     def remove(self, ids: list[str]) -> RemoveResult:
         outputs = []
@@ -565,10 +603,11 @@ class WineBackend(Backend):
                 failed.append(pkg_id)
                 continue
             entry = self._find_entry(prefix, key)
-            if not entry or not entry.get("UninstallString"):
+            uninstall_string = _uninstall_string(entry) if entry else None
+            if not uninstall_string:
                 failed.append(pkg_id)
                 continue
-            argv = self._wine_argv(prefix, entry["UninstallString"])
+            argv = self._wine_argv(prefix, uninstall_string)
             try:
                 proc = host.run(argv, timeout=600)
                 outputs.append((proc.stdout or "") + (proc.stderr or ""))

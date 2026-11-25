@@ -17,13 +17,245 @@ from gi.repository import Adw, GLib, Gtk, Pango
 
 from . import prefs, usage
 from .backends.base import format_size
-from .dialog_resize import add_resize_grip
 from .settings import SettingsDialog
 from .i18n import _
 from .removal import RemovalWindow
 from .unused import last_used
 
 PRESETS_DAYS = (90, 180, 365)
+
+# Bildirim ("toast") stilinin CSS kurallari - modul seviyesinde, TEK
+# bir kez. Onceki surumde bu, _build_toast_widget() icinde her
+# UnusedAppsWindow olusturulusunda (yani pencere her acilisinda) yeni
+# bir Gtk.CssProvider olusturup ekrana (Gdk.Display) EKLIYOR ama HIC
+# KALDIRMIYORDU - pencereyi ac/kapat dongusunde ayni kurallara sahip
+# saglayicilar kalici olarak birikiyordu (canli bellek olcumuyle
+# dogrulandi). Tek bir paylasilan saglayici + asagidaki koruma, CSS
+# kurallarini hic degistirmeden bu birikmeyi onluyor.
+_TOAST_CSS = b"""
+.pw-toast {
+    background-color: rgba(46, 46, 50, 0.92);
+    color: white;
+    padding: 8px 8px 8px 16px;
+    border-radius: 9999px;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
+    /* opacity/transform'un ACIK (implicit/initial degere
+       guvenilmeyen) "normal" degerleri - minimal, izole bir
+       ekran-goruntusu testiyle dogrulandi: GTK'nin CSS motoru,
+       bir sinif kaldirilinca "hicbir kural kalmadi, initial
+       degere don" durumunu guvenilir sekilde ANIMASYONLU
+       oynatmiyor (sessizce ANINDA atliyor) - gecisin hem "nereden"
+       hem "nereye" tarafinin ACIKCA bir kuralda yazili olmasi
+       gerekiyor.
+    */
+    opacity: 1;
+    transform: none;
+    /* Ust/alt bosluk (komsu bildirimler + icerik/eylem cubugu
+       arasi) VE yan bosluk burada, PILL'in kendi CSS'inde - her
+       fiziksel slotun KENDI revealer'inda degil. Boylece 0
+       bildirim varken revealer'in 0 gorunur yukseklik + 0 margin
+       (bos alan kalmiyor); her bildirim VARKEN kendi boslugunu
+       kendi tasiyor.
+       Ust bosluk (listenin bitisiyle ilk bildirim arasi) bilerek
+       ALTTAN daha kucuk - kullanici ekran goruntusuyle "bildirim
+       biraz daha yukari gelsin" dedi (ustteki uzun bos dikdortgen
+       bug'iyla ilgisi yok, o ayri ve zaten cozuldu - bu sadece
+       pill'in kendi ince kenar boslugu).
+       Yan bosluk (56px): kullanici ekran goruntusuyle bildirim
+       pill'inin, UZERINE bindigi Yoksayilanlar satirlarindan
+       (nested row) cok daha genis oldugunu isaretledi ("kirp,
+       daralt, uygulamaya denk gelsin") - canli piksel olcumuyle
+       dogrulandi: nested satir x=56..723 (genislik 667), pill ise
+       x=12..768 idi (genislik 756) - pill her iki yanda da ~44-56px
+       fazla tasiyordu. 56px pill'i nested satirin GERCEK x
+       sinirlarina hizaliyor.
+    */
+    margin: 1px 56px 3px;
+}
+/* Dugmeler ARTIK kompaktlastirilmiyor (eski gerekce: bildirim
+   pencereyi buyutuyordu, bu yuzden kucuk tutulmasi gerekiyordu -
+   bkz. git log). Bildirimler artik pencereyi hic buyutmuyor
+   (bkz. __init__'teki Gtk.Overlay), bu yuzden kullanicinin
+   istedigi gibi normal boyutlarinda (standart Adwaita dugme
+   yuksekligi) kalabiliyorlar - kullanici ekran goruntusuyle
+   pill'in bir UYGULAMA SATIRI kadar yer kaplamasini istedi,
+   kucultulmus dugmeler bunu engelliyordu.
+*/
+.pw-toast > button.circular {
+    /* Bu gecis SADECE belirme (bkz. _show_toast) icin kullaniliyor
+       artik - pill kucuk/saydamken (.pw-toast-hidden) "geri yayli"
+       (back-ease-out) egriyle kisa bir asiri-buyume (overshoot)
+       yapip tam boyutuna oturuyor, yani "baloncuk sisip patlama"
+       hissi veriyor, konumu hic degismeden. Kapanista (bkz.
+       _remove_toast_at) ARTIK BU GECIS OYNAMIYOR - pill, tiklanir
+       tiklanmaz dogrudan kutudan kaldiriliyor (bkz. asagidaki
+       not): kullanici art arda 3 bildirimi "Geri al"/X ile
+       kapatirken bir onceki bildirim 220ms'lik sonme suresi
+       boyunca hala yerinde durdugu icin bir SONRAKI bildirimin
+       dugmesi bosalan (ust) yere henuz kaymiyordu - fareyi oraya
+       tasimasi gerekiyordu ("iki hamle" dedigi buydu). Komsunun
+       ANINDA yerine kaymasi, kapanis icin uzun bir sonme
+       animasyonundan daha onemli - "bom patlar gibi" zaten ani
+       bir sey, uzun bir sonme turu degil.
+    */
+    transition: opacity 220ms cubic-bezier(0.34, 1.56, 0.64, 1),
+                transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.pw-toast-hidden {
+    opacity: 0;
+    transform: scale(0.45);
+}
+/* libadwaita bu satira farkli bir kart rengi, yuvarlak kose ve
+   ince bir kenarlik veriyor (acilan bir alt-kart gibi ayirt
+   etsin diye). Once @card_bg_color'i (yarim seffaf beyaz bir
+   katman, duz bir renk DEGIL) dogrudan background-color olarak
+   denedik: ekran goruntusu + piksel olcumuyle dogrulandi ki
+   normal satirlarin GERCEK rengi window_bg_color + %8 beyaz
+   karisimiymis (olcum: rgb(52,52,55)); @card_bg_color'i hem
+   bu satira hem ic satirlarina ayri ayri uygulamak bu karisimi
+   IKI KEZ ust uste bindiriyordu (olcum: rgb(64,64,66) -
+   belirgin sekilde daha acik/farkli). mix() ile TEK, DUZ/OPAK
+   bir sonuc renk hesaplayip HER katmana (kutu, liste, revealer,
+   satir) ayni sekilde uyguluyoruz - opak renk ust uste
+   bindirmede karismiyor, kenarlardaki ince farkli renkli
+   seritler de boylece kapaniyor.
+*/
+.pw-ignored-expander,
+.pw-ignored-expander box,
+.pw-ignored-expander list,
+.pw-ignored-expander revealer,
+.pw-ignored-expander row {
+    background-color: mix(@window_bg_color, white, 0.08);
+    border-radius: 0;
+    box-shadow: none;
+    border: none;
+    outline: none;
+    margin: 0;
+}
+/* Bos-durum sayfasinin (_empty_status, hepsi yoksayilinca
+   "Kullanilmayan yok" karti) duz/stilsiz DUZ arkaplani
+   (pencerenin kendi rengi) gosterip satirlarin (boxed-list, tek
+   katman @card_bg_color) arkaplanindan farkli durdugu, "ayri bir
+   kutu" gibi goze batiyordu. @card_bg_color'in tek katmani,
+   olculen window_bg_color+%8 beyaz karisimiyla matematiksel
+   olarak esdeger (bkz. yukaridaki uzun aciklama) - o yuzden AYNI
+   mix() formulunu kullanmak yeterli.
+*/
+.pw-row-bg-fill {
+    background-color: mix(@window_bg_color, white, 0.08);
+}
+/* Ok gostergesi kendi ayri "hit area" boslugu yuzunden +/-
+   dugmelerinin hizasindan saga kayiyor. margin-end negatif
+   degerle denendi ama bir noktadan sonra (~-33px) kilitleniyor
+   (kucuk bir tiklama alani alt siniri var gibi); transform ise
+   boyle bir sinira carpmiyor.
+   AYRICA: "nested" liste (ExpanderRow'un ic satirlari) ile ana
+   listenin ("boxed-list") kendi sag bosluk payi farkli;
+   piksel olcumuyle dogrulandi: eksi dugmesi 670, arti dugmesi
+   658 (12px fark). Hem eksi dugmesini hem oku, arti dugmesiyle
+   AYNI x konumuna (658) gelecek sekilde kaydiriyoruz.
+*/
+.pw-ignored-expander .nested button.destructive-action {
+    transform: translateX(-12px);
+}
+.pw-ignored-expander .expander-row-arrow {
+    transform: translateX(-21px);
+}
+/* Panel ilk kez gizliden gorunure gectiginde (yok sayilan sayisi
+   0'dan 1'e ciktiginda) ok ikonu, hic tiklanmamis olsa bile bir
+   kere donuyordu. Sebebi: libadwaita'nin oku -gtk-icon-transform
+   ile 200ms'de donduren CSS transition'i, widget ilk realize
+   olurken bile (gercek bir :checked degisimi olmadan) bir kere
+   tetikleniyor. Bu sinif set_visible(True)'dan once eklenip
+   hemen sonra kaldirilarak SADECE o ilk kareyi (transition'siz)
+   gecistiriyor; sonraki gercek ac/kapa tiklamalarinda animasyon
+   normal kaliyor.
+*/
+.pw-ignored-expander.pw-suppress-arrow-anim .expander-row-arrow {
+    transition: none;
+}
+/* Gorunmez onay kutusu ikon ile baslik arasina gercek onay
+   kutusuyla AYNI genislikte bosluk koyacakti, ama "nested"
+   liste bunu gercek listeden daha genis uyguluyor (olculdu:
+   14px fazla). Kapatiyoruz.
+*/
+.pw-ignore-title-spacer {
+    margin-right: 8px;
+}
+/* ExpanderRow'un basligi ("Yoksayilanlar"), ust satirlarin
+   ("Ozel (gun)" vb.) basligindan ~11px sola kayik duruyordu
+   (gercek pencerede ekran goruntusu + piksel olcumuyle
+   dogrulandi: 85 vs 95-96). Ayni noktaya getiriyoruz.
+*/
+.pw-ignored-expander .header .title {
+    margin-left: 5px;
+}
+/* Yoksayilanlar panelindeki satirlarin ikonu (alacritty vb.)
+   biraz saga kaydirilsin istendi. Bu ikon add_prefix() ile
+   elle eklendigi icin ActionRow'un kendi ".icon" sinifini
+   TASIMIYOR (o sinif sadece set_icon_name() kullanildiginda
+   devreye giren, bizim kullanmadigimiz baska bir ic Image'a
+   ait) - kendi ozel sinifimizi (pw-ignore-row-icon) ekleyip
+   onunla hedefliyoruz.
+*/
+/* YANLIS TESHIS DUZELTMESI: "yapisal kayma yok" dedik ve sifira
+   aldik, ama kullanici bunun "en dibe kaymis" gibi kotu
+   gorundugunu bildirdi - dogruydu. Kesin kanit icin AYNI pkg'nin
+   AYNI ikonunu hem gercek nested (yoksayilan) satirda hem de
+   gecici bir boxed-list satirinda olusturup compute_bounds ile
+   (burada transform yok, guvenilir) karsilastirdik: nested
+   x=57, boxed-list x=69 - TAM 12px'lik gercek bir yapisal fark
+   var (basliktaki 4px, eksi dugmesindeki 12px ile ayni aile).
+   Dogru deger buydu; kullanicinin nudge'larinin toplami da
+   tesadufen buna yakinmis.
+*/
+/* DUZELTME: "transform: translateX()" gorseli kaydiriyor ama
+   widget'in KENDI ayrilmis kutusunu (ve kirpma sinirini)
+   BUYUTMUYOR - onceki bir commit bunu "bu eleman translateX()'e
+   dogrusal olmayan tepki veriyor, kirpma/allocation kisiti"
+   diye zaten tespit etmisti ama sorunu (kirpilma) cozmeden,
+   sadece az fark edilecek kucuk bir deger secerek gecistirmisti.
+   margin-left GERCEKTEN yerlesime katilir - kutuyu genisletir,
+   kirpma sinirini de birlikte tasir, tasma/kirpilma olmaz. */
+.pw-ignore-row-icon {
+    margin-left: 12px;
+}
+/* Yoksayilanlar bolumundeki boyut yazisi biraz sola kaydirilsin
+   istendi.
+*/
+.pw-ignore-row-size {
+    transform: translateX(-12px);
+}
+/* "Su suredir kullanilmayanlar" (S harfi), "Ozel (gun)" ve
+   "Yoksayilanlar" (O/Y harfleri) ile ayni x'te olcumustu ama
+   1px fark vardi - harf sekli. Kullanici gozle fark ediyor,
+   kapatiyoruz.
+*/
+.pw-threshold-row .title {
+    transform: translateX(-0.5px);
+}
+"""
+
+_toast_css_provider = None
+
+
+def _ensure_toast_css_installed(display):
+    """CSS saglayicisini verilen ekrana SADECE ILK cagrida ekler -
+    sonraki cagrilar (yeni bir UnusedAppsWindow her acildiginda) no-op.
+    Ayni islemci icinde birden fazla Gdk.Display olmasi son derece
+    nadir (tek kullanicili masaustu oturumlarinda pratikte hic yok) -
+    bu yuzden tek, modul seviyesinde bir saglayici/bayrak yeterli ve
+    orantili; her ekran icin ayri bir kayit tutmak gereksiz karmasiklik
+    olurdu."""
+    global _toast_css_provider
+    if _toast_css_provider is not None:
+        return
+    _toast_css_provider = Gtk.CssProvider()
+    _toast_css_provider.load_from_data(_TOAST_CSS)
+    Gtk.StyleContext.add_provider_for_display(
+        display, _toast_css_provider,
+        Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+    )
 
 
 class _Item:
@@ -57,23 +289,26 @@ def _format_last_used(ts):
     return _(key).format(years=years)
 
 
-class UnusedAppsWindow(Adw.Dialog):
-    # Liste HER ZAMAN bu kadar satir gosterecek sekilde sabitlenir -
-    # bkz. _pin_scrolled_for_row_count/_set_hint_banner_visible.
-    _TARGET_VISIBLE_ROWS = 10
-
+class UnusedAppsWindow(Adw.Window):
     def __init__(self, main_window):
-        # Adw.Window DEGIL Adw.Dialog: ayri, gercek bir pencere olarak
-        # konumunu PackWarden degil pencere yoneticisi belirliyordu, bu
-        # da Ayarlar (zaten Adw.Dialog) ile hicbir zaman ayni sekilde
-        # ortalanmiyordu (kullanici canli ekran goruntusuyle gosterdi:
-        # ust/alt bosluklar esit degildi). Adw.Dialog ana pencerenin
-        # TAM ortasina kendi kendini ortaliyor - transient_for/modal
-        # yerine content_width/content_height kullanir.
+        # Adw.Dialog DEGIL Adw.Window: Ayarlar'la (artik o da Adw.Window)
+        # ayni ebeveyn penceresi uzerinde AYNI ANDA acik kalinca ikisi
+        # eskiden ayni tek-dialog-slotuna sikisip birbirinin uzerine
+        # tasiyordu (bkz. git log: eski close_settings_if_open/close_
+        # unused_if_open) - gercek, bagimsiz bir ust-seviye pencere bu
+        # celiskiyi yapisal olarak ortadan kaldiriyor: konumu/boyutu
+        # artik PackWarden degil, dogrudan pencere yoneticisi/Wayland
+        # compositor belirliyor - tipki RemovalWindow gibi. Bunun
+        # dogal sonucu olarak kenar/kose boyutlandirmasi da artik WM'in
+        # kendi native mekanizmasi - dialog_resize.py'nin bu pencere
+        # icin kullandigi elle surukleme/kose-kilidi hic gerekmiyor
+        # (ve WM'in kendi resize'i zaten hayalet goruntu/sallanma
+        # uretmiyor, bkz. git log).
         super().__init__(
+            transient_for=main_window,
             title=_("Unused programs"),
-            content_width=780,
-            content_height=920,
+            default_width=780,
+            default_height=920,
         )
         self._main = main_window
         self._data: list[tuple[object, float | None]] = []
@@ -95,16 +330,6 @@ class UnusedAppsWindow(Adw.Dialog):
         # aksi halde çok paketli sistemde thread'ler üst üste birikebilir
         # ve sonuçlar sırasız uygulanabilirdi.
         self._scan_in_progress = False
-        # İlk (asenkron) tarama bitip pencere gerçek boyutuna (bkz.
-        # _pin_scrolled_for_row_count) oturana kadar present()'ı erteler
-        # - bkz. present_when_ready(). Adw.Window iken bu sorun
-        # görünmüyordu (varsayılan boyuttan gerçek boyuta geçiş, pencere
-        # yöneticisi tarafında, ekranda hiç görünmeden oluyordu); Adw.
-        # Dialog'a geçince aynı küçülme artık ekranda GÖRÜNÜRKEN oluyor -
-        # kullanıcı "önce büyük açılıp bir an sonra küçülüyor" diye
-        # bildirdi.
-        self._first_scan_done = False
-        self._pending_present_parent = None
 
         # Kullanıcının en son seçtiği eşik hatırlanır — pencere her
         # açıldığında 6 aya sıfırlanması can sıkıcıydı.
@@ -279,25 +504,6 @@ class UnusedAppsWindow(Adw.Dialog):
         # Kullanici (ya da programatik olarak biz) listeyi en alta kadar
         # kaydirmis mi - bkz. _on_scroll_value_changed/_snap_scrolled_bottom.
         self._pinned_to_bottom = False
-        # Liste HER ZAMAN (arkaplan algilama uyarisi acilsin/kapansin
-        # fark etmeksizin) ayni sayida ("_TARGET_VISIBLE_ROWS") satir
-        # gosterecek sekilde SABITLENIR - bkz. _pin_scrolled_for_row_
-        # count. Uyari çubuğu (bkz. _set_hint_banner_visible) bu sabit
-        # butceden CALMAZ, bunun yerine pencerenin kendisi o kadar
-        # buyur/kucculur.
-        self._row_count_pinned = False
-        self._row_count_pin_pending = False
-        self._scrolled_pinned_height = None
-        # Pencerenin "su an ne kadar olmasini istedigimiz" yuksekligi -
-        # self.get_height() TEKRAR TEKRAR OKUNMUYOR cunku art arda hizli
-        # set_default_size() cagrilarindan hemen sonra (gercek pencere
-        # henuz yeniden boyutlanmadan) 0 dondugu canli olarak dogrulandi
-        # (PWDEBUG log'u: "new_window_h=-67" gibi imkansiz degerler) -
-        # bu da hesaplarin birikerek bozulmasina yol aciyordu. Bunun
-        # yerine SADECE BIR KERE (ilk pin aninda) gercek degeri okuyup
-        # bundan sonra TAMAMEN kendi degerimizi (saf aritmetikle) takip
-        # ediyoruz - bkz. _pin_scrolled_for_row_count/_grow_for_banner.
-        self._window_pinned_height = None
         vadjustment = self._scrolled.get_vadjustment()
         vadjustment.connect("notify::value", self._on_scroll_value_changed)
         vadjustment.connect("notify::upper", self._on_scroll_area_changed)
@@ -362,12 +568,7 @@ class UnusedAppsWindow(Adw.Dialog):
         toolbar_view = Adw.ToolbarView(content=self._toast_overlay)
         toolbar_view.add_top_bar(header)
         toolbar_view.add_bottom_bar(action_bar)
-        self.set_child(toolbar_view)
-
-        # Adw.Dialog kenardan surukleyerek boyutlandirmayi desteklemiyor
-        # (Adw.Window'un aksine, pencere yoneticisinden gelmiyordu) -
-        # kullanici bunu elle yapabilmek istedi, bkz. dialog_resize.py.
-        add_resize_grip(self, on_resize=self._on_manual_resize)
+        self.set_content(toolbar_view)
 
         self._update_ignored_button()
         self._scan()
@@ -380,11 +581,7 @@ class UnusedAppsWindow(Adw.Dialog):
         # amacı ay ölçeğinde kullanılmayanları yakalamak, birkaç saniyelik
         # gecikme bu amaç için önemsiz - 8sn CPU yükünü orantılı azaltır.
         self._rescan_source = GLib.timeout_add_seconds(8, self._on_rescan_tick)
-        # Adw.Dialog'da "close-request" (Gtk.Window sinyali) yok - en
-        # yakin karsiligi "closed" (kapanma kesinlesince ates alir,
-        # engellenemez ama zaten burada tek amac temizlik, engelleme
-        # degil).
-        self.connect("closed", self._on_close_request)
+        self.connect("close-request", self._on_close_request)
 
     def _on_rescan_tick(self):
         self._scan()
@@ -393,224 +590,16 @@ class UnusedAppsWindow(Adw.Dialog):
         )
         return GLib.SOURCE_CONTINUE
 
-    # Kullanici: "arkaplan algilama" ayarini kapatinca ustte cikan sari
-    # uyari, listenin aynı pencerede gorunen satir sayisini ("ritim")
-    # degistiriyordu - uyari ACILINCA 1-2 satir daha az sigiyordu. Bu
-    # yuzden uyarinin kendi gorunurlugunu DOGRUDAN set_visible() ile
-    # degil, bu yardimciyla degistiriyoruz: uyarinin kapladigi alani
-    # olcup AYNI miktarda pencereyi buyutup/kucultuyoruz (bkz.
-    # _grow_for_banner) - liste HER ZAMAN ayni (_TARGET_VISIBLE_ROWS)
-    # sayida satir gosteriyor, uyari bunun disinda, "ekstra" olarak
-    # ekleniyor.
     def _set_hint_banner_visible(self, visible):
-        if self._hint_banner.get_visible() == visible:
-            return
-        if not self._row_count_pinned:
-            self._hint_banner.set_visible(visible)
-            return
-        # ONEMLI: .measure() de GORUNMEYEN bir widget icin (0, 0) doner -
-        # icerigine gore dogal boyutu bilse bile, GTK gizli widget'lari
-        # yerlesim hesabina hic katmiyor. Bu yuzden olcumu HER ZAMAN
-        # widget GERCEKTEN gorunurken yapmak gerekiyor: gizlerken ONCE
-        # (hala gorunurken) olc SONRA gizle; gosterirken ONCE goster
-        # SONRA (artik gorunur oldugu icin) olc - .measure() senkron
-        # calistigi icin (bir onceki surumde idle_add ile denenen "gorunur
-        # olana kadar bosta-bekleme turlerinde bekle" yaklasimi, art arda
-        # hizli turlerde GERCEK bir tahsis/cerceve turu hic olusmadigindan
-        # hep 0 donuyordu) ek bir bekleme turuna gerek yok.
-        spacing = self._content.get_spacing()
-        if not visible:
-            _, natural, _, _ = self._hint_banner.measure(
-                Gtk.Orientation.VERTICAL, -1
-            )
-            self._hint_banner.set_visible(False)
-            delta = natural + spacing if natural > 0 else 0
-            if delta > 0:
-                self._grow_for_banner(-delta)
-            return
-        self._hint_banner.set_visible(True)
-        _, natural, _, _ = self._hint_banner.measure(
-            Gtk.Orientation.VERTICAL, -1
-        )
-        delta = natural + spacing if natural > 0 else 0
-        if delta > 0:
-            self._grow_for_banner(delta)
-
-    def _grow_for_banner(self, delta):
-        if self._scrolled_pinned_height is None or self._window_pinned_height is None:
-            return
-        self._scrolled_pinned_height = max(1, self._scrolled_pinned_height + delta)
-        self._scrolled.set_size_request(-1, self._scrolled_pinned_height)
-        self._window_pinned_height = max(1, self._window_pinned_height + delta)
-        self.set_content_height(self._window_pinned_height)
-
-    def _row_height(self):
-        row = self._list_box.get_row_at_index(0)
-        if row is not None:
-            _, row_h, _, _ = row.measure(Gtk.Orientation.VERTICAL, -1)
-        else:
-            row_h = 0
-        return row_h if row_h > 1 else 56
-
-    def _current_chrome_height(self):
-        """_scrolled icindeki, "satir" SAYILMAYAN kisimlarin (ayar
-        satirlari + varsa uyari cubugu + aralarindaki bosluklar) O ANKI
-        GERCEK yuksekligi - bkz. _on_manual_resize. Pin anindan beri
-        (banner ac/kapa, yoksayilan sayisi degisimi vb.) degismis
-        olabilir; her seferinde SIFIRDAN olcup kullanmak, eski/kalinti
-        bir degere gore biriken sapmayi (kullanici canli ekran
-        goruntusuyle bildirdi: son satirin yarim kesilmesi) engeller."""
-        _, settings_h, _, _ = self._settings_group.measure(
-            Gtk.Orientation.VERTICAL, -1
-        )
-        spacing = self._content.get_spacing()
-        chrome = self._content.get_margin_top() + settings_h + spacing
-        if self._hint_banner.get_visible():
-            _, banner_h, _, _ = self._hint_banner.measure(
-                Gtk.Orientation.VERTICAL, -1
-            )
-            if banner_h > 1:
-                chrome += banner_h + spacing
-        return chrome
-
-    def _on_manual_resize(self, _new_width, new_height):
-        """Kullanıcı kenardan/köşeden sürükleyince (bkz. dialog_resize.
-        add_resize_grip) çağrılır. content_height'taki değişimi SADECE
-        kaydırmalı listeye yansıtıyoruz - ayar satırları ve alt eylem
-        çubuğu sabit boyutta kalıyor, fazladan/eksik alan boşlukta
-        durmak yerine listede daha fazla/az satır olarak görünüyor.
-
-        ÖNEMLİ: fark (delta) üzerinden DEĞİL, her seferinde ÇERÇEVEYİ
-        (bkz. _current_chrome_height) SIFIRDAN ölçüp mutlak satır
-        sayısını hesaplayarak yapıyoruz. İlk sürümde (sadece ham
-        pikseli en yakın satıra yuvarlayan fark tabanlı hesap) birkaç
-        boyutlandırma + uyarı çubuğu aç/kapa sonrası küçük kalıntılar
-        birikebiliyordu - kullanıcı canlı ekran görüntüsüyle, listenin
-        tam 10 değil 11 tam + 1 yarım satır gösterdiğini bildirdi.
-        Sıfırdan ölçüp mutlak satır sayısına yuvarlamak, önceki
-        durumdan BAĞIMSIZ olduğu için böyle bir birikme yapısal olarak
-        imkânsız hale geliyor."""
-        if self._window_pinned_height is None:
-            return
-        row_h = self._row_height()
-        chrome = self._current_chrome_height()
-        raw_scrolled = max(
-            1, (self._scrolled_pinned_height or 0) + (new_height - self._window_pinned_height)
-        )
-        usable = max(0, raw_scrolled - chrome)
-        rows = max(1, round(usable / row_h))
-        snapped_scrolled = chrome + rows * row_h
-        delta = snapped_scrolled - (self._scrolled_pinned_height or snapped_scrolled)
-        if delta == 0:
-            self.set_content_height(self._window_pinned_height)
-            return
-        self._scrolled_pinned_height = snapped_scrolled
-        self._scrolled.set_size_request(-1, snapped_scrolled)
-        self._window_pinned_height = max(1, self._window_pinned_height + delta)
-        self.set_content_height(self._window_pinned_height)
-
-        # Bildirim slotlarinin sabit margin_top'u (bkz. _pin_toast_slot_
-        # positions) pencere YENIDEN boyutlanmadan ONCEKI yukseklige gore
-        # hesaplanmisti - pencere sonradan manuel suruklenince bu eski
-        # degerler artik YANLIS oluyordu (kullanici canli ekran
-        # goruntusuyle bildirdi: ust uste binen, "pill" seklini kaybetmis
-        # bildirimler). Su an gosterilen bir bildirim YOKSA (varsa,
-        # onlari aninda yerinden oynatmak - tam da bu bildirim sisteminin
-        # en basindan beri KACINILMASI gereken sey - bu yuzden o durumda
-        # dokunmuyoruz, bir sonraki SIFIRDAN gosterimde kendiliginden
-        # dogru hesaplanacak) yeniden hesaplanmasina izin veriyoruz.
-        if not self._toast_data:
-            self._toast_slots_pinned = False
-            GLib.idle_add(self._pin_toast_slot_positions)
-
-    def _pin_scrolled_for_row_count(self):
-        # Liste icerigi (kac uygulama "kullanilmiyor" sayildigi) zamanla
-        # degisebilir, ama pencere/liste boyutu her degisiminde oynamasin
-        # diye bu SADECE BIR KERE (ilk gercek satirlar olustugunda)
-        # calisir - bkz. _row_count_pinned/_row_count_pin_pending.
-        if self._row_count_pinned or self._row_count_pin_pending:
-            return
-        self._row_count_pin_pending = True
-
-        # get_allocated_height() DEGIL, .measure() - ONEMLI: ilk denemede
-        # get_allocated_height() + idle_add retry kullanilmisti, ama
-        # gercek uygulamada bu HER ZAMAN 40 bosta-bekleme turunde bile 0/
-        # gecersiz kaldi (canli raporla dogrulandi: pin hic devreye
-        # girmedi, liste eski "ekrana gore degisken" haline geri dustu,
-        # kullanici 10'dan FAZLA satir gordugunu bildirdi) - gercek bir
-        # tahsis/cerceve turu gerektiriyor, ard arda hizli bosta-bekleme
-        # turlerinde hic olusmuyor (bkz. _set_hint_banner_visible'daki
-        # ayni kesif). .measure() ise widget GORUNURKEN icerigine gore
-        # dogal boyutu HER ZAMAN senkron, aninda verir - bosta-bekleme
-        # turune hic gerek yok, _rebuild_list satirlari ekledigi ANDA
-        # cagrilabilir.
-        _, settings_h, _, _ = self._settings_group.measure(
-            Gtk.Orientation.VERTICAL, -1
-        )
-        row = self._list_box.get_row_at_index(0)
-        if row is not None:
-            _, row_h, _, _ = row.measure(Gtk.Orientation.VERTICAL, -1)
-        else:
-            row_h = 0
-        if row_h <= 1:
-            row_h = 56
-        spacing = self._content.get_spacing()
-        # SADECE margin_top - margin_bottom listenin GERCEK sonunda
-        # (satir 10 DEGIL, varsa 11, 12... hatta 20. satirdan SONRA)
-        # yer aliyor. Onu da burada sayarsak (satir 10'u "icerigin sonu"
-        # sanip) 12px'lik FAZLADAN alan aciliyor - canli ekran
-        # goruntusuyle dogrulandi: tam bu kadarlik bir sizinti, 11.
-        # satirin bir parcasi gorunur kaliyordu.
-        margins = self._content.get_margin_top()
-        target = margins + settings_h + spacing + (
-            self._TARGET_VISIBLE_ROWS * row_h
-        )
-
-        self._scrolled.set_vexpand(False)
-        # valign hic ayarlanmamisti (varsayilan FILL) - vexpand(False)
-        # SADECE "komsulardan fazladan yer ISTEME" demek, "sana VERILEN
-        # fazladan yeri REDDET" demek degil: Gtk.Overlay'in ana cocugu
-        # (self._scrolled, Toast Overlay'in icinde) toolbar_view'dan
-        # kendi size_request'inden FAZLA alan aldiginda (dialog'un
-        # content_height'i ile header+action-bar+scrolled butcesi tam
-        # ortusmeyince hep bir miktar fazlalik oluyordu), FILL yuzunden
-        # o fazla alani da doldurmaya devam ediyordu - canli olcumle
-        # dogrulandi: 695px istenirken GERCEKTE 818px tahsis edilmisti,
-        # tam da fazladan ~2 satirlik yer. START, fazla alan varsa bile
-        # widget'i SADECE kendi istedigi boyutta tutup onu bos birakir.
-        self._scrolled.set_valign(Gtk.Align.START)
-        self._scrolled.set_size_request(-1, target)
-        self._scrolled_pinned_height = target
-        self._row_count_pinned = True
-
-        # Pencereyi de bu SABIT butceye gore kucult/buyut - aksi halde
-        # listenin altinda bos, gereksiz bir alan kalirdi. ESKI yontem
-        # (eski/gerilmis old_scrolled_h'den FARK alip pencerenin o anki
-        # content_height'inden cikarmak) old_scrolled_h'nin KENDISI
-        # henuz valign duzeltmesinden ONCE, hala gerilmis/sismis halde
-        # olculdugu icin pencereyi gercekte gerekenden BIRAZ BUYUK
-        # birakiyordu - tam da scrolled'de duzelttigimiz sorunun aynisi,
-        # bir ust seviyede (canli ekran goruntusuyle dogrulandi: liste
-        # dogru 10 satirda duruyor ama altinda fazladan bir satirlik
-        # BOS alan kaliyordu). Bunun yerine header+actionbar'in GERCEK
-        # dogal yuksekligini dogrudan olcup target'e ekliyoruz - araya
-        # hicbir "eski deger - fark" hesaplamasi girmedigi icin fazlalik
-        # yapisal olarak olusamaz.
-        _, header_h, _, _ = self._header.measure(Gtk.Orientation.VERTICAL, -1)
-        _, actionbar_h, _, _ = self._action_bar.measure(Gtk.Orientation.VERTICAL, -1)
-        self._window_pinned_height = max(1, header_h + target + actionbar_h)
-        self.set_content_height(self._window_pinned_height)
-
-        # Bu an itibariyle uyari ZATEN gorunurse (ornegin onceki
-        # oturumdan "arkaplan algilama" kapali kalmis), onun alanini da
-        # simdi ekliyoruz - aksi halde ilk anda 10 satirlik butce
-        # uyariyla PAYLASILMIS olurdu.
-        if self._hint_banner.get_visible():
-            _, banner_h, _, _ = self._hint_banner.measure(
-                Gtk.Orientation.VERTICAL, -1
-            )
-            if banner_h > 1:
-                self._grow_for_banner(banner_h + spacing)
+        # Adw.Dialog doneminde uyari acilip kapandiginda pencere/liste
+        # KENDI BUYUYUP KUCULEREK (bkz. git log: _grow_for_banner) satir
+        # sayisini sabit tutuyordu. Gercek bir pencerede WM'in boyutunu
+        # kod ile degistiremeyecegimiz icin (bkz. PackWarden 0.15.3
+        # Adw.Window gecisi) bu artik yapilmiyor - uyari sadece kendi
+        # yerinde gorunur/gizlenir, liste mevcut pencere icinde bir satir
+        # eksik/fazla gosterip gerekirse kaydirilir; her normal
+        # uygulamadaki gibi.
+        self._hint_banner.set_visible(visible)
 
     # Ayni anda en fazla bu kadar bildirim ust uste yigilabilir — 4.'su
     # gelince en eskisi (kullanicinin "Geri al" sansi olmadan) dusurulur.
@@ -647,215 +636,7 @@ class UnusedAppsWindow(Adw.Dialog):
         ]  # [{"revealer","box","label","action_button","close_button","occupant"}, ...]
         self._toast_slots_pinned = False
 
-        css = b"""
-        .pw-toast {
-            background-color: rgba(46, 46, 50, 0.92);
-            color: white;
-            padding: 8px 8px 8px 16px;
-            border-radius: 9999px;
-            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
-            /* opacity/transform'un ACIK (implicit/initial degere
-               guvenilmeyen) "normal" degerleri - minimal, izole bir
-               ekran-goruntusu testiyle dogrulandi: GTK'nin CSS motoru,
-               bir sinif kaldirilinca "hicbir kural kalmadi, initial
-               degere don" durumunu guvenilir sekilde ANIMASYONLU
-               oynatmiyor (sessizce ANINDA atliyor) - gecisin hem "nereden"
-               hem "nereye" tarafinin ACIKCA bir kuralda yazili olmasi
-               gerekiyor.
-            */
-            opacity: 1;
-            transform: none;
-            /* Ust/alt bosluk (komsu bildirimler + icerik/eylem cubugu
-               arasi) VE yan bosluk burada, PILL'in kendi CSS'inde - her
-               fiziksel slotun KENDI revealer'inda degil. Boylece 0
-               bildirim varken revealer'in 0 gorunur yukseklik + 0 margin
-               (bos alan kalmiyor); her bildirim VARKEN kendi boslugunu
-               kendi tasiyor.
-               Ust bosluk (listenin bitisiyle ilk bildirim arasi) bilerek
-               ALTTAN daha kucuk - kullanici ekran goruntusuyle "bildirim
-               biraz daha yukari gelsin" dedi (ustteki uzun bos dikdortgen
-               bug'iyla ilgisi yok, o ayri ve zaten cozuldu - bu sadece
-               pill'in kendi ince kenar boslugu).
-               Yan bosluk (56px): kullanici ekran goruntusuyle bildirim
-               pill'inin, UZERINE bindigi Yoksayilanlar satirlarindan
-               (nested row) cok daha genis oldugunu isaretledi ("kirp,
-               daralt, uygulamaya denk gelsin") - canli piksel olcumuyle
-               dogrulandi: nested satir x=56..723 (genislik 667), pill ise
-               x=12..768 idi (genislik 756) - pill her iki yanda da ~44-56px
-               fazla tasiyordu. 56px pill'i nested satirin GERCEK x
-               sinirlarina hizaliyor.
-            */
-            margin: 1px 56px 3px;
-        }
-        /* Dugmeler ARTIK kompaktlastirilmiyor (eski gerekce: bildirim
-           pencereyi buyutuyordu, bu yuzden kucuk tutulmasi gerekiyordu -
-           bkz. git log). Bildirimler artik pencereyi hic buyutmuyor
-           (bkz. __init__'teki Gtk.Overlay), bu yuzden kullanicinin
-           istedigi gibi normal boyutlarinda (standart Adwaita dugme
-           yuksekligi) kalabiliyorlar - kullanici ekran goruntusuyle
-           pill'in bir UYGULAMA SATIRI kadar yer kaplamasini istedi,
-           kucultulmus dugmeler bunu engelliyordu.
-        */
-        .pw-toast > button.circular {
-            /* Bu gecis SADECE belirme (bkz. _show_toast) icin kullaniliyor
-               artik - pill kucuk/saydamken (.pw-toast-hidden) "geri yayli"
-               (back-ease-out) egriyle kisa bir asiri-buyume (overshoot)
-               yapip tam boyutuna oturuyor, yani "baloncuk sisip patlama"
-               hissi veriyor, konumu hic degismeden. Kapanista (bkz.
-               _remove_toast_at) ARTIK BU GECIS OYNAMIYOR - pill, tiklanir
-               tiklanmaz dogrudan kutudan kaldiriliyor (bkz. asagidaki
-               not): kullanici art arda 3 bildirimi "Geri al"/X ile
-               kapatirken bir onceki bildirim 220ms'lik sonme suresi
-               boyunca hala yerinde durdugu icin bir SONRAKI bildirimin
-               dugmesi bosalan (ust) yere henuz kaymiyordu - fareyi oraya
-               tasimasi gerekiyordu ("iki hamle" dedigi buydu). Komsunun
-               ANINDA yerine kaymasi, kapanis icin uzun bir sonme
-               animasyonundan daha onemli - "bom patlar gibi" zaten ani
-               bir sey, uzun bir sonme turu degil.
-            */
-            transition: opacity 220ms cubic-bezier(0.34, 1.56, 0.64, 1),
-                        transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
-        }
-        .pw-toast-hidden {
-            opacity: 0;
-            transform: scale(0.45);
-        }
-        /* libadwaita bu satira farkli bir kart rengi, yuvarlak kose ve
-           ince bir kenarlik veriyor (acilan bir alt-kart gibi ayirt
-           etsin diye). Once @card_bg_color'i (yarim seffaf beyaz bir
-           katman, duz bir renk DEGIL) dogrudan background-color olarak
-           denedik: ekran goruntusu + piksel olcumuyle dogrulandi ki
-           normal satirlarin GERCEK rengi window_bg_color + %8 beyaz
-           karisimiymis (olcum: rgb(52,52,55)); @card_bg_color'i hem
-           bu satira hem ic satirlarina ayri ayri uygulamak bu karisimi
-           IKI KEZ ust uste bindiriyordu (olcum: rgb(64,64,66) -
-           belirgin sekilde daha acik/farkli). mix() ile TEK, DUZ/OPAK
-           bir sonuc renk hesaplayip HER katmana (kutu, liste, revealer,
-           satir) ayni sekilde uyguluyoruz - opak renk ust uste
-           bindirmede karismiyor, kenarlardaki ince farkli renkli
-           seritler de boylece kapaniyor.
-        */
-        .pw-ignored-expander,
-        .pw-ignored-expander box,
-        .pw-ignored-expander list,
-        .pw-ignored-expander revealer,
-        .pw-ignored-expander row {
-            background-color: mix(@window_bg_color, white, 0.08);
-            border-radius: 0;
-            box-shadow: none;
-            border: none;
-            outline: none;
-            margin: 0;
-        }
-        /* Bos-durum sayfasinin (_empty_status, hepsi yoksayilinca
-           "Kullanilmayan yok" karti) duz/stilsiz DUZ arkaplani
-           (pencerenin kendi rengi) gosterip satirlarin (boxed-list, tek
-           katman @card_bg_color) arkaplanindan farkli durdugu, "ayri bir
-           kutu" gibi goze batiyordu. @card_bg_color'in tek katmani,
-           olculen window_bg_color+%8 beyaz karisimiyla matematiksel
-           olarak esdeger (bkz. yukaridaki uzun aciklama) - o yuzden AYNI
-           mix() formulunu kullanmak yeterli.
-        */
-        .pw-row-bg-fill {
-            background-color: mix(@window_bg_color, white, 0.08);
-        }
-        /* Ok gostergesi kendi ayri "hit area" boslugu yuzunden +/-
-           dugmelerinin hizasindan saga kayiyor. margin-end negatif
-           degerle denendi ama bir noktadan sonra (~-33px) kilitleniyor
-           (kucuk bir tiklama alani alt siniri var gibi); transform ise
-           boyle bir sinira carpmiyor.
-           AYRICA: "nested" liste (ExpanderRow'un ic satirlari) ile ana
-           listenin ("boxed-list") kendi sag bosluk payi farkli;
-           piksel olcumuyle dogrulandi: eksi dugmesi 670, arti dugmesi
-           658 (12px fark). Hem eksi dugmesini hem oku, arti dugmesiyle
-           AYNI x konumuna (658) gelecek sekilde kaydiriyoruz.
-        */
-        .pw-ignored-expander .nested button.destructive-action {
-            transform: translateX(-12px);
-        }
-        .pw-ignored-expander .expander-row-arrow {
-            transform: translateX(-21px);
-        }
-        /* Panel ilk kez gizliden gorunure gectiginde (yok sayilan sayisi
-           0'dan 1'e ciktiginda) ok ikonu, hic tiklanmamis olsa bile bir
-           kere donuyordu. Sebebi: libadwaita'nin oku -gtk-icon-transform
-           ile 200ms'de donduren CSS transition'i, widget ilk realize
-           olurken bile (gercek bir :checked degisimi olmadan) bir kere
-           tetikleniyor. Bu sinif set_visible(True)'dan once eklenip
-           hemen sonra kaldirilarak SADECE o ilk kareyi (transition'siz)
-           gecistiriyor; sonraki gercek ac/kapa tiklamalarinda animasyon
-           normal kaliyor.
-        */
-        .pw-ignored-expander.pw-suppress-arrow-anim .expander-row-arrow {
-            transition: none;
-        }
-        /* Gorunmez onay kutusu ikon ile baslik arasina gercek onay
-           kutusuyla AYNI genislikte bosluk koyacakti, ama "nested"
-           liste bunu gercek listeden daha genis uyguluyor (olculdu:
-           14px fazla). Kapatiyoruz.
-        */
-        .pw-ignore-title-spacer {
-            margin-right: 8px;
-        }
-        /* ExpanderRow'un basligi ("Yoksayilanlar"), ust satirlarin
-           ("Ozel (gun)" vb.) basligindan ~11px sola kayik duruyordu
-           (gercek pencerede ekran goruntusu + piksel olcumuyle
-           dogrulandi: 85 vs 95-96). Ayni noktaya getiriyoruz.
-        */
-        .pw-ignored-expander .header .title {
-            margin-left: 5px;
-        }
-        /* Yoksayilanlar panelindeki satirlarin ikonu (alacritty vb.)
-           biraz saga kaydirilsin istendi. Bu ikon add_prefix() ile
-           elle eklendigi icin ActionRow'un kendi ".icon" sinifini
-           TASIMIYOR (o sinif sadece set_icon_name() kullanildiginda
-           devreye giren, bizim kullanmadigimiz baska bir ic Image'a
-           ait) - kendi ozel sinifimizi (pw-ignore-row-icon) ekleyip
-           onunla hedefliyoruz.
-        */
-        /* YANLIS TESHIS DUZELTMESI: "yapisal kayma yok" dedik ve sifira
-           aldik, ama kullanici bunun "en dibe kaymis" gibi kotu
-           gorundugunu bildirdi - dogruydu. Kesin kanit icin AYNI pkg'nin
-           AYNI ikonunu hem gercek nested (yoksayilan) satirda hem de
-           gecici bir boxed-list satirinda olusturup compute_bounds ile
-           (burada transform yok, guvenilir) karsilastirdik: nested
-           x=57, boxed-list x=69 - TAM 12px'lik gercek bir yapisal fark
-           var (basliktaki 4px, eksi dugmesindeki 12px ile ayni aile).
-           Dogru deger buydu; kullanicinin nudge'larinin toplami da
-           tesadufen buna yakinmis.
-        */
-        /* DUZELTME: "transform: translateX()" gorseli kaydiriyor ama
-           widget'in KENDI ayrilmis kutusunu (ve kirpma sinirini)
-           BUYUTMUYOR - onceki bir commit bunu "bu eleman translateX()'e
-           dogrusal olmayan tepki veriyor, kirpma/allocation kisiti"
-           diye zaten tespit etmisti ama sorunu (kirpilma) cozmeden,
-           sadece az fark edilecek kucuk bir deger secerek gecistirmisti.
-           margin-left GERCEKTEN yerlesime katilir - kutuyu genisletir,
-           kirpma sinirini de birlikte tasir, tasma/kirpilma olmaz. */
-        .pw-ignore-row-icon {
-            margin-left: 12px;
-        }
-        /* Yoksayilanlar bolumundeki boyut yazisi biraz sola kaydirilsin
-           istendi.
-        */
-        .pw-ignore-row-size {
-            transform: translateX(-12px);
-        }
-        /* "Su suredir kullanilmayanlar" (S harfi), "Ozel (gun)" ve
-           "Yoksayilanlar" (O/Y harfleri) ile ayni x'te olcumustu ama
-           1px fark vardi - harf sekli. Kullanici gozle fark ediyor,
-           kapatiyoruz.
-        */
-        .pw-threshold-row .title {
-            transform: translateX(-0.5px);
-        }
-        """
-        provider = Gtk.CssProvider()
-        provider.load_from_data(css)
-        Gtk.StyleContext.add_provider_for_display(
-            self.get_display(), provider,
-            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
-        )
+        _ensure_toast_css_installed(self.get_display())
 
     # TASARIM: her biri self._toast_overlay'in AYRI, BAGIMSIZ bir cocugu
     # olan _MAX_TOASTS adet KALICI fiziksel slot (bkz. __init__'teki
@@ -1184,22 +965,12 @@ class UnusedAppsWindow(Adw.Dialog):
             self._scrolled.set_margin_bottom(0)
 
     def _snap_scrolled_bottom(self):
-        # Liste artik _pin_scrolled_for_row_count ile SABIT bir butceye
-        # (ayar satirlari + tam N satir, HICBIR kalinti/leftover OLMADAN)
-        # gore boyutlandiriliyor - bu YAPISAL OLARAK zaten her zaman tam
-        # bir satir sinirinda bitiyor. Asagidaki eski mantik (kaydirma
-        # degerini "leftover" piksellere gore ayarlamak) BASKA, dinamik
-        # boyutlu bir liste icin tasarlanmisti ve kendi (biraz farkli
-        # olcum yontemiyle hesapladigi) "chrome" degeriyle benim SIFIR
-        # kalintili butcemi CAKISTIRIP gereksiz bir kaydirma uyguluyordu -
-        # canli ekran goruntusuyle dogrulandi: tam 10 satir varken 11.
-        # satirin (bir sonraki uygulamanin) kucuk bir parcasi sizdiriyordu
-        # (tam da "uzun bos dikdortgen" hatasinin kuzeni bir varyant).
-        # Pinlenmisken bu fonksiyonun yapacak hicbir isi yok.
-        if self._row_count_pinned:
-            if self._scrolled.get_margin_bottom() != 0:
-                self._scrolled.set_margin_bottom(0)
-            return
+        # Pencere artik sabit bir satir sayisina PINLENMIYOR (bkz.
+        # PackWarden 0.15.3 Adw.Window gecisi) - liste WM'in verdigi
+        # gercek pencere yuksekligine gore dogal olarak kac satir
+        # sigdigini kendisi belirliyor. Asagidaki mantik TAM da bunun
+        # icin zaten tasarlanmisti: gorunur alanin alt kenarini her
+        # zaman bir satir sinirina yuvarlar, yarim satir hic gorunmez.
         vadjustment = self._scrolled.get_vadjustment()
         # Icerik (ayar satirlari + liste) kaydirma gerektirmeden viewport'a
         # ZATEN sigiyorsa (upper, su anki margin'i geri eklenmis "dogal"
@@ -1318,84 +1089,18 @@ class UnusedAppsWindow(Adw.Dialog):
             self._scrolled.set_margin_bottom(new_margin)
 
     def _on_open_settings(self, *_args):
-        # Bu pencereyi (ve altındaki ana pencereyi) aynı anda görünür
-        # tutmak iç içe/karışık istiflemeye yol açıyordu. Bunun yerine bu
-        # pencereyi geçici olarak gizleyip Ayarlar'ı tek başına, ana
-        # pencerenin üzerinde açıyoruz; Ayarlar kapanınca geri geliyor.
-        # set_visible(False) kullanıyoruz (close() değil) — pencere ve
-        # içindeki durum (işaretli kutular, kaydırma konumu, periyodik
-        # tarama) korunuyor, sadece görünürlük değişiyor.
-        self.set_visible(False)
-        dialog = SettingsDialog(self._main.get_application())
-        dialog.connect("closed", lambda *_a: self.set_visible(True))
-        dialog.present(self._main)
+        # Bu pencere VE Ayarlar artik ikisi de gercek, bagimsiz birer
+        # Adw.Window (bkz. PackWarden 0.15.3) - eskiden ayni ebeveynin
+        # tek dialog-slotunu paylasip birbirinin arkasindan tasiyorlardi
+        # (bkz. git log), simdi gizleme/geri-gosterme dansina gerek yok.
+        dialog = SettingsDialog(self._main.get_application(), self._main)
+        dialog.present()
 
     def _on_close_request(self, *_args):
         if self._rescan_source is not None:
             GLib.source_remove(self._rescan_source)
             self._rescan_source = None
         return False
-
-    def present_when_ready(self, parent):
-        """present(parent)'ın kendisi - ama ilk tarama sonucu işlenip
-        pencere gerçek boyutuna (bkz. _pin_scrolled_for_row_count)
-        oturana KADAR ertelenmiş hâli. İlk tarama zaten tamamlanmışsa
-        (ör. _on_rescan_tick ile) hemen gösterir; tamamlanmamışsa
-        _on_scanned ilk gerçek sonucu işleyince kendisi çağırır.
-
-        Güvenlik ağı 800ms DEĞİL 6 saniye: canlı olarak doğrulandı -
-        gerçek, büyük bir paket listesinde (1502 paket) ilk tarama
-        800ms'den UZUN sürebiliyor, bu da pencerenin "Programlar
-        taranıyor…" yer tutucusuyla, henüz sabitlenmemiş haliyle
-        gösterilip tarama bitince küçülmesine yol açıyordu (kullanıcı
-        canlı iki ekran görüntüsüyle bildirdi) - tam da bu fonksiyonun
-        önlemesi gereken şey. 6 saniye, taramanın normalde bitmesi
-        gereken süreden çok daha uzun - sadece gerçek bir kilitlenme/
-        donma durumunda devreye girsin diye var, günlük kullanımda hiç
-        tetiklenmemesi beklenir."""
-        if self._first_scan_done:
-            self._present_no_anim(parent)
-            return
-        self._pending_present_parent = parent
-
-        def _timeout_fallback():
-            if self._pending_present_parent is not None:
-                self._first_scan_done = True
-                p = self._pending_present_parent
-                self._pending_present_parent = None
-                self._present_no_anim(p)
-            return GLib.SOURCE_REMOVE
-        GLib.timeout_add(6000, _timeout_fallback)
-
-    def _present_if_pending(self):
-        self._first_scan_done = True
-        if self._pending_present_parent is not None:
-            parent = self._pending_present_parent
-            self._pending_present_parent = None
-            self._present_no_anim(parent)
-
-    def _present_no_anim(self, parent):
-        # present() normalde libadwaita'nin kendi "floating dialog"
-        # giris animasyonunu (kisa bir buyuyerek belirme) oynatiyor -
-        # bu animasyonun ilk karesi, iceriğin HENÜZ content_height
-        # kisitlamasini tam oturtmamis "dogal" (daha buyuk) olculerine
-        # gore baslayip SONRA gercek (kucuk, bizim set_content_height
-        # ile zaten ayarladigimiz) boyuta kuculuyor gibi davraniyordu -
-        # kullanici canli olarak "bir anlik buyuk acilip kuculuyor" diye
-        # bildirdi, content_height OKUNDUGUNDA (bkz. present_when_ready)
-        # zaten dogru deger gorunse bile (yani SORUN, GTK ozelliginde
-        # degil, GORSEL/animasyon katmaninda). Animasyonu SADECE bu
-        # cagri sirasinda (global ayari gecici kapatip hemen geri acarak)
-        # devre disi birakmak, ilk karenin DOGRUDAN nihai boyutta
-        # cizilmesini sagliyor - geri acma SENKRON, present() cagrisindan
-        # hemen sonra oldugu icin baska hicbir animasyonu etkilemiyor.
-        settings = Gtk.Settings.get_default()
-        had_anim = settings.get_property("gtk-enable-animations")
-        if had_anim:
-            settings.set_property("gtk-enable-animations", False)
-        self.present(parent)
-        if had_anim:
-            settings.set_property("gtk-enable-animations", True)
 
     # ---------------- Tarama ----------------
 
@@ -1446,8 +1151,6 @@ class UnusedAppsWindow(Adw.Dialog):
     def _on_scanned(self, data):
         self._scan_in_progress = False
         if data is None:
-            if not self._first_scan_done:
-                self._present_if_pending()
             return  # tarama başarısız oldu; mevcut veri/liste korunur
         # İlk gerçek tarama sonucu geldiğinde Yoksayılanlar panelini de
         # tazele — __init__'te _update_ignored_button() ilk kez tarama
@@ -1465,8 +1168,6 @@ class UnusedAppsWindow(Adw.Dialog):
         new_stale_keys = frozenset(pkg_key for pkg_key, _pkg, _ts in self._stale_packages())
         if new_stale_keys != self._last_stale_keys:
             self._rebuild_list()
-        if not self._first_scan_done:
-            self._present_if_pending()
         return GLib.SOURCE_REMOVE
 
     # ---------------- Eşik ----------------
@@ -1570,7 +1271,6 @@ class UnusedAppsWindow(Adw.Dialog):
 
         self._select_all.set_sensitive(True)
         self._update_selection()
-        self._pin_scrolled_for_row_count()
 
     def _remove_row(self, key):
         """Tüm listeyi yeniden kurmadan tek bir satırı çıkarır — bkz.

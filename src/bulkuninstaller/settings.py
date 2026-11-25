@@ -4,29 +4,134 @@ from gi.repository import Adw, GLib, Gtk
 
 from . import VERSION, host, prefs, usage_service
 from .backends.selfinstall import SelfInstallBackend
-from .dialog_resize import add_resize_grip
 from .i18n import _
 from .updater import fetch_remote_version
 
 
-class SettingsDialog(Adw.PreferencesDialog):
-    def __init__(self, app):
-        # Kullanılmayan Programlar penceresiyle AYNI boyut - kendi
-        # varsayılanıyla (içerik arttıkça büyüyen, dar bir Tercihler
-        # kutusu) bırakılınca ikisi birbirine hiç benzemiyordu. 830,
-        # UnusedAppsWindow'un KWin'den ölçülen gerçek (pinned) yüksekliği.
+def _wide_collapsed_factory() -> Gtk.SignalListItemFactory:
+    """Adw.ComboRow'un VARSAYILAN satır fabrikası, seçili değeri gösteren
+    (kapalı/collapsed) etikette ellipsize AÇIK bırakıyor - GTK'da
+    ellipsize açıkken bir Gtk.Label, gerçek metin ne kadar uzun olursa
+    olsun KASITLI OLARAK küçük bir "doğal genişlik" istiyor (canlı
+    doğrulandı: "Çöp Kutusu'na taşı" için GtkLabel.measure() yalnızca
+    117px doğal genişlik döndürüyordu - metnin kendisi çok daha
+    fazlasını gerektirdiği hâlde). Kısa seçenekler (Türkçe, Koyu gibi)
+    bu payda rastlantısal olarak sığdığı için fark edilmiyor, ama daha
+    uzun seçenekler (Çöp Kutusu'na taşı, Kalıcı olarak sil) sürekli
+    "..." ile kesiliyordu.
+
+    Fix: ellipsize'ı tamamen KAPALI bırakan düz bir Gtk.Label (canlı
+    doğrulandı: width_chars YERİNE bunu kullanınca etiket gerçek metin
+    genişliğine - ne bir piksel fazla ne eksik - tam oturuyor; önceki
+    width_chars=22 denemesi "Çöp Kutusu'na taşı" için gerçekte gereken
+    117px yerine 160px talep ediyordu - kullanıcının şikayet ettiği
+    fazladan boşluğun kaynağı tam olarak buydu). xalign=1 (sağa yaslı),
+    Dil/Tema satırlarının kapalı görünümüyle aynı hizalama. Bu sadece
+    KAPALI görünüm için - açılır listenin kendi görünümü
+    _wide_popup_factory()'de ayrı tanımlı."""
+    factory = Gtk.SignalListItemFactory()
+
+    def on_setup(_factory, list_item):
+        list_item.set_child(Gtk.Label(xalign=1))
+
+    def on_bind(_factory, list_item):
+        list_item.get_child().set_text(list_item.get_item().get_string())
+
+    factory.connect("setup", on_setup)
+    factory.connect("bind", on_bind)
+    return factory
+
+
+def _wide_popup_factory(combo_row: Adw.ComboRow) -> Gtk.SignalListItemFactory:
+    """Açılır listenin (popup) kendi görünümü - Dil/Tema satırlarının
+    VARSAYILAN görünümüyle BİREBİR aynı olacak şekilde elle yeniden
+    kuruluyor (sola yaslı metin + seçili öğenin yanında onay işareti),
+    çünkü `Adw.ComboRow.factory`'yi _wide_collapsed_factory() ile
+    değiştirince (kapalı görünümdeki kesilmeyi düzeltmek için) bu,
+    AYNI ZAMANDA açılır listenin görünümünü de (onay işareti dahil)
+    sessizce kaldırıyordu. Etiket düz (ellipsize yok, width_chars yok)
+    - canlı ölçümle doğrulandı: width_chars=20 popup içeriğini 224px'e
+    şişiriyordu, gerçek ihtiyaç (metin + boşluk + onay ikonu) sadece
+    181px; aradaki 43px fark kullanıcının "sağda gereksiz boşluk"
+    olarak gördüğü şeydi.
+
+    Onay işareti opacity'si sadece `bind` sırasında BİR KEZ ayarlanıyordu
+    - GtkListView kısa (2 öğelik) bir liste için öğeleri geri dönüştürmediği
+    için `bind` bir daha hiç tetiklenmiyor, dolayısıyla seçim değiştikten
+    sonra popup tekrar açıldığında onay işareti hâlâ ESKİ öğenin yanında
+    kalıyordu (canlı doğrulandı: kullanıcı raporu). Şimdi hangi kutunun
+    hangi öğeye bağlı olduğu `bound` listesinde tutuluyor ve
+    `combo_row`'un "selected-item" değişimi dinlenip tüm bağlı kutular
+    buna göre yeniden çiziliyor.
+
+    Satır kutusu `halign=START` idi - bu, her kutunun KENDİ metninin
+    genişliğine göre ayrı ayrı daralmasına yol açıyordu (canlı
+    doğrulandı: "Çöp Kutusu'na taşı" kutusu 145px, "Kalıcı olarak sil"
+    kutusu sadece 120px - onay işareti iki seçenekte FARKLI sütunlarda
+    duruyordu). Dil/Tema'nın varsayılan fabrikasında tüm satırlar AYNI
+    genişliğe sahip (134px, metin uzunluğundan bağımsız). Kutudan
+    `halign=START`'ı kaldırıp (satırın GtkListView'ın verdiği ortak
+    genişliğe yayılmasına izin vererek) etikete `hexpand=True` vermek
+    bunu taklit ediyor - etiket boşluğu yutuyor, onay işareti her
+    satırda aynı sağ sütuna hizalanıyor."""
+    factory = Gtk.SignalListItemFactory()
+    bound = []
+
+    def refresh(*_args):
+        selected = combo_row.get_selected_item()
+        for item, check in bound:
+            check.set_opacity(1.0 if item == selected else 0.0)
+
+    def on_setup(_factory, list_item):
+        box = Gtk.Box(spacing=6, valign=Gtk.Align.CENTER)
+        box.append(Gtk.Label(xalign=0, hexpand=True, valign=Gtk.Align.CENTER))
+        box.append(
+            Gtk.Image(
+                icon_name="object-select-symbolic", valign=Gtk.Align.CENTER
+            )
+        )
+        list_item.set_child(box)
+
+    def on_bind(_factory, list_item):
+        box = list_item.get_child()
+        label, check = box.get_first_child(), box.get_last_child()
+        item = list_item.get_item()
+        label.set_text(item.get_string())
+        bound.append((item, check))
+        refresh()
+
+    def on_unbind(_factory, list_item):
+        box = list_item.get_child()
+        check = box.get_last_child()
+        bound[:] = [pair for pair in bound if pair[1] is not check]
+
+    factory.connect("setup", on_setup)
+    factory.connect("bind", on_bind)
+    factory.connect("unbind", on_unbind)
+    combo_row.connect("notify::selected-item", refresh)
+    return factory
+
+
+class SettingsDialog(Adw.Window):
+    def __init__(self, app, parent_window):
+        # Adw.Dialog DEGIL Adw.Window (bkz. PackWarden 0.15.3 -
+        # UnusedAppsWindow'un ayni gecisi): Ayarlar ve Kullanilmayan
+        # Programlar ayni ebeveynin tek dialog-slotunu paylasinca
+        # (bkz. eski close_settings_if_open/close_unused_if_open)
+        # ikisi ayni anda acik kalamiyordu, biri digerinin arkasindan
+        # tasip goruntu karisiyordu. Gercek, bagimsiz bir ust-seviye
+        # pencere olunca bu celiski yapisal olarak ortadan kalkiyor -
+        # ikisi artik ayni anda, birbirini hic etkilemeden acik
+        # kalabiliyor.
         #
-        # NOT: Alt kenarları da tam hizalamak (sadece yükseklikleri değil)
-        # denendi ama bırakıldı - UnusedAppsWindow'un yüksekliği, o an
-        # kaç "kullanılmayan"/"yoksayılan" öğe olduğuna göre DEĞİŞEN bir
-        # değer (bkz. _pin_scrolled_for_row_count); canlı ölçümde aynı
-        # oturumda 830'dan 775'e düştüğü görüldü. Ayarlar'ın alt kenarını
-        # buna göre hesaplamak sadece o an doğru olur, liste değiştikçe
-        # tekrar kayar - kalıcı bir çözüm değil, bu yüzden sabit 830'da
-        # (iki pencerenin aynı anda hiç gösterilmediği artık zaten
-        # garanti, bkz. close_settings_if_open/close_unused_if_open).
+        # 780x830 - Kullanılmayan Programlar'la gorsel olarak benzer
+        # boyut (sadece estetik tercih, artik ikisi ayni anda acik
+        # kalabildigi icin islevsel bir zorunluluk degil).
         super().__init__(
-            title=_("Settings"), content_width=780, content_height=830,
+            transient_for=parent_window,
+            title=_("Settings"),
+            default_width=780,
+            default_height=830,
         )
         self._app = app
 
@@ -34,7 +139,6 @@ class SettingsDialog(Adw.PreferencesDialog):
             title=_("General"),
             icon_name="emblem-system-symbolic",
         )
-        self.add(page)
 
         # ---------------------------------------------------------
         # Package list
@@ -89,6 +193,8 @@ class SettingsDialog(Adw.PreferencesDialog):
                 ]
             ),
         )
+        deletion_row.set_factory(_wide_collapsed_factory())
+        deletion_row.set_list_factory(_wide_popup_factory(deletion_row))
 
         current_mode = prefs.get("leftover_delete_mode")
         if current_mode in self._leftover_delete_modes:
@@ -115,19 +221,37 @@ class SettingsDialog(Adw.PreferencesDialog):
         )
         page.add(privacy_group)
 
-        self._background_usage_row = Adw.SwitchRow(
-            title=_("Detect app usage in the background"),
-            subtitle=_(
-                "Without this, app usage isn't updated while PackWarden "
-                "is closed, so the Unused Programs list can be inaccurate"
-            ),
-            active=bool(prefs.get("background_usage_detection")),
-        )
-        self._background_usage_row.connect(
-            "notify::active",
-            self._on_background_usage_changed,
-        )
-        privacy_group.add(self._background_usage_row)
+        # Bu anahtar systemd --user birimine (bkz. usage_service.py)
+        # dayanıyor - o birim SADECE install.sh ile kurulduğunda yazılır.
+        # Flatpak'ta veya bir dağıtım paketiyle kurulduğunda hiç yoktur -
+        # anahtarı göstermek, açmaya çalışınca her zaman "install.sh
+        # çalıştırın" diyen bir hatayla sonuçlanırdı (Flatpak kullanıcısı
+        # için anlamsız/yanıltıcı bir tavsiye). usage_service.is_installed()
+        # zaten bu AYRIMIN kendisini (hangi kurulum yöntemi olursa olsun)
+        # tek bir, ucuz dosya-varlığı kontrolüyle veriyor.
+        if usage_service.is_installed():
+            self._background_usage_row = Adw.SwitchRow(
+                title=_("Detect app usage in the background"),
+                subtitle=_(
+                    "Without this, app usage isn't updated while PackWarden "
+                    "is closed, so the Unused Programs list can be inaccurate"
+                ),
+                active=bool(prefs.get("background_usage_detection")),
+            )
+            self._background_usage_row.connect(
+                "notify::active",
+                self._on_background_usage_changed,
+            )
+            privacy_group.add(self._background_usage_row)
+            self._sync_background_usage_state()
+        else:
+            privacy_group.add(Adw.ActionRow(
+                title=_("Background usage detection isn't available"),
+                subtitle=_(
+                    "This needs PackWarden's own installer script. It "
+                    "isn't available for a Flatpak or distro-package install."
+                ),
+            ))
 
         # ---------------------------------------------------------
         # Language
@@ -266,10 +390,11 @@ class SettingsDialog(Adw.PreferencesDialog):
             check_row.add_suffix(self._check_button)
             updates_group.add(check_row)
 
-        # Adw.Dialog kenardan surukleyerek boyutlandirmayi desteklemiyor
-        # (Adw.Window'un aksine, pencere yoneticisinden gelmiyordu) -
-        # kullanici bunu elle yapabilmek istedi, bkz. dialog_resize.py.
-        add_resize_grip(self)
+        header = Adw.HeaderBar()
+        scrolled = Gtk.ScrolledWindow(child=page, vexpand=True)
+        toolbar_view = Adw.ToolbarView(content=scrolled)
+        toolbar_view.add_top_bar(header)
+        self.set_content(toolbar_view)
 
     # -------------------------------------------------------------
     # Theme
@@ -287,6 +412,39 @@ class SettingsDialog(Adw.PreferencesDialog):
     # -------------------------------------------------------------
     # Background usage detection
     # -------------------------------------------------------------
+    def _sync_background_usage_state(self):
+        """Açılışta gösterilen anahtar, kayıtlı tercihe (prefs) göre
+        ayarlanıyor - ama gerçek systemd durumu PackWarden'ın DIŞINDA
+        (ör. kullanıcı elle `systemctl --user disable ...` çalıştırırsa,
+        ya da bir sistem güncellemesi birimi sıfırlarsa) değişmiş
+        olabilir. Burada GERÇEK durumu (usage_service.is_enabled())
+        sorup, kayıtlı tercihten FARKLIYSA anahtarı ve tercihi gerçeğe
+        göre düzeltiyoruz - tersi değil, çünkü systemd burada tek
+        doğruluk kaynağı.
+
+        Diğer tüm systemctl çağrıları gibi (bkz. _on_background_usage_
+        changed) arka plan thread'inde - bu da birkaç yüz milisaniye
+        sürebilen bir alt süreç çağrısı, ana thread'de UI'ı kilitlemesin.
+        """
+        def worker():
+            real = usage_service.is_enabled()
+            GLib.idle_add(self._on_background_usage_synced, real)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_background_usage_synced(self, real_enabled):
+        stored = bool(prefs.get("background_usage_detection"))
+        if real_enabled != stored:
+            self._background_usage_row.handler_block_by_func(
+                self._on_background_usage_changed
+            )
+            self._background_usage_row.set_active(real_enabled)
+            self._background_usage_row.handler_unblock_by_func(
+                self._on_background_usage_changed
+            )
+            prefs.set("background_usage_detection", real_enabled)
+        return GLib.SOURCE_REMOVE
+
     def _on_background_usage_changed(self, row, _pspec):
         wanted = row.get_active()
         # systemctl senkron olarak birkaç saniye sürebilir (daemon-reload,

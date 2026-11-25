@@ -114,34 +114,40 @@ class PackWardenApp(Adw.Application):
         return GLib.SOURCE_REMOVE
 
     def _on_settings(self, *_args):
-        from .settings import SettingsDialog
-        self.close_unused_if_open()
-        self._settings_dialog = SettingsDialog(self)
-        self._settings_dialog.connect(
-            "closed", lambda *_a: setattr(self, "_settings_dialog", None)
-        )
-        self._settings_dialog.present(self.props.active_window)
-
-    def close_settings_if_open(self):
-        """Kullanılmayan Programlar gibi ayrı (gerçek) bir pencere
-        üzerine açılmadan ÖNCE çağrılır - Ayarlar, ana pencerenin
-        İÇİNE gömülü bir panel olduğu için konumu/boyutu Kullanılmayan
-        Programlar'ınkiyle (ayrı bir pencere, konumunu pencere yöneticisi
-        belirliyor) tam örtüşmüyor; ikisi aynı anda açık kalırsa Ayarlar'ın
-        alt kısmı Kullanılmayan Programlar'ın arkasından taşıp görünüyordu
-        (canlı doğrulandı). İkisinin asla aynı anda görünmemesini
-        sağlayarak bu görsel çakışmayı engeller."""
+        # Ayarlar artik gercek, bagimsiz bir Adw.Window (bkz. PackWarden
+        # 0.15.3 - UnusedAppsWindow'un ayni gecisi) - Kullanılmayan
+        # Programlar'la ayni anda acik kalabiliyor, biri digerini
+        # kapatmaya gerek yok (eski close_settings_if_open/
+        # close_unused_if_open çakışması artık yapısal olarak yok).
+        #
+        # Eylem art arda iki kez tetiklenirse (ör. menu öğesine çift
+        # tıklama) BURADA bir koruma yoksa iki ayrı SettingsDialog
+        # penceresi açılıyordu - D-Bus üzerinden art arda iki Activate
+        # çağrısıyla canlı olarak doğrulandı ve tekrar üretildi. Zaten
+        # açık bir pencere varsa onu öne getirip tekrar oluşturmuyoruz.
         if self._settings_dialog is not None:
-            self._settings_dialog.force_close()
+            self._settings_dialog.present()
+            return
+        from .settings import SettingsDialog
+        self._settings_dialog = SettingsDialog(self, self.props.active_window)
 
-    def close_unused_if_open(self):
-        """Kullanılmayan Programlar açılmadan ÖNCE close_settings_if_open()
-        çağrılıyor (yukarıda); bunun simetriği - Ayarlar açılmadan önce
-        TERS yönde de aynı çakışma yaşanıyordu (Kullanılmayan Programlar
-        zaten açıkken Ayarlar da açılınca, canlı doğrulandı), çünkü ikisi
-        de aynı iki konumlandırma sistemiyle çakışıyor, yön farketmiyor."""
-        if self._unused_window is not None:
-            self._unused_window.close()
+        def _on_closing(*_a):
+            # "destroy" sinyali DEGIL, kasitli olarak "close-request" -
+            # bkz. window.py:_open_unused_apps'teki ayni duzeltmenin
+            # yorumu: referansi pencere kapanmaya BASLARKEN (destroy'dan
+            # biraz ONCE, senkron) temizlemek, kapanma surerken gelen bir
+            # sonraki acma istegine henuz tam yok edilmemis pencereye
+            # .present() cagrilmasini (nadir "Gtk-WARNING: A window is
+            # shown after it has been destroyed" - canli testte 40
+            # dongude 1 goruldu) engelliyor.
+            self._settings_dialog = None
+            return False
+
+        self._settings_dialog.connect("close-request", _on_closing)
+        self._settings_dialog.connect(
+            "destroy", lambda *_a: setattr(self, "_settings_dialog", None)
+        )
+        self._settings_dialog.present()
 
     def _on_about(self, *_args):
         about = Adw.AboutDialog(

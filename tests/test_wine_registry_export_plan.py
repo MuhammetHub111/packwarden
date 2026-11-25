@@ -1,9 +1,8 @@
-"""Madde 7 - Wine registry dışa aktarma/geri yükleme TEST PLANI.
+"""Madde 7 - Wine registry dışa aktarma/geri yükleme testleri.
 
-Bu tur ÜRETİM KODUNA export/import desteği EKLENMİYOR - Wine bu
-makinede kurulu değil, `wine reg export`/`wine reg import`in gerçekte
-çalıştığı CANLI DOĞRULANAMADI. Bu dosya, Wine kurulu bir makinede
-GÜVENLE çalıştırılabilecek test planını barındırır:
+Bu dosya, Wine kurulu bir makinede GÜVENLE çalıştırılabilecek testleri
+barındırır (PackWarden 0.15.3 itibarıyla geliştirme makinesinde Wine
+kurulu - bu testler burada SKIP değil, GERÇEKTEN çalışıp geçiyor):
 
 - Tamamen ATILABİLİR, geçici bir WINEPREFIX içinde çalışır
   (tempfile.mkdtemp ile oluşturulur, testten sonra silinir).
@@ -12,8 +11,20 @@ GÜVENLE çalıştırılabilecek test planını barındırır:
   GERÇEK kodunu da hiç çağırmaz, sadece Wine'ın kendi `reg` aracının
   export/import döngüsünü doğrudan test eder.
 - Wine kurulu DEĞİLSE testler SKIP olarak işaretlenir (ok/fail değil) -
-  bkz. @unittest.skipUnless. Bu makinede skip edilmesi BEKLENİR;
-  "başarılı" diye raporlanmaz.
+  bkz. @unittest.skipUnless.
+
+Wine kurulu OLMAYAN bir sistemdeki davranış (WineAvailabilityIsHonestly
+ReportedTests) ayrı bir makineye/CI'a ihtiyaç duymadan, bu makinede de
+doğrulanıyor - `PATH` ortam değişkeni sadece o testin SÜRECİ içinde,
+gerçek `wine` ikilisini GÖRMEYECEK şekilde geçici olarak daraltılıyor
+(symlink'lerden oluşan ayrı bir dizin); gerçek /usr/bin/wine veya
+~/.wine'a hiçbir şekilde dokunulmuyor, silinmiyor, değiştirilmiyor. Bu
+sayede o test artık Wine kurulu bir makinede de SKIP EDİLMEDEN,
+gerçekten çalışıp geçiyor - `_WINE_AVAILABLE` SADECE üstteki
+WineRegistryExportImportRoundTripTests'in skip kararı için kullanılıyor
+(gerçek `wine reg` komutlarını ÇALIŞTIRABİLMEK, PATH'te gizleyerek
+taklit edilemeyecek bir şey - o yüzden o sınıfın skip'i hâlâ gerçek
+makine durumuna bakıyor).
 
 Encoding notu: Wine'ın `reg export`i CANLI DOĞRULANDI - çıktı gerçekten
 UTF-16LE + BOM ("Windows Registry little-endian text", `file` komutuyla
@@ -24,12 +35,14 @@ host üzerinde dönüştürülüp kontrol ediliyor - ham baytları sandbox'a
 üzerinden oluşturuluyor, sandbox'ın yerel dosya sisteminde karşılığı
 olmayabilir).
 
-Çalıştırma (Wine kurulu bir makinede, GTK gerekmez):
+Çalıştırma (GTK gerekmez):
     PYTHONPATH=src python3 -m unittest tests.test_wine_registry_export_plan -v
 """
 
 import os
+import shutil
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -41,6 +54,33 @@ _WINE_AVAILABLE = host.command_exists("wine")
 _TEST_KEY = r"HKCU\Software\PackWardenAuditTest"
 _TEST_VALUE_NAME = "Marker"
 _TEST_VALUE = "packwarden-registry-roundtrip-probe"
+
+
+def _build_wine_free_path_dir() -> str:
+    """Gerçek PATH'teki her dizindeki her ikili için, adı "wine" ile
+    BAŞLAYANLAR HARİÇ, geçici bir dizine symlink kurar - sonuç, "wine"
+    hiç kurulu değilmiş gibi davranan ama gerçek Wine ikilisine/
+    kurulumuna (/usr/bin/wine, ~/.wine) HİÇ DOKUNMAYAN bir PATH'tir.
+    Çağıran, işini bitirince bu dizini kendisi silmeli (bkz. tearDown)."""
+    fake_dir = tempfile.mkdtemp(prefix="packwarden-no-wine-path-")
+    for directory in os.environ.get("PATH", "").split(os.pathsep):
+        if not os.path.isdir(directory):
+            continue
+        try:
+            entries = os.listdir(directory)
+        except OSError:
+            continue
+        for name in entries:
+            if name.startswith("wine"):
+                continue
+            link = os.path.join(fake_dir, name)
+            if os.path.exists(link):
+                continue
+            try:
+                os.symlink(os.path.join(directory, name), link)
+            except OSError:
+                pass
+    return fake_dir
 
 
 def _wine_env(prefix: str) -> list[str]:
@@ -135,16 +175,55 @@ class WineRegistryExportImportRoundTripTests(unittest.TestCase):
 
 
 class WineAvailabilityIsHonestlyReportedTests(unittest.TestCase):
-    """Wine'ın bu makinede olmadığını doğrudan, görünür biçimde
-    doğrular - üstteki sınıfın neden skip olduğunu açıklar."""
+    """Wine'ın "kurulu değil" olarak doğru raporlandığını doğrular -
+    bu makinede Wine GERÇEKTEN kurulu olsa bile, bu test artık asla
+    skip edilmiyor: `PATH` ortam değişkeni SADECE bu testlerin sürdüğü
+    süre boyunca, `wine` ikilisini içermeyecek bir geçici dizine
+    ayarlanıyor (bkz. _build_wine_free_path_dir) - gerçek /usr/bin/wine
+    ve ~/.wine testten önce de sonra da aynen yerinde kalıyor, hiçbir
+    dosya silinmiyor/taşınmıyor, sadece bu sürecin PATH'i geçici olarak
+    değişip tearDown'da hemen eski hâline dönüyor.
 
-    def test_wine_is_reported_as_unavailable_on_this_machine(self):
-        # BU test HİÇBİR ZAMAN skip edilmez - amacı tam tersi: Wine'ın
-        # (şu an) gerçekten yok olduğunu kayıtlara geçirmek, "sessizce
-        # atlandı" yerine "kontrol edildi, yok" demek.
-        if _WINE_AVAILABLE:
-            self.skipTest("Wine bu makinede kurulu - üstteki asıl testler çalışır")
-        self.assertFalse(_WINE_AVAILABLE)
+    Önceki tasarımda bu test, gerçek `_WINE_AVAILABLE`'a bakıp Wine
+    kuruluyken kendini skipTest() ile atlıyordu ("üstteki asıl testler
+    zaten çalışıyor" gerekçesiyle) - bu, Wine'ın kurulu OLDUĞU her
+    geliştirme makinesinde kalıcı, beklenen bir skip'e yol açıyordu.
+    PATH izolasyonu sayesinde artık hem Wine kurulu hem kurulu olmayan
+    makinelerde aynı şekilde, skip edilmeden çalışıp geçiyor."""
+
+    def setUp(self):
+        self._fake_path_dir = _build_wine_free_path_dir()
+        self._original_path = os.environ.get("PATH", "")
+
+    def tearDown(self):
+        os.environ["PATH"] = self._original_path
+        shutil.rmtree(self._fake_path_dir, ignore_errors=True)
+
+    def test_wine_is_reported_as_unavailable_when_hidden_from_path(self):
+        os.environ["PATH"] = self._fake_path_dir
+        self.assertFalse(
+            host.command_exists("wine"),
+            "wine ikilisi PATH'ten gizlenince command_exists gerçekten "
+            "False dönmeli - WineRegistryExportImportRoundTripTests'in "
+            "skipUnless kararının dayandığı tam da bu fonksiyon.",
+        )
+
+    def test_the_real_wine_installation_is_left_completely_untouched(self):
+        real_wine_path_before = shutil.which("wine")
+        if real_wine_path_before is None:
+            self.skipTest(
+                "Bu makinede gerçek bir Wine kurulumu yok - doğrulanacak "
+                "bir 'gerçek kurulum' bulunmadığı için bu test anlamsız."
+            )
+
+        os.environ["PATH"] = self._fake_path_dir
+        host.command_exists("wine")  # yukarıdaki testle aynı etkiyi tetikle
+        os.environ["PATH"] = self._original_path
+
+        self.assertEqual(
+            real_wine_path_before, shutil.which("wine"),
+            "Gerçek Wine kurulumunun yolu bu test yüzünden değişmemeli",
+        )
 
 
 if __name__ == "__main__":

@@ -189,50 +189,97 @@ def _find_installer_leftovers(packages: list[Package], safe) -> list[Leftover]:
 
 _DESKTOP_SHORTCUT_DIRS = ("~/Desktop", "~/Masaüstü")
 
+# winemenubuilder, HER Wine programı için burada (Start Menu'sünün
+# birebir aynısı) bir .desktop dosyası yazar - KDE Plasma/GNOME'un
+# "Uygulamalar" menüsünde/arama panelinde (Super tuşu, KRunner vb.)
+# görünen asıl kaynak burası, masaüstü kısayolu (varsa) ayrıca ekstra.
+# Alt klasörler (ör. "Total Commander/", "SteelSeries/SteelSeries GG/")
+# programın kendi Start Menu grubunu birebir yansıtır - bu yüzden tarama
+# tek düzey DEĞİL, os.walk ile TÜM derinlikte yapılıyor.
+_WINE_MENU_DIR = "~/.local/share/applications/wine/Programs"
+
 
 def _find_wine_shortcut_leftovers(packages: list[Package], safe) -> list[Leftover]:
-    """Kaldırılan Wine programlarının masaüstündeki (varsa) kısayolunu
-    bulur — kendi kurulumcusu (Wine'ın winemenubuilder'ı) ya da
-    PackWarden'ın "Masaüstü kısayolu oluştur" özelliği tarafından
-    yaratılmış olabilir; PackWarden şu ana kadar hiçbirini kaldırma
-    sırasında temizlemiyordu (canlı doğrulandı: kaldırılmış bir Wine
-    programının .desktop dosyası masaüstünde öylece kalıyor, çift
-    tıklayınca hiçbir tepki vermiyor).
+    """Kaldırılan Wine programlarının masaüstündeki VE uygulama
+    menüsündeki (varsa) kısayollarını bulur — kendi kurulumcusu
+    (Wine'ın winemenubuilder'ı) ya da PackWarden'ın "Masaüstü kısayolu
+    oluştur" özelliği tarafından yaratılmış olabilir.
 
-    YOL DEĞİL, .exe DOSYA ADI eşleştiriliyor: gerçek bir kısayolu
-    (Total Commander) inceleyince Exec= satırının çözümlenmiş Unix
-    yolunu DEĞİL, orijinal Windows yolunu ("C:\\\\Program
-    Files\\\\totalcmd\\\\totalcmd64.exe") içerdiği görüldü — winemenu-
-    builder'ın kendi ürettiği kısayollar hep böyle. O yüzden tam yol
-    (bkz. backends/wine.py: resolved_exe_path) yerine sadece dosya adı
-    (bkz. exec_basename, "totalcmd64.exe") aranıyor - format ne olursa
-    olsun (Windows'lu ya da Unix'li yol) aynı kalan tek parça bu.
+    Canlı doğrulandı (gerçek sistemde, Wine registry'sinden çoktan
+    kaldırılmış bir foobar2000 kurulumuyla): WineBackend artık bu
+    paketi hiç listelemiyor olsa da, ~/.local/share/applications/wine/
+    Programs/foobar2000.desktop hâlâ diskte duruyordu VE KDE'nin gerçek
+    uygulama arama panelinde (KRunner - Super tuşuyla açılan menünün
+    aynı mekanizması) hâlâ "foobar2000 - Play, organize and tag your
+    music" olarak görünüp tıklanabiliyordu. PackWarden bu klasörü HİÇ
+    taramıyordu - yalnızca masaüstü kısayolları kapsanıyordu.
 
-    AYRICA kurulum klasörünün adı da (ör. "totalcmd") aranıyor: TEK bir
-    kayıt defteri girdisi (DisplayIcon) birden fazla kısayol (32/64 bit
-    gibi kardeş .exe'ler) üretebilir, ama kayıt SADECE kendi DisplayIcon
-    .exe'sini bilir — gerçek Total Commander örneğinde bu, iki masaüstü
-    kısayolundan sadece "64 bit" olanını buluyordu, "totalcmd.exe"
-    (32-bit) kısayolu kaçıyordu. Klasör adı ikisini de kapsıyor.
+    Masaüstü kısayolları için: YOL DEĞİL, .exe DOSYA ADI eşleştiriliyor
+    - gerçek bir kısayolu (Total Commander) inceleyince Exec= satırının
+    çözümlenmiş Unix yolunu DEĞİL, orijinal Windows yolunu ("C:\\\\
+    Program Files\\\\totalcmd\\\\totalcmd64.exe") içerdiği görüldü. O
+    yüzden tam yol (bkz. backends/wine.py: resolved_exe_path) yerine
+    sadece dosya adı (bkz. exec_basename, "totalcmd64.exe") aranıyor.
 
-    Yanlış pozitif riski, aramayı SADECE "Exec=" satırıyla ve zaten dar
-    bir alanla (masaüstü, .desktop uzantısı) sınırlayarak azaltılıyor."""
+    Uygulama MENÜSÜ kısayolları için bu YETMİYOR: canlı doğrulandı,
+    gerçek winemenubuilder çıktısı Exec='de ne exe adını ne kurulum
+    klasörünü taşıyor - SADECE bir Windows .lnk YOLUNU taşıyor (ör.
+    'C:\\\\...\\\\Start Menu\\\\Programs\\\\Total Commander\\\\Total
+    Commander 64 bit.lnk'). Gerçek Total Commander kurulumunda menü
+    klasöründeki DÖRT .desktop dosyasının HİÇBİRİNİN Exec= satırında
+    "totalcmd" ya da "totalcmd64.exe" geçmiyor - yukarıdaki .exe/kurulum-
+    klasörü eşleştirmesi bu dosyaları YAKALAYAMAZ. Bunun yerine, Wine'ın
+    bu dosyaları koyduğu GRUP KLASÖRÜNÜN adı ("Total Commander" - bu da
+    tam olarak diskteki applications/wine/Programs/ altındaki alt klasör
+    adı) paketin DisplayName'iyle (_normalize ile TAM eşleşme, alt dize
+    değil - yanlış pozitif riski artmasın diye) karşılaştırılıyor; grup
+    klasörü olmayan üst düzey dosyalarda (foobar2000.desktop gibi) aynı
+    TAM eşleşme bu kez dosyanın kendi "Name=" alanına uygulanıyor.
+
+    Her iki yöntem de (Exec= tabanlı VE grup/isim tabanlı) birbirinin
+    ALTERNATİFİ olarak denenir - biri eşleşirse yeterli. TEK bir kayıt
+    defteri girdisi (DisplayIcon) birden fazla kısayol (32/64 bit gibi
+    kardeş .exe'ler, "Yardım", "Kaldır" gibi ek girdiler) üretebilir,
+    ama kayıt SADECE kendi DisplayIcon .exe'sini bilir - grup klasörü
+    eşleşmesi gerçek Total Commander örneğindeki DÖRDÜNÜ DE kapsıyor."""
     from .backends.wine import exec_basename, resolved_exe_path
 
-    needles = set()
+    exec_needles = set()
+    name_needles = set()
     for pkg in packages:
         if pkg.source != "wine":
             continue
         basename = exec_basename(pkg.id)
         if basename:
-            needles.add(basename)
+            exec_needles.add(basename)
         full_path = resolved_exe_path(pkg.id)
         if full_path:
             install_dir_name = os.path.basename(os.path.dirname(full_path))
             if len(install_dir_name) >= 3:
-                needles.add(install_dir_name.lower())
-    if not needles:
+                exec_needles.add(install_dir_name.lower())
+        if pkg.name:
+            name_needles.add(_normalize(pkg.name))
+    if not exec_needles and not name_needles:
         return []
+
+    def _exec_matches(path: str) -> bool:
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                exec_lines = [line for line in f if line.startswith("Exec=")]
+        except OSError:
+            return False
+        exec_text = "\n".join(exec_lines).lower()
+        return any(needle in exec_text for needle in exec_needles)
+
+    def _desktop_entry_name(path: str) -> str | None:
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    if line.startswith("Name="):
+                        return line[len("Name="):].strip()
+        except OSError:
+            return None
+        return None
 
     items = []
     for base in _DESKTOP_SHORTCUT_DIRS:
@@ -245,16 +292,48 @@ def _find_wine_shortcut_leftovers(packages: list[Package], safe) -> list[Leftove
             if not entry.lower().endswith(".desktop"):
                 continue
             path = os.path.join(base_dir, entry)
-            try:
-                with open(path, encoding="utf-8", errors="replace") as f:
-                    exec_lines = [
-                        line for line in f if line.startswith("Exec=")
-                    ]
-            except OSError:
-                continue
-            exec_text = "\n".join(exec_lines).lower()
-            if any(needle in exec_text for needle in needles) and safe(path):
+            if _exec_matches(path) and safe(path):
                 items.append(Leftover(path=path, size=_tree_size(path)))
+
+    menu_dir = os.path.expanduser(_WINE_MENU_DIR)
+    for root, _dirs, files in os.walk(menu_dir):
+        group_name = os.path.basename(root) if root != menu_dir else None
+        group_matches = bool(
+            group_name and _normalize(group_name) in name_needles
+        )
+        for entry in files:
+            if not entry.lower().endswith(".desktop"):
+                continue
+            path = os.path.join(root, entry)
+            matched = group_matches or _exec_matches(path)
+            if not matched and group_name is None:
+                desktop_name = _desktop_entry_name(path)
+                matched = bool(
+                    desktop_name and _normalize(desktop_name) in name_needles
+                )
+            if matched and safe(path):
+                items.append(Leftover(path=path, size=_tree_size(path)))
+    return items
+
+
+def _find_wine_icon_cache_leftovers(packages: list[Package], safe) -> list[Leftover]:
+    """Kaldırılan Wine programlarının çıkarılmış .exe ikonunun
+    önbellek PNG'sini (varsa) bulur - bkz. backends/wine.py:
+    icon_cache_path. Canlı doğrulandı: SteelSeries GG, Totalcmd64,
+    foobar2000_x64 gibi registry'den çoktan kaldırılmış paketlerin
+    ikon PNG'leri ~/.cache/bulkuninstaller/wine-icons/ altında hâlâ
+    duruyordu - hiçbir şey bunları silmiyordu. Dosya adı doğrudan
+    pkg.id'den (prefix+registry anahtarı) hesaplandığı için yanlış
+    pozitif riski yok - başka bir paketin ikonuyla asla çakışmaz."""
+    from .backends.wine import icon_cache_path
+
+    items = []
+    for pkg in packages:
+        if pkg.source != "wine":
+            continue
+        path = icon_cache_path(pkg.id)
+        if path and safe(path):
+            items.append(Leftover(path=path, size=_tree_size(path)))
     return items
 
 
@@ -415,7 +494,11 @@ def find_package_leftovers(
     shortcut_items = _find_wine_shortcut_leftovers(packages, safe)
     if shortcut_items:
         shortcut_items.sort(key=lambda item: -item.size)
-        result.append(("Desktop shortcut", shortcut_items))
+        result.append(("Shortcut", shortcut_items))
+
+    icon_items = _find_wine_icon_cache_leftovers(packages, safe)
+    if icon_items:
+        result.append(("Icon cache", icon_items))
 
     registry_items = _find_wine_registry_leftovers(packages)
     if registry_items:

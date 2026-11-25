@@ -34,13 +34,36 @@ import gi  # noqa: E402
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
+from gi.repository import Gtk  # noqa: E402
+
 from bulkuninstaller.settings import SettingsDialog  # noqa: E402
 
 
 def _make_dialog():
     # SettingsDialog.__init__ içinde `app`, yalnızca self._app = app
     # olarak saklanıyor - __init__ sırasında hiçbir özelliğine erişilmiyor.
-    return SettingsDialog(app=object())
+    # parent_window ise artık gerçek bir Gtk.Window olmak ZORUNDA (Adw.
+    # Window'un transient_for'u GObject seviyesinde tip kontrolü yapıyor).
+    #
+    # usage_service.is_installed() BURADA (bu test dosyasının ilgi alanı
+    # olmayan Gizlilik bölümü için) her zaman False'a sabitleniyor - aksi
+    # halde, bu makinede gerçek systemd birimi kurulu olduğundan,
+    # SettingsDialog.__init__ GERÇEK bir arka plan thread'i + GERÇEK bir
+    # `systemctl` çağrısı + (durum uyuşmazsa) GERÇEK bir prefs.set()
+    # (yani gerçek ~/.config/bulkuninstaller/settings.json yazması)
+    # tetikliyordu - bu da gecikmeli bir GLib.idle_add geri çağrısı
+    # olarak kuyruğa giriyor ve bazen SONRAKİ, ilgisiz bir testin mock
+    # bağlamı aktifken tetiklenip onu bozuyordu (canlı doğrulandı:
+    # test_settings_usage_detection.py'deki bir test, bu dosyadaki
+    # testlerden SONRA çalışınca "prefs.set beklenmedik şekilde çağrıldı"
+    # diye başarısız oluyordu). is_installed()=False, bu bölümü hiç
+    # devreye sokmuyor - gerçek thread/systemctl/dosya yazması hiç
+    # olmuyor.
+    with mock.patch(
+        "bulkuninstaller.settings.usage_service.is_installed",
+        return_value=False,
+    ):
+        return SettingsDialog(app=object(), parent_window=Gtk.Window())
 
 
 class UpdateUiHiddenWhenMechanismCannotWorkTests(unittest.TestCase):
@@ -83,6 +106,23 @@ class UpdateUiShownForAWorkingSelfInstallTests(unittest.TestCase):
             dialog = _make_dialog()
         self.assertTrue(hasattr(dialog, "_check_button"))
         self.assertTrue(dialog._check_button.get_sensitive())
+
+
+class ThisFileNeverLeaksARealUsageDetectionThreadTests(unittest.TestCase):
+    """Regresyon kilidi: _make_dialog()'un artik usage_service.
+    is_installed()'i False'a sabitledigini, yani Gizlilik bolumunun
+    gercek bir arka plan thread'i/systemctl cagrisi/prefs.set() hic
+    tetiklemedigini dogrudan dogrular - bkz. _make_dialog'un yorumu."""
+
+    def test_privacy_switch_is_never_constructed_here(self):
+        with mock.patch(
+            "bulkuninstaller.host.IN_FLATPAK", False,
+        ), mock.patch(
+            "bulkuninstaller.backends.selfinstall.SelfInstallBackend.is_available",
+            return_value=True,
+        ):
+            dialog = _make_dialog()
+        self.assertFalse(hasattr(dialog, "_background_usage_row"))
 
 
 if __name__ == "__main__":

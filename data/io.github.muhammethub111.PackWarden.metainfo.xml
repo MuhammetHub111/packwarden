@@ -41,6 +41,29 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.15.3" date="2026-11-26">
+      <description>
+        <p>
+          A reliability release, focused on window management and making
+          sure removing a Wine program actually cleans up after itself.
+        </p>
+        <p>Improved:</p>
+        <ul>
+          <li>Settings and Unused Programs are now fully independent windows that can stay open at the same time, each resized and moved like any other window — previously, opening one could visually interfere with the other.</li>
+          <li>Removing a Windows program installed through Wine now prefers its silent uninstall command when one is available, instead of always running the interactive uninstaller.</li>
+          <li>The background usage detection toggle (Settings → Privacy) is now hidden on installs where it can't actually work, such as a Flatpak or distro-package install, and is checked against the real system state every time Settings opens.</li>
+          <li>Removing PackWarden itself through install.sh now moves your settings and usage history to the trash instead of leaving them on disk indefinitely.</li>
+        </ul>
+        <p>Fixed:</p>
+        <ul>
+          <li>Removing a Windows program installed through Wine left its application-menu shortcut and cached icon behind; both are now cleaned up, without touching the shortcuts of any other Wine program.</li>
+          <li>Resizing the Unused Programs window by dragging its edge could briefly leave stale, overlapping visuals on screen.</li>
+          <li>Opening Settings or Unused Programs twice in quick succession could open two copies of the same window.</li>
+          <li>Closing and reopening the Unused Programs window in quick succession could, very rarely, trigger a harmless but visible warning.</li>
+          <li>Repeatedly opening and closing Unused Programs no longer accumulates memory over time.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.15.2" date="2026-10-16">
       <description>
         <p>
